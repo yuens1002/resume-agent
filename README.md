@@ -1,0 +1,230 @@
+# resume-agent
+
+A machine-queryable AI agent that represents a professional profile. No UI. Two access tiers: a public HTTP API for employer AI systems, and a private MCP server for personal interaction.
+
+Built on top of [OB1 (Open Brain)](https://github.com/NateBJones-Projects/OB1) by Nate B. Jones — OB1 handles the knowledge capture and storage layer; this project handles the public-facing agentic interface and job match methodology.
+
+---
+
+## Why this exists
+
+AI systems are increasingly the first pass in hiring. ATS tools, qualification agents, and personal AI assistants are being used to screen candidates before a human ever looks at a resume. This project meets that reality head-on: expose a structured, queryable endpoint that any AI system can interrogate, and give the candidate (you) a private agentic interface to interact with the same knowledge base — generating tailored resumes, scoring job fit, and managing the job hunt pipeline.
+
+The public endpoint is not a portfolio site. It is not a chatbot. It is an agent that answers questions about professional history with structured, machine-readable JSON that downstream systems can act on.
+
+---
+
+## What it is not
+
+- No web UI. No dashboard. No frontend.
+- Not a resume builder SaaS.
+- Not a static JSON file served from a CDN.
+- Not a wrapper around a PDF.
+
+---
+
+## Architecture
+
+```
+[Local notes / recordings / Slack]
+            |
+            | nightly sync
+            v
+      OB1 (Supabase)
+  Postgres + pgvector
+  thoughts table (private)
+  public_profile table (read-only)
+            |
+     -------+-------
+     |               |
+     v               v
+MCP Server      Resume Agent API
+(PRIVATE)       (PUBLIC)
+
+Your AI tools   Employer AI / QR scan
+Claude Desktop  POST /query
+Cursor, etc.    GET /info
+Key-protected   GET /availability
+Full read/write GET /.well-known/agent-card.json
+                POST /match
+                POST /resume
+                Read-only, rate-limited
+```
+
+### Data tiers
+
+| Table | Access | Purpose |
+|---|---|---|
+| `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
+| `thoughts` | MCP only (private) | Raw notes, captures, work-in-progress |
+| `job_hunt_pipeline` | MCP only (private) | Applications, interviews, contacts |
+
+Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
+
+---
+
+## Public API endpoints
+
+### `GET /.well-known/agent-card.json`
+A2A-compliant agent card. The QR code points here. AI systems use this to autodiscover the query endpoint, capabilities, and contact info.
+
+### `GET /info`
+Full structured profile snapshot. Skills, experience, projects, education. No Claude call — raw data from `public_profile`. Fast, cacheable, suitable for ATS systems that want facts without NL processing.
+
+### `GET /availability`
+Current job-seeking status, preferred roles, start date, contact links.
+
+### `POST /query`
+Natural language question → structured JSON answer powered by Claude.
+
+Request:
+```json
+{
+  "question": "Has this person shipped production systems using TypeScript?",
+  "context": "ATS screening for a senior backend role"
+}
+```
+
+Response:
+```json
+{
+  "answer": "...",
+  "confidence": "high" | "medium" | "low",
+  "sources": ["experience.company_name", "skills.languages"],
+  "follow_up_suggestions": ["..."],
+  "contact": { "email": "...", "calendly": "..." },
+  "meta": { "model": "claude-sonnet-4-6", "latency_ms": 740 }
+}
+```
+
+### `POST /match`
+Feed a job description, get a fit assessment back.
+
+Request:
+```json
+{
+  "job_description": "..."
+}
+```
+
+Response:
+```json
+{
+  "fit_score": 0.82,
+  "matched": ["TypeScript", "Postgres", "API design"],
+  "gaps": ["Kubernetes", "Go"],
+  "verdict": "strong match — 2 skill gaps are learnable, not blocking",
+  "recommended_action": "apply"
+}
+```
+
+### `POST /resume` _(private, key-protected)_
+Feed a job description, get back a tailored 2-page resume as structured JSON (renderable to PDF). This endpoint is for the candidate's own use — not exposed to employer agents.
+
+---
+
+## Agentic job match methodology
+
+The `/match` endpoint is not a keyword matcher. It uses Claude to reason over the structured profile and the job description using the following decision flow:
+
+1. **Extract requirements** from the JD: required skills, preferred skills, years of experience, domain knowledge, role type (IC, lead, manager), culture signals.
+
+2. **Score against profile** by category:
+   - Technical skills: exact match, adjacent, or gap
+   - Experience depth: years, scope, recency
+   - Domain overlap: industry, product type, scale
+   - Role alignment: what the candidate has led vs. contributed to
+
+3. **Produce a fit score** (0.0 – 1.0) weighted as:
+   - Required skills coverage: 50%
+   - Experience alignment: 30%
+   - Domain overlap: 20%
+
+4. **Classify the verdict**:
+   - `>= 0.80`: strong match — apply as-is
+   - `0.60 – 0.79`: partial match — note gaps, apply with tailored framing
+   - `< 0.60`: weak match — gaps are blocking or require misrepresentation
+
+5. **Surface gaps honestly.** The agent does not inflate fit scores. Gaps are reported as: learnable (tooling, framework), structural (years of experience, role type), or fundamental (domain, function).
+
+The private `/resume` endpoint uses the same methodology to generate a resume that leads with matched qualifications, reframes experience toward the role's language, and omits irrelevant history — without fabricating credentials.
+
+---
+
+## Private agentic interface
+
+You interact with your own knowledge base through whichever AI tool you are already using. No browser, no app.
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "resume-agent": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "env": {
+        "MCP_URL": "https://YOUR_PROJECT_REF.supabase.co/functions/v1/open-brain-mcp?key=YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+Then in Claude:
+> "Am I a good fit for this role? [paste JD]"
+> "Add the Acme project to my work history"
+> "Generate a resume for this staff engineer role"
+> "What have I shipped in the last 6 months?"
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| API framework | Hono (TypeScript) |
+| AI | Anthropic SDK — claude-sonnet-4-6 |
+| Database | Supabase (Postgres + pgvector) |
+| Private interface | MCP (Model Context Protocol) via OB1 |
+| Validation | Zod |
+| Deployment | Railway |
+| Agent discovery | A2A agent card spec (`/.well-known/agent-card.json`) |
+
+---
+
+## Security model
+
+- All secrets in `.env`, never committed
+- `public_profile` table: read-only, no auth required, rate-limited by IP
+- Private endpoints (`/resume`, MCP): require `Authorization: Bearer` header
+- Supabase service role key: server-side only, never returned to clients
+- Postgres Row Level Security enforces public/private table boundary
+- No personal data in this repo — data lives in your Supabase instance
+
+---
+
+## Setup
+
+> Full setup guide in [`docs/setup.md`](docs/setup.md)
+
+1. Clone this repo
+2. Set up a Supabase project and run migrations in `supabase/migrations/`
+3. Set up OB1 on the same Supabase project (see OB1 docs)
+4. Copy `.env.example` → `.env` and fill in your keys
+5. `npm install && npm run dev`
+6. Deploy to Railway
+7. Generate a QR code pointing to `https://your-domain.dev/.well-known/agent-card.json`
+
+---
+
+## Project status
+
+Early stage. The architecture is decided. Implementation in progress.
+
+Contributions welcome — particularly around the job match scoring methodology and MCP tool definitions.
+
+---
+
+## License
+
+MIT
