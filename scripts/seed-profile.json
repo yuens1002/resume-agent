@@ -1,0 +1,140 @@
+{
+  "contact": {
+    "name": "Sunny Yuen",
+    "github": "https://github.com/yuens1002",
+    "linkedin": "https://linkedin.com/in/yuens-me/"
+  },
+  "summary": "Frontend engineer with 6+ years shipping user-centric web applications across startups and government entities. Deep experience in the Vue.js ecosystem, unit and end-to-end testing, and accessibility compliance (508/WCAG). Strong full-stack range with recent AI/ML integrations and TypeScript.",
+  "skills": [
+    {
+      "category": "Languages",
+      "items": ["JavaScript", "TypeScript", "Python", "Go", "HTML"]
+    },
+    {
+      "category": "Frameworks & Libraries",
+      "items": ["Vue.js", "React.js", "Next.js", "Tailwind CSS", "LangChain"]
+    },
+    {
+      "category": "Testing",
+      "items": ["Jest", "Playwright", "Cucumber", "RTL"]
+    },
+    {
+      "category": "Data & APIs",
+      "items": ["PostgreSQL", "Prisma", "REST API", "GraphQL"]
+    },
+    {
+      "category": "Tools & Practices",
+      "items": ["Git", "CI/CD", "SAFe Agile", "508 & WCAG Compliance"]
+    }
+  ],
+  "employment": [
+    {
+      "company": "Self-Employed",
+      "title": "Application Developer",
+      "start_date": "2023-08",
+      "end_date": null,
+      "bullets": [
+        "Built an AI chatbot platform MVP for landlords in Python, from ideation to working code",
+        "Launched a full-stack Next.js application from inception with CI/CD pipeline deployed on Vercel",
+        "Developed an open-source e-commerce solution with a secure admin portal for real-time analytics and AI/ML-powered public portal"
+      ]
+    },
+    {
+      "company": "Wipro, Inc",
+      "title": "Frontend Developer",
+      "start_date": "2023-01",
+      "end_date": "2023-08",
+      "bullets": [
+        "Spearheaded development of a custom web application for LAX airport, enhancing organizational engagement through a dynamic reporting system and organization directory",
+        "Built responsive web/mobile-first UI using Next.js, React, TypeScript, and MUI based on Figma specs",
+        "Integrated Microsoft Active Directory for a searchable personnel directory across airport staff and management",
+        "Launched beta and revamped v1 with authenticated access to reporting via RESTful API endpoints"
+      ]
+    },
+    {
+      "company": "DesignIt, Inc",
+      "title": "Software Developer",
+      "start_date": "2022-04",
+      "end_date": "2022-12",
+      "bullets": [
+        "Enhanced Coherence Design System by adapting type-safe functional components, improving maintainability and performance",
+        "Boosted unit test code coverage from 50% to over 80% using Jest and RTL",
+        "Achieved 0% security vulnerabilities via manual and automated NPM dependency updates",
+        "Collaborated to resolve accessibility issues ensuring compliance with 508/WCAG standards"
+      ]
+    },
+    {
+      "company": "MetroStar Systems",
+      "title": "Frontend Developer",
+      "start_date": "2020-05",
+      "end_date": "2022-03",
+      "bullets": [
+        "Implemented automated accessibility (508) and code quality tests using Jest, Playwright, and Cucumber for the US Census Bureau",
+        "Refactored Farmers.gov Drupal 8 theme using HTML/Sass/CSS/JavaScript, improving efficiency and maintainability",
+        "Developed self-contained Vue.js web applications using Drupal as an endpoint for content management",
+        "Participated in SAFe Agile practices with cross-disciplinary teams"
+      ]
+    },
+    {
+      "company": "Remine, Inc",
+      "title": "Software Engineer",
+      "start_date": "2019-04",
+      "end_date": "2020-03",
+      "bullets": [
+        "Delivered cross-product features for a real-estate intelligence web app serving national brokerage firms",
+        "Contributed to both frontend (React/Redux) and backend (REST/GraphQL) layers",
+        "Designed and maintained global UI components including Modals and Drawers, improving consistency across the application",
+        "Implemented feature flags at the component level to facilitate smoother feature rollouts",
+        "Built styled components within a custom UI library in collaboration with the UX team"
+      ]
+    },
+    {
+      "company": "DealerOn, Inc",
+      "title": "Front End Developer",
+      "start_date": "2017-03",
+      "end_date": "2019-04",
+      "bullets": [
+        "Built data-intensive single-page applications for a client-facing operations management system",
+        "Integrated API endpoints to frontend using Vue.js/Vuetify and collaborated with QA on bug resolution",
+        "Partnered with UX team to iterate over design mocks and built prototypes for user testing",
+        "Utilized Google Charts for data visualization; participated in daily scrums and bi-weekly build cycles"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Seattle University",
+      "degree": "Certificate",
+      "field": "Web Development",
+      "start_date": "",
+      "end_date": "2016"
+    },
+    {
+      "institution": "University of Washington",
+      "degree": "Bachelor of Arts",
+      "field": "",
+      "start_date": "",
+      "end_date": "1999"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Artisan Roast",
+      "description": "Specialized SaaS platform for coffee retailers featuring a core e-commerce engine and a custom instance hosting service.",
+      "tech": ["Next.js", "TypeScript", "Stripe", "GitHub Actions", "Puppeteer"],
+      "url": "https://github.com/yuens1002/artisan-roast",
+      "highlights": [
+        "Sole developer and architect — designed and built the full platform end-to-end",
+        "Engineered monetization via Stripe Billing for tiered subscriptions, automated service provisioning, and premium add-on products",
+        "Built a CI/CD and QA pipeline using Puppeteer and GitHub Actions verifying 16+ critical acceptance criteria with 100% reliability for hosted tenant instances"
+      ]
+    }
+  ],
+  "availability": {
+    "seeking": true,
+    "status": "actively-looking",
+    "preferred_roles": ["Frontend Engineer", "Full Stack Engineer", "Software Engineer"],
+    "preferred_locations": [],
+    "remote": true
+  }
+}
