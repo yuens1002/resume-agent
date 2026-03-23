@@ -6,17 +6,27 @@ import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller } from '../lib/detect-caller.js'
-import type { MatchResponse } from '../types.js'
+import type { MatchResponse, MatchScoring } from '../types.js'
 
 const app = new Hono()
+
+const MATCH_MODEL = process.env.MATCH_MODEL ?? 'claude-sonnet-4-6'
 
 const schema = z.object({
   job_description: z.string().min(1),
 })
 
+// Raw sub-scores returned by the model before math is applied
+interface RawScores {
+  required_skills_extracted: string[]
+  skills: { matched: string[]; partial: string[]; missing: string[] }
+  experience: { years: number; scope: number; recency: number }
+  domain: { industry: number; product_type: number; scale: number }
+  verdict: string
+}
+
 app.post('/', zValidator('json', schema), async (c) => {
   const { job_description } = c.req.valid('json')
-
   const caller = detectCaller(c)
 
   const { data: profile, error } = await supabase
@@ -29,53 +39,103 @@ app.post('/', zValidator('json', schema), async (c) => {
     return c.json({ error: 'Profile not found' }, 404)
   }
 
-  const systemPrompt = `You are an honest job fit evaluator. Given a candidate profile and a job description, assess fit without inflating scores or omitting real gaps.
+  const systemPrompt = `You are a precise job fit evaluator. Extract requirements from the job description and score the candidate profile against them using only the discrete values defined below.
 
 Caller context: ${caller.hint}
-Tailor your response accordingly — adjust verbosity and framing to suit the caller type.
 
-Scoring weights:
-- Required skills coverage: 50%
-- Experience alignment (years, scope, recency): 30%
-- Domain overlap (industry, product type, scale): 20%
+--- SCORING RUBRIC ---
 
-Verdicts:
-- >= 0.80: strong match
-- 0.60–0.79: partial match
-- < 0.60: weak match
+SKILLS
+For each skill explicitly marked as REQUIRED in the JD (ignore preferred/nice-to-have):
+- matched (1.0): directly present in candidate profile
+- partial (0.5): adjacent technology (e.g. Vue when React required, MySQL when Postgres required)
+- missing (0.0): absent from profile
 
-Gap types: learnable (tooling/framework), structural (years/role type), fundamental (domain/function).
+EXPERIENCE — score each sub-factor independently:
+- years:    meets or exceeds required (1.0) | 1-2 years short (0.7) | 3-4 years short (0.4) | significantly under (0.1)
+- scope:    IC/lead/manager alignment — exact match (1.0) | similar (0.7) | different (0.3)
+- recency:  relevant exp is current/last role (1.0) | within 3 yrs (0.7) | 3-5 yrs ago (0.4) | 5+ yrs ago (0.1)
 
-Respond in this exact JSON format:
+DOMAIN — score each sub-factor independently:
+- industry:      same industry (1.0) | adjacent (0.6) | different (0.3)
+- product_type:  same product category (1.0) | similar (0.7) | different (0.3)
+- scale:         company/product scale matches (1.0) | similar (0.7) | different (0.4)
+
+--- OUTPUT ---
+
+Respond ONLY with valid JSON. No prose, no markdown fences.
+
 {
-  "fit_score": 0.00,
-  "matched": ["skill1", "skill2"],
-  "gaps": ["gap1", "gap2"],
-  "verdict": "...",
-  "recommended_action": "apply" | "apply-with-tailoring" | "pass"
+  "required_skills_extracted": ["skill1", "skill2"],
+  "skills": {
+    "matched": ["skill1"],
+    "partial": ["skill2"],
+    "missing": ["skill3"]
+  },
+  "experience": { "years": 0.7, "scope": 1.0, "recency": 1.0 },
+  "domain": { "industry": 0.6, "product_type": 1.0, "scale": 0.7 },
+  "verdict": "one sentence explaining the overall fit honestly"
 }`
 
-  const userMessage = `Candidate profile:
-${JSON.stringify(profile, null, 2)}
-
-Job description:
-${job_description}`
-
   const { text: raw } = await generateText({
-    model: getModel(),
+    model: getModel(MATCH_MODEL),
     maxTokens: 1024,
     system: systemPrompt,
-    prompt: userMessage,
+    prompt: `Candidate profile:\n${JSON.stringify(profile, null, 2)}\n\nJob description:\n${job_description}`,
   })
 
-  let parsed: MatchResponse
+  let scores: RawScores
   try {
-    parsed = parseJSON<MatchResponse>(raw)
+    scores = parseJSON<RawScores>(raw)
   } catch {
     return c.json({ error: 'Failed to parse match response' }, 500)
   }
 
-  return c.json(parsed)
+  // Compute scores mathematically — model provides categorical judgments, not final numbers
+  const total_required = scores.required_skills_extracted.length || 1
+  const skills_score = (scores.skills.matched.length * 1.0 + scores.skills.partial.length * 0.5) / total_required
+
+  const { years, scope, recency } = scores.experience
+  const exp_score = (years + scope + recency) / 3
+
+  const { industry, product_type, scale } = scores.domain
+  const domain_score = (industry + product_type + scale) / 3
+
+  const fit_score = round2(0.5 * skills_score + 0.3 * exp_score + 0.2 * domain_score)
+
+  const recommended_action: MatchResponse['recommended_action'] =
+    fit_score >= 0.80 ? 'apply'
+    : fit_score >= 0.60 ? 'apply-with-tailoring'
+    : 'pass'
+
+  const scoring: MatchScoring = {
+    skills: {
+      matched: scores.skills.matched,
+      partial: scores.skills.partial,
+      missing: scores.skills.missing,
+      score: round2(skills_score),
+    },
+    experience: { years, scope, recency, score: round2(exp_score) },
+    domain: { industry, product_type, scale, score: round2(domain_score) },
+  }
+
+  const response: MatchResponse = {
+    fit_score,
+    matched: scores.skills.matched,
+    gaps: [
+      ...scores.skills.missing,
+      ...scores.skills.partial.map(s => `${s} (partial)`),
+    ],
+    verdict: scores.verdict,
+    recommended_action,
+    scoring,
+  }
+
+  return c.json(response)
 })
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
 
 export default app

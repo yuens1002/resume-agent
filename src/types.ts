@@ -80,12 +80,34 @@ export interface MatchRequest {
   job_description: string
 }
 
+export interface MatchScoring {
+  skills: {
+    matched: string[]
+    partial: string[]
+    missing: string[]
+    score: number
+  }
+  experience: {
+    years: number
+    scope: number
+    recency: number
+    score: number
+  }
+  domain: {
+    industry: number
+    product_type: number
+    scale: number
+    score: number
+  }
+}
+
 export interface MatchResponse {
   fit_score: number
   matched: string[]
   gaps: string[]
   verdict: string
   recommended_action: 'apply' | 'apply-with-tailoring' | 'pass'
+  scoring: MatchScoring
 }
 
 export interface ResumeRequest {
