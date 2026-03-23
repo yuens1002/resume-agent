@@ -106,14 +106,14 @@
       "institution": "Seattle University",
       "degree": "Certificate",
       "field": "Web Development",
-      "start_date": null,
+      "start_date": "",
       "end_date": "2016"
     },
     {
       "institution": "University of Washington",
       "degree": "Bachelor of Arts",
       "field": "",
-      "start_date": null,
+      "start_date": "",
       "end_date": "1999"
     }
   ],

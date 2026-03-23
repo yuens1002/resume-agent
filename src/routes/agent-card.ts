@@ -8,6 +8,7 @@ app.get('/', async (c) => {
   const { data } = await supabase
     .from('public_profile')
     .select('contact, availability')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
   const baseUrl = process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`

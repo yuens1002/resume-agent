@@ -31,6 +31,7 @@ app.post('/', zValidator('json', schema), async (c) => {
   const { data: profile, error } = await supabase
     .from('public_profile')
     .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
   if (error || !profile) {

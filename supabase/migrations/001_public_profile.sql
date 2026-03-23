@@ -2,7 +2,8 @@
 -- All sections stored as JSONB for flexibility. RLS allows public read, no public write.
 
 create table public_profile (
-  id          uuid        primary key default gen_random_uuid(),
+  id          uuid        primary key default '00000000-0000-0000-0000-000000000001'
+                          check (id = '00000000-0000-0000-0000-000000000001'),
   contact     jsonb       not null default '{}',
   summary     text        not null default '',
   skills      jsonb       not null default '[]',

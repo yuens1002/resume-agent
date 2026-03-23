@@ -11,8 +11,8 @@ export function parseJSON<T>(raw: string): T {
     return JSON.parse(stripped) as T
   } catch {}
 
-  // Extract first {...} block
-  const match = raw.match(/\{[\s\S]*\}/)
+  // Extract first {...} block from stripped output
+  const match = stripped.match(/\{[\s\S]*\}/)
   if (match) {
     return JSON.parse(match[0]) as T
   }

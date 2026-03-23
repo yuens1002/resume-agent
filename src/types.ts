@@ -72,7 +72,7 @@ export interface QueryResponse {
   confidence: 'high' | 'medium' | 'low'
   sources: string[]
   follow_up_suggestions: string[]
-  contact: Pick<Contact, 'email' | 'calendly'>
+  contact: Partial<Pick<Contact, 'email' | 'calendly'>>
   meta: { model: string; latency_ms: number }
 }
 
