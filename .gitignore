@@ -23,6 +23,9 @@ build/
 .DS_Store
 Thumbs.db
 
+# claude code
+.claude/
+
 # supabase local temp
 supabase/.temp/
 
