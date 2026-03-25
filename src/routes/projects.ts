@@ -4,7 +4,8 @@ import type { Project } from '../types.js'
 
 const app = new Hono()
 
-// GET /projects — lightweight list of all projects
+// GET /projects — project list: summary fields only (excludes highlights, problem, architecture, impact)
+// Includes url/repo/started intentionally — useful for list consumers without the full narrative payload
 app.get('/', async (c) => {
   const { data, error } = await supabase
     .from('public_profile')
