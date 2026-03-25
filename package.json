@@ -1,12 +1,15 @@
 {
   "name": "resume-agent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "db:link": "supabase link --project-ref $SUPABASE_PROJECT_REF",
+    "db:push": "supabase db push"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.9",
@@ -22,6 +25,7 @@
   "devDependencies": {
     "@hono/node-server": "^1.13.7",
     "@types/node": "^22.13.13",
+    "supabase": "^2.84.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
