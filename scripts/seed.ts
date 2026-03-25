@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -18,8 +17,10 @@ const profile = JSON.parse(readFileSync(join(__dirname, 'seed-profile.json'), 'u
 
 const { data, error } = await supabase
   .from('public_profile')
-  .update({ ...profile, updated_at: new Date().toISOString() })
-  .eq('id', '00000000-0000-0000-0000-000000000001')
+  .upsert(
+    { id: '00000000-0000-0000-0000-000000000001', ...profile, updated_at: new Date().toISOString() },
+    { onConflict: 'id' }
+  )
   .select()
   .single()
 
