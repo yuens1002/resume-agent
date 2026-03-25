@@ -33,10 +33,18 @@ export interface Education {
 
 export interface Project {
   name: string
-  description: string
+  slug: string
+  description: string       // one-liner for list views
+  problem: string           // what problem it solves
+  role: string              // your role on the project
   tech: string[]
-  url?: string
-  highlights: string[]
+  highlights: string[]      // key achievements
+  architecture?: string     // technical architecture summary
+  impact?: string           // measurable business/user impact
+  status: 'active' | 'in-progress' | 'archived'
+  started?: string          // YYYY-MM
+  url?: string              // live URL
+  repo?: string             // source repo URL
 }
 
 export interface Availability {

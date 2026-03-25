@@ -18,12 +18,13 @@ app.get('/', async (c) => {
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
     url: baseUrl,
-    capabilities: ['query', 'match', 'info', 'availability'],
+    capabilities: ['query', 'match', 'info', 'availability', 'projects'],
     endpoints: {
       info: `${baseUrl}/info`,
       availability: `${baseUrl}/availability`,
       query: `${baseUrl}/query`,
       match: `${baseUrl}/match`,
+      projects: `${baseUrl}/projects`,
     },
     contact: {
       email: data?.contact?.email,

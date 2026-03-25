@@ -119,15 +119,45 @@
   ],
   "projects": [
     {
-      "name": "Artisan Roast",
-      "description": "Specialized SaaS platform for coffee retailers featuring a core e-commerce engine and a custom instance hosting service.",
-      "tech": ["Next.js", "TypeScript", "Stripe", "GitHub Actions", "Puppeteer"],
-      "url": "https://github.com/yuens1002/artisan-roast",
+      "name": "Artisan Roast Platform",
+      "slug": "artisan-roast",
+      "description": "Open-source self-hosted e-commerce platform for specialty coffee retailers, with a SaaS business layer for managed hosting, billing, and AI-powered back office.",
+      "problem": "Independent coffee shop owners lack affordable, purpose-built e-commerce tooling. Generic platforms are expensive and not tailored to specialty coffee workflows. Non-technical owners have no viable self-hosted option.",
+      "role": "Sole developer and architect — designed and built both the open-source store and the SaaS platform end-to-end.",
+      "tech": ["Next.js", "TypeScript", "Prisma", "PostgreSQL", "Stripe", "NextAuth.js", "Tailwind CSS", "shadcn/ui", "Playwright", "Vercel"],
       "highlights": [
-        "Sole developer and architect — designed and built the full platform end-to-end",
-        "Engineered monetization via Stripe Billing for tiered subscriptions, automated service provisioning, and premium add-on products",
-        "Built a CI/CD and QA pipeline using Puppeteer and GitHub Actions verifying 16+ critical acceptance criteria with 100% reliability for hosted tenant instances"
-      ]
+        "Built a complete e-commerce platform (products, orders, customers, admin, cart) from scratch as a solo developer",
+        "Engineered a SaaS monetization layer with Stripe Billing, tiered subscriptions (Free/Pro/Hosted), and automated license key generation and validation",
+        "Designed and implemented an automated data migration pipeline for self-hosted → managed hosting transitions, modeled as a state machine (PENDING → EXPORTING → EXPORTED → IMPORTING → COMPLETED)",
+        "Built a telemetry ingestion system that phones home from open-source instances to drive platform analytics and tier enforcement",
+        "Established a CI/CD and QA pipeline using Playwright verifying 16+ critical acceptance criteria with 100% reliability",
+        "Implemented a verification state machine in the development workflow enforced by pre-commit hooks (planning → planned → implementing → pending → partial → verified)"
+      ],
+      "architecture": "Two-repo architecture: open-source store (Next.js App Router, Prisma, Neon PostgreSQL) and a separate SaaS platform on the same stack. Both apps served from a single Vercel project via Next.js middleware hostname routing (artisanroast.app → marketing, manage.artisanroast.app → admin). Store instances validate licenses and send telemetry to the platform API. Row Level Security in Supabase enforces public/private data boundaries.",
+      "impact": "Live at artisanroast.app. Free community tier, support plans, and add-on packages deployed. Hosted solution and AI back office layer (MCP server) in active development.",
+      "status": "active",
+      "started": "2024-01",
+      "url": "https://demo.artisanroast.app",
+      "repo": "https://github.com/yuens1002/artisan-roast"
+    },
+    {
+      "name": "Resume Agent",
+      "slug": "resume-agent",
+      "description": "A2A-compatible AI agent that represents a professional profile as a machine-queryable JSON API — built for employer AI systems, ATS tools, and personal LLM interfaces.",
+      "problem": "AI systems are increasingly the first pass in hiring. Most candidates have no structured, queryable representation of their professional profile that AI agents can interrogate directly.",
+      "role": "Sole developer and architect.",
+      "tech": ["Node.js", "TypeScript", "Hono", "Supabase", "PostgreSQL", "Anthropic Claude", "Vercel AI SDK", "Zod"],
+      "highlights": [
+        "Designed a mathematical job fit scoring model — AI provides categorical sub-dimension judgments (skills matched/partial/missing, experience, domain), code computes the weighted average (50/30/20) for deterministic, auditable results",
+        "Built A2A-compliant agent card autodiscovery (/.well-known/agent-card.json) for AI system interoperability",
+        "Implemented caller detection to adapt response tone and verbosity based on whether the requester is an ATS, a human recruiter, or another AI agent",
+        "Structured as a singleton-profile API with Supabase RLS enforcing public read-only access and a service-role-only write path"
+      ],
+      "architecture": "Hono HTTP server on Node.js. Single public_profile row in Supabase (singleton enforced via CHECK constraint on UUID). AI routes use Vercel AI SDK with provider abstraction (Anthropic/OpenAI/Google). /match uses Sonnet for reasoning-heavy scoring; lightweight routes use Haiku.",
+      "impact": "Designed to be discovered and queried by employer AI systems, ATS tools, and personal LLM agents. Queryable via QR code at networking events or by any A2A-compatible system.",
+      "status": "in-progress",
+      "started": "2026-03",
+      "repo": "https://github.com/yuens1002/resume-agent"
     }
   ],
   "availability": {

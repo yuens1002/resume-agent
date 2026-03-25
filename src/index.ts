@@ -10,6 +10,7 @@ import matchRoute from './routes/match.js'
 import resumeRoute from './routes/resume.js'
 import agentCardRoute from './routes/agent-card.js'
 import profileRoute from './routes/profile.js'
+import projectsRoute from './routes/projects.js'
 
 const app = new Hono()
 
@@ -23,6 +24,7 @@ app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
 app.route('/.well-known/agent-card.json', agentCardRoute)
 app.route('/profile', profileRoute)
+app.route('/projects', projectsRoute)
 
 app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))
 
