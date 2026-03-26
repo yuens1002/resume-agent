@@ -26,6 +26,8 @@ app.route('/.well-known/agent-card.json', agentCardRoute)
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 
+console.log('[routes] registered: /info, /availability, /query (GET+POST), /match, /resume, /.well-known/agent-card.json, /profile, /projects')
+
 app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))
 
 const port = parseInt(process.env.PORT ?? '3000')
