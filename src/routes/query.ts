@@ -15,6 +15,14 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
+app.get('/', (c) => c.json({
+  endpoint: '/query',
+  method: 'POST',
+  description: 'Ask a natural language question about this candidate.',
+  body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
+  example: { question: 'What is your experience with TypeScript?' },
+}))
+
 app.post('/', zValidator('json', schema), async (c) => {
   const { question, context } = c.req.valid('json')
 
