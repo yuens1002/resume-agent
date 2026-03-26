@@ -20,11 +20,42 @@ app.get('/', async (c) => {
     url: baseUrl,
     capabilities: ['query', 'match', 'info', 'availability', 'projects'],
     endpoints: {
-      info: `${baseUrl}/info`,
-      availability: `${baseUrl}/availability`,
-      query: `${baseUrl}/query`,
-      match: `${baseUrl}/match`,
-      projects: `${baseUrl}/projects`,
+      info: {
+        url: `${baseUrl}/info`,
+        method: 'GET',
+        description: 'Returns full profile data including skills, employment, education, and projects.',
+      },
+      availability: {
+        url: `${baseUrl}/availability`,
+        method: 'GET',
+        description: 'Returns current availability status and preferred roles.',
+      },
+      query: {
+        url: `${baseUrl}/query`,
+        method: 'POST',
+        content_type: 'application/json',
+        description: 'Ask a natural language question about this candidate.',
+        input_schema: {
+          question: 'string (required) — e.g. "What is your experience with TypeScript?"',
+          context: 'string (optional) — caller type hint, e.g. "ATS", "recruiter", "ai-agent"',
+        },
+        example: { question: 'What is your experience with TypeScript?' },
+      },
+      match: {
+        url: `${baseUrl}/match`,
+        method: 'POST',
+        content_type: 'application/json',
+        description: 'Score this candidate against a job description and return a fit breakdown.',
+        input_schema: {
+          job_description: 'string (required) — full or partial job description text',
+        },
+        example: { job_description: 'Senior frontend engineer, React, TypeScript, 5+ years.' },
+      },
+      projects: {
+        url: `${baseUrl}/projects`,
+        method: 'GET',
+        description: 'Returns all portfolio projects with tech stack, highlights, and architecture.',
+      },
     },
     contact: {
       email: data?.contact?.email,
