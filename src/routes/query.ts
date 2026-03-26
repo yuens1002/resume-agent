@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
@@ -15,21 +15,7 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
-app.get('/', (c) => {
-  const url = new URL(c.req.url)
-  return c.json({
-    endpoint: url.pathname,
-    method: 'POST',
-    description: 'Ask a natural language question about this candidate.',
-    body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
-    example: { question: 'What is your experience with TypeScript?' },
-  })
-})
-
-app.post('/', zValidator('json', schema), async (c) => {
-  const { question, context } = c.req.valid('json')
-
-  // Detect caller from headers, fall back to query language inference
+async function handleQuery(c: Context, question: string, context?: string): Promise<Response> {
   const headerCaller = detectCaller(c)
   const queryCaller = callerContextFromQuery(question)
   const caller = headerCaller.type !== 'unknown'
@@ -99,6 +85,27 @@ Question: ${question}`
   }
 
   return c.json(response)
+}
+
+app.get('/', async (c) => {
+  const question = c.req.query('question')
+  if (question) {
+    return handleQuery(c, question, c.req.query('context'))
+  }
+  const url = new URL(c.req.url)
+  return c.json({
+    endpoint: url.pathname,
+    methods: ['GET ?question=', 'POST'],
+    description: 'Ask a natural language question about this candidate.',
+    get_usage: 'GET /query?question=Your+question+here',
+    post_body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
+    example: { question: 'What is your experience with TypeScript?' },
+  })
+})
+
+app.post('/', zValidator('json', schema), async (c) => {
+  const { question, context } = c.req.valid('json')
+  return handleQuery(c, question, context)
 })
 
 export default app
