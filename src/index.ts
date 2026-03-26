@@ -12,7 +12,7 @@ import agentCardRoute from './routes/agent-card.js'
 import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 
-const app = new Hono()
+const app = new Hono({ strict: false })
 
 app.use('*', logger())
 app.use('*', cors())
