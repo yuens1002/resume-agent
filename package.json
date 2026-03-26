@@ -1,8 +1,11 @@
 {
   "name": "resume-agent",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
