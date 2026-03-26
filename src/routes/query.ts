@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
@@ -15,28 +15,14 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
-app.get('/', (c) => {
-  const url = new URL(c.req.url)
-  return c.json({
-    endpoint: url.pathname,
-    method: 'POST',
-    description: 'Ask a natural language question about this candidate.',
-    body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
-    example: { question: 'What is your experience with TypeScript?' },
-  })
-})
-
-app.post('/', zValidator('json', schema), async (c) => {
-  const { question, context } = c.req.valid('json')
-
-  // Detect caller from headers, fall back to query language inference
+async function handleQuery(c: Context, question: string, context?: string): Promise<Response> {
   const headerCaller = detectCaller(c)
   const queryCaller = callerContextFromQuery(question)
   const caller = headerCaller.type !== 'unknown'
     ? headerCaller
     : { ...headerCaller, ...queryCaller }
 
-  const callerHint = context ?? caller.hint
+  const callerHint = (context?.trim() || undefined) ?? caller.hint
 
   const { data: profile, error } = await supabase
     .from('public_profile')
@@ -98,7 +84,34 @@ Question: ${question}`
     meta: { model: MODEL, latency_ms },
   }
 
+  c.header('Cache-Control', 'no-store')
   return c.json(response)
+}
+
+app.get('/', async (c) => {
+  const rawQuestion = c.req.query('question')
+  if (rawQuestion !== undefined) {
+    const result = schema.safeParse({ question: rawQuestion, context: c.req.query('context') })
+    if (!result.success) {
+      return c.json({ error: 'Invalid query', details: result.error.format() }, 400)
+    }
+    return handleQuery(c, result.data.question, result.data.context)
+  }
+  const url = new URL(c.req.url)
+  return c.json({
+    endpoint: url.pathname,
+    method: 'POST',
+    also_supports: 'GET ?question=',
+    description: 'Ask a natural language question about this candidate.',
+    body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
+    get_usage: 'GET /query?question=Your+question+here',
+    example: { question: 'What is your experience with TypeScript?' },
+  })
+})
+
+app.post('/', zValidator('json', schema), async (c) => {
+  const { question, context } = c.req.valid('json')
+  return handleQuery(c, question, context)
 })
 
 export default app
