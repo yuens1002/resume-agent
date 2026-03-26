@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-26 — chore(api): add startup log confirming route registration
 - 2026-03-26 — fix(api): disable hono strict mode to handle trailing slash variants without 404
 - 2026-03-26 — fix(query): add GET handler for endpoint discovery to prevent 404 on non-POST requests
 - 2026-03-25 — chore(profile): enrich artisan roast project data with ai tooling and accurate details
