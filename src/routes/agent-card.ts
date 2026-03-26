@@ -33,8 +33,9 @@ app.get('/', async (c) => {
       query: {
         url: `${baseUrl}/query`,
         method: 'POST',
+        also_supports: `GET ${baseUrl}/query?question=Your+question+here`,
         content_type: 'application/json',
-        description: 'Ask a natural language question about this candidate.',
+        description: 'Ask a natural language question about this candidate. Supports POST with JSON body or GET with ?question= param.',
         input_schema: {
           type: 'object',
           required: ['question'],
