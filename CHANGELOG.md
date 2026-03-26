@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-26 — chore(config): pin node.js to >=20 via engines field and railway nixpacks variable
 - 2026-03-26 — fix(agent-card): enrich endpoint objects with method, schema, and examples for AI agent discovery
 - 2026-03-26 — chore(api): add startup log confirming route registration
 - 2026-03-26 — fix(api): disable hono strict mode to handle trailing slash variants without 404
