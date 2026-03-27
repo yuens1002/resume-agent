@@ -23,7 +23,6 @@ app.route('/query', queryRoute)
 app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
 app.route('/.well-known/agent.json', agentCardRoute)
-app.route('/.well-known/agent-card.json', agentCardRoute)
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 
