@@ -1,6 +1,7 @@
 -- OB1 (Open Brain) — thoughts table + semantic search
 
--- Enable pgvector (idempotent — safe to run even if already enabled)
+-- Enable required extensions (idempotent — safe to run even if already enabled)
+create extension if not exists pgcrypto;
 create extension if not exists vector with schema extensions;
 
 -- 2.2: Thoughts table + indexes
@@ -23,8 +24,8 @@ create index on thoughts using gin (metadata);
 -- Index for date range queries
 create index on thoughts (created_at desc);
 
--- Auto-update the updated_at timestamp
-create or replace function update_updated_at()
+-- Auto-update the updated_at timestamp (table-specific name avoids cross-migration collisions)
+create or replace function thoughts_update_updated_at()
 returns trigger as $$
 begin
   new.updated_at = now();
@@ -35,7 +36,7 @@ $$ language plpgsql;
 create trigger thoughts_updated_at
   before update on thoughts
   for each row
-  execute function update_updated_at();
+  execute function thoughts_update_updated_at();
 
 -- 2.3: Semantic search function
 create or replace function match_thoughts(

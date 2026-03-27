@@ -59,6 +59,11 @@ Only extract what's explicitly there.`,
       ],
     }),
   });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => "");
+    console.error(`OpenRouter metadata extraction failed: ${r.status} ${msg}`);
+    return { topics: ["uncategorized"], type: "observation" };
+  }
   const d = await r.json();
   try {
     return JSON.parse(d.choices[0].message.content);
@@ -83,8 +88,8 @@ server.registerTool(
       "Search captured thoughts by meaning. Use this when the user asks about a topic, person, or idea they've previously captured.",
     inputSchema: {
       query: z.string().describe("What to search for"),
-      limit: z.number().optional().default(10),
-      threshold: z.number().optional().default(0.5),
+      limit: z.number().int().min(1).max(100).optional().default(10),
+      threshold: z.number().min(0).max(1).optional().default(0.5),
     },
   },
   async ({ query, limit, threshold }) => {
@@ -162,27 +167,30 @@ server.registerTool(
     description:
       "List recently captured thoughts with optional filters by type, topic, person, or time range.",
     inputSchema: {
-      limit: z.number().optional().default(10),
+      limit: z.number().int().min(1).max(100).optional().default(10),
       type: z.string().optional().describe("Filter by type: observation, task, idea, reference, person_note"),
       topic: z.string().optional().describe("Filter by topic tag"),
       person: z.string().optional().describe("Filter by person mentioned"),
-      days: z.number().optional().describe("Only thoughts from the last N days"),
+      days: z.number().int().min(1).max(365).optional().describe("Only thoughts from the last N days"),
     },
   },
   async ({ limit, type, topic, person, days }) => {
     try {
+      const effectiveLimit = Math.min(limit ?? 10, 100);
+      const effectiveDays = days != null ? Math.min(days, 365) : undefined;
+
       let q = supabase
         .from("thoughts")
         .select("content, metadata, created_at")
         .order("created_at", { ascending: false })
-        .limit(limit);
+        .limit(effectiveLimit);
 
       if (type) q = q.contains("metadata", { type });
       if (topic) q = q.contains("metadata", { topics: [topic] });
       if (person) q = q.contains("metadata", { people: [person] });
-      if (days) {
+      if (effectiveDays != null) {
         const since = new Date();
-        since.setDate(since.getDate() - days);
+        since.setDate(since.getDate() - effectiveDays);
         q = q.gte("created_at", since.toISOString());
       }
 
@@ -237,14 +245,28 @@ server.registerTool(
   },
   async () => {
     try {
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from("thoughts")
         .select("*", { count: "exact", head: true });
 
-      const { data } = await supabase
+      if (countError) {
+        return {
+          content: [{ type: "text" as const, text: `Error fetching thought count: ${countError.message}` }],
+          isError: true,
+        };
+      }
+
+      const { data, error: dataError } = await supabase
         .from("thoughts")
         .select("metadata, created_at")
         .order("created_at", { ascending: false });
+
+      if (dataError) {
+        return {
+          content: [{ type: "text" as const, text: `Error fetching thought metadata: ${dataError.message}` }],
+          isError: true,
+        };
+      }
 
       const types: Record<string, number> = {};
       const topics: Record<string, number> = {};
@@ -366,7 +388,8 @@ app.options("*", (c) => {
 });
 
 app.all("*", async (c) => {
-  // Accept access key via header OR URL query parameter
+  // Accept access key via header (preferred) or URL query param.
+  // Note: query param leaks the key via logs/history — use header auth where possible.
   const provided = c.req.header("x-brain-key") || new URL(c.req.url).searchParams.get("key");
   if (!provided || provided !== MCP_ACCESS_KEY) {
     return c.json({ error: "Invalid or missing access key" }, 401, corsHeaders);
@@ -390,7 +413,11 @@ app.all("*", async (c) => {
 
   const transport = new StreamableHTTPTransport();
   await server.connect(transport);
-  return transport.handleRequest(c);
+  const response = await transport.handleRequest(c);
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    response.headers.set(key, value);
+  }
+  return response;
 });
 
 Deno.serve(app.fetch);
