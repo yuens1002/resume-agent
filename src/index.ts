@@ -22,7 +22,7 @@ app.route('/availability', availabilityRoute)
 app.route('/query', queryRoute)
 app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
-app.route('/.well-known/agent-card.json', agentCardRoute)
+app.route('/.well-known/agent.json', agentCardRoute)
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 
@@ -32,5 +32,5 @@ const port = parseInt(process.env.PORT ?? '3000')
 
 serve({ fetch: app.fetch, port }, () => {
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] registered and listening — GET+POST /query, /match, /info, /availability, /resume, /profile, /projects, /.well-known/agent-card.json')
+  console.log('[routes] registered and listening — GET+POST /query, /match, /info, /availability, /resume, /profile, /projects, /.well-known/agent.json')
 })
