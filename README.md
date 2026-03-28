@@ -45,7 +45,7 @@ Your AI tools   Employer AI / QR scan
 Claude Desktop  POST /query
 Cursor, etc.    GET /info
 Key-protected   GET /availability
-Full read/write GET /.well-known/agent-card.json
+Full read/write GET /.well-known/agent.json
                 POST /match
                 POST /resume
                 Read-only, rate-limited
@@ -65,7 +65,7 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 
 ## Public API endpoints
 
-### `GET /.well-known/agent-card.json`
+### `GET /.well-known/agent.json`
 A2A-compliant agent card. The QR code points here. AI systems use this to autodiscover the query endpoint, capabilities, and contact info.
 
 ### `GET /info`
@@ -188,7 +188,7 @@ Then in Claude:
 | Private interface | MCP (Model Context Protocol) via OB1 |
 | Validation | Zod |
 | Deployment | Railway |
-| Agent discovery | A2A agent card spec (`/.well-known/agent-card.json`) |
+| Agent discovery | A2A agent card spec (`/.well-known/agent.json`) |
 
 ---
 
@@ -203,6 +203,12 @@ Then in Claude:
 
 ---
 
+## Workflow
+
+See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI systems, recruiters, and the candidate each interact with the agent — including an honest account of what works today vs. what's still aspirational.
+
+---
+
 ## Setup
 
 1. Clone this repo
@@ -214,7 +220,7 @@ Then in Claude:
 7. `npm run dev`
 8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
-10. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
+10. Generate a QR code pointing to `https://your-domain/.well-known/agent.json`
 
 ---
 
