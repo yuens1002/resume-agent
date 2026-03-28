@@ -70,7 +70,7 @@ Response:
 }
 ```
 
-The `context` field is optional. Accepted values: `"ATS"`, `"recruiter"`, `"ai-agent"`. The agent adjusts tone and verbosity based on who's asking.
+The `context` field is optional and is treated as a free-form hint about who's asking. Suggested values include `"ATS"`, `"recruiter"`, `"ai-agent"`, but any short descriptor string is allowed. The agent adjusts tone and verbosity based on this hint.
 
 ### Step 4 — Score a job description
 
@@ -148,7 +148,7 @@ Once connected, the 4 available tools are:
 "Generate a resume for this staff engineer position at Stripe [paste JD]"
 ```
 
-The last two trigger Claude to call `GET /info` and `POST /match` / `POST /resume` against the live API, using your captured context to enrich the response.
+The last two trigger Claude to call `GET /info` and `POST /match` / `POST /resume` against the live API (including the required `Authorization: Bearer` header for `/resume`, or anonymously only when `AUTH_MODE=open`), using your captured context to enrich the response.
 
 ---
 
