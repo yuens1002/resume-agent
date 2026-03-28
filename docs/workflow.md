@@ -1,6 +1,6 @@
 # How resume-agent works
 
-Three actors interact with this system: **employer AI systems** (or the humans who run them), **the candidate** (Sunny), and the **API** as the mediator between them. This document walks through each perspective — including what works today and what doesn't yet.
+Three actors interact with this system: **employer AI systems** (or the humans who run them), **the candidate** (whoever deployed this instance), and the **API** as the mediator between them. This document walks through each perspective — including what works today and what doesn't yet.
 
 ---
 
@@ -45,23 +45,23 @@ Content-Type: application/json
 Response:
 ```json
 {
-  "answer": "Yes, extensively. Sunny has shipped multiple production TypeScript systems across diverse domains: a full-stack Next.js application for LAX airport (2023), an open-source e-commerce platform (Artisan Roast, live at artisanroast.app with 118 API routes and 39 Prisma models), and a Resume Agent API (Node.js/Hono/TypeScript). TypeScript is listed as a core language skill and appears across all recent projects.",
+  "answer": "Yes, extensively. The candidate has shipped multiple production TypeScript systems across diverse domains: a full-stack Next.js application, an open-source e-commerce platform with 118 API routes, and this Resume Agent API (Node.js/Hono/TypeScript). TypeScript is listed as a core language skill and appears across all recent projects.",
   "confidence": "high",
   "sources": [
-    "employment.Wipro.bullets[1]",
+    "employment.Company A.bullets[1]",
     "employment.Self-Employed.bullets[1]",
-    "projects.Artisan Roast Platform.tech",
+    "projects.E-Commerce Platform.tech",
     "projects.Resume Agent.tech",
     "skills.Languages"
   ],
   "follow_up_suggestions": [
     "Ask about type safety practices or how TypeScript improved code quality in a specific project",
     "Inquire about experience with advanced TypeScript patterns (generics, utility types, discriminated unions)",
-    "Explore the scale of TypeScript systems shipped — Artisan Roast mentions 638 TypeScript files"
+    "Ask about the scale of TypeScript systems shipped — number of files, routes, or models"
   ],
   "contact": {
-    "email": "syuen@sbgrp.cc",
-    "calendly": "https://calendly.com/syuen-sbgrp/get_to_know_you"
+    "email": "candidate@example.com",
+    "calendly": "https://calendly.com/candidate/intro"
   },
   "meta": {
     "model": "claude-haiku-4-5-20251001",
@@ -89,7 +89,7 @@ Response:
   "fit_score": 0.81,
   "matched": ["TypeScript"],
   "gaps": ["React (partial)"],
-  "verdict": "Strong overall fit on experience and TypeScript, but React is secondary to Vue in this candidate's profile — present and used in multiple roles, though not the primary framework.",
+  "verdict": "Strong overall fit on experience and TypeScript, but React is secondary to Vue in the candidate's profile — present and used in multiple roles, though not the primary framework.",
   "recommended_action": "apply",
   "scoring": {
     "skills": {
@@ -125,7 +125,7 @@ Response:
 
 ## Candidate workflow (private MCP interface)
 
-Sunny interacts with the same knowledge base through Claude Desktop or Cursor — no browser, no app. See the [MCP config in README](../README.md#private-agentic-interface) for setup.
+You interact with your own knowledge base through Claude Desktop or Cursor — no browser, no app. See the [MCP config in README](../README.md#private-agentic-interface) for setup.
 
 Once connected, the 4 available tools are:
 
