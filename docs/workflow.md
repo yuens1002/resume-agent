@@ -11,7 +11,7 @@ An AI system or recruiter tool can interact with the agent entirely through HTTP
 ### Step 1 — Discover the agent
 
 ```
-GET https://agent.yuens.me/.well-known/agent.json
+GET https://your-agent.example.com/.well-known/agent.json
 ```
 
 Returns an A2A-compliant agent card: name, capabilities, full endpoint catalog with schemas and examples, and contact info. Designed to be machine-parseable so AI systems can learn what to call and how.
@@ -19,13 +19,13 @@ Returns an A2A-compliant agent card: name, capabilities, full endpoint catalog w
 ### Step 2 — Read the profile
 
 ```
-GET https://agent.yuens.me/info
+GET https://your-agent.example.com/info
 ```
 
 Full structured snapshot: skills by category, employment history with bullets, education, projects, availability. No AI call — raw data, fast, cacheable. Good for ATS tools that want facts without NL processing.
 
 ```
-GET https://agent.yuens.me/availability
+GET https://your-agent.example.com/availability
 ```
 
 Current job-seeking status, preferred roles, remote preference, and contact links.
@@ -33,7 +33,7 @@ Current job-seeking status, preferred roles, remote preference, and contact link
 ### Step 3 — Ask a question
 
 ```
-POST https://agent.yuens.me/query
+POST https://your-agent.example.com/query
 Content-Type: application/json
 
 {
@@ -48,11 +48,11 @@ Response:
   "answer": "Yes, extensively. The candidate has shipped multiple production TypeScript systems across diverse domains: a full-stack Next.js application, an open-source e-commerce platform with 118 API routes, and this Resume Agent API (Node.js/Hono/TypeScript). TypeScript is listed as a core language skill and appears across all recent projects.",
   "confidence": "high",
   "sources": [
-    "employment.Company A.bullets[1]",
-    "employment.Self-Employed.bullets[1]",
-    "projects.E-Commerce Platform.tech",
-    "projects.Resume Agent.tech",
-    "skills.Languages"
+    "employment.company_a.bullets[1]",
+    "employment.self_employed.bullets[0]",
+    "projects.e_commerce_platform.tech",
+    "projects.resume_agent.tech",
+    "skills.languages"
   ],
   "follow_up_suggestions": [
     "Ask about type safety practices or how TypeScript improved code quality in a specific project",
@@ -75,7 +75,7 @@ The `context` field is optional and is treated as a free-form hint about who's a
 ### Step 4 — Score a job description
 
 ```
-POST https://agent.yuens.me/match
+POST https://your-agent.example.com/match
 Content-Type: application/json
 
 {
@@ -139,13 +139,13 @@ Once connected, the 4 available tools are:
 **Common workflows:**
 
 ```
-"Capture this: had a good call with the DealerOn recruiter today, they're looking for a Vue lead, follow up Thursday"
+"Capture this: had a good call with a recruiter today, they're looking for a Vue lead, follow up Thursday"
 
 "Search for anything about testing or QA work I've shipped"
 
 "Am I a good fit for this role? [paste JD]"
 
-"Generate a resume for this staff engineer position at Stripe [paste JD]"
+"Generate a resume for this staff engineer position [paste JD]"
 ```
 
 The last two trigger Claude to call `GET /info` and `POST /match` / `POST /resume` against the live API (including the required `Authorization: Bearer` header for `/resume`, or anonymously only when `AUTH_MODE=open`), using your captured context to enrich the response.
@@ -176,7 +176,7 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 
 Since auto-discovery doesn't work in consumer apps, the fallback is manual but still useful:
 
-1. QR code → `https://agent.yuens.me/.well-known/agent.json`
+1. QR code → `https://your-agent.example.com/.well-known/agent.json`
 2. Scan surfaces the full agent card JSON
 3. Paste the card into any AI conversation as context
 4. Ask questions — the AI reasons over the structured profile without needing to call the API
