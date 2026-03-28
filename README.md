@@ -203,6 +203,12 @@ Then in Claude:
 
 ---
 
+## Workflow
+
+See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI systems, recruiters, and the candidate each interact with the agent — including an honest account of what works today vs. what's still aspirational.
+
+---
+
 ## Setup
 
 1. Clone this repo
