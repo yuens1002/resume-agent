@@ -73,7 +73,7 @@ ${job_description}`
 
   let parsed: ResumeResponse
   try {
-    parsed = parseJSON(raw) as ResumeResponse
+    parsed = parseJSON<ResumeResponse>(raw)
   } catch {
     return c.json({ error: 'Failed to parse resume response' }, 500)
   }

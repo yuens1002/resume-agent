@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 
@@ -19,8 +19,30 @@ app.use('*', cors())
 
 // IP-based rate limiting: 30 requests per minute per IP
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+
+// Evict expired entries every 5 minutes to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, record] of rateLimitMap) {
+    if (now > record.resetAt) rateLimitMap.delete(key)
+  }
+}, 5 * 60_000)
+
+const getClientIp = (c: Context): string => {
+  for (const header of ['cf-connecting-ip', 'x-real-ip', 'x-client-ip', 'true-client-ip'] as const) {
+    const value = c.req.header(header)
+    if (value) return value
+  }
+  const xff = c.req.header('x-forwarded-for')
+  if (xff) return xff.split(',')[0].trim()
+  return `${c.req.header('host') ?? 'unknown-host'}:${c.req.header('user-agent') ?? 'unknown-ua'}`
+}
+
 app.use('*', async (c, next) => {
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
+  // Skip OPTIONS preflights — don't count them toward the rate limit
+  if (c.req.method === 'OPTIONS') return next()
+
+  const ip = getClientIp(c)
   const now = Date.now()
   const windowMs = 60_000
   const limit = 30
@@ -51,8 +73,9 @@ app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))
 const port = parseInt(process.env.PORT ?? '3000')
 
 serve({ fetch: app.fetch, port }, () => {
+  const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /info, /availability, /projects, /.well-known/agent.json')
-  console.log('[routes] POST /query, /match, /resume (key-protected) | PATCH /profile (key-protected)')
-  console.log('[middleware] rate-limit: 30 req/min per IP')
+  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /.well-known/agent.json')
+  console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
+  console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS)')
 })

@@ -194,7 +194,7 @@ Then in Claude:
 
 ## Security model
 
-- All secrets in `.env`, never committed
+- All secrets in `.env.local`, never committed
 - `public_profile` table: read-only, no auth required, rate-limited by IP
 - Private endpoints (`/resume`, MCP): require `Authorization: Bearer` header
 - Supabase service role key: server-side only, never returned to clients
@@ -206,14 +206,15 @@ Then in Claude:
 ## Setup
 
 1. Clone this repo
-2. Set up a Supabase project and run migrations: `npm run db:link && npm run db:push`
-3. Set up OB1 on the same Supabase project (see [OB1 docs](https://github.com/NateBJones-Projects/OB1))
-4. Copy `.env.example` → `.env.local` and fill in your keys
-5. Seed your profile: `npm run seed`
-6. `npm install && npm run dev`
-7. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
-8. Set env vars in Railway dashboard (see `.env.example` for the full list)
-9. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
+2. `npm install`
+3. Set up a Supabase project and run migrations: `npm run db:link && npm run db:push`
+4. Set up OB1 on the same Supabase project (see [OB1 docs](https://github.com/NateBJones-Projects/OB1))
+5. Copy `.env.example` → `.env.local` and fill in your keys
+6. Seed your profile: `npm run seed`
+7. `npm run dev`
+8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
+9. Set env vars in Railway dashboard (see `.env.example` for the full list)
+10. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
 
 ---
 
