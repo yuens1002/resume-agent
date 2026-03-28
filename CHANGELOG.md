@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-28 — docs(workflow): genericize workflow doc — remove personal names/details from examples
 - 2026-03-28 — docs(workflow): add workflow doc covering employer AI, candidate MCP, and real-world A2A limitations
 - 2026-03-28 — feat(api): add IP-based rate limiting (30 req/min), fix README discrepancies, add ResumeResponse type
 - 2026-03-26 — feat(ob1): add Open Brain MCP server as Supabase Edge Function with thoughts table, pgvector search, and 4 MCP tools
