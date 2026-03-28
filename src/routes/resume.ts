@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase.js'
 import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
+import type { ResumeResponse } from '../types.js'
 
 const app = new Hono()
 
@@ -70,9 +71,9 @@ ${job_description}`
     prompt: userMessage,
   })
 
-  let parsed: unknown
+  let parsed: ResumeResponse
   try {
-    parsed = parseJSON(raw)
+    parsed = parseJSON(raw) as ResumeResponse
   } catch {
     return c.json({ error: 'Failed to parse resume response' }, 500)
   }

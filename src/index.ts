@@ -17,6 +17,26 @@ const app = new Hono({ strict: false })
 app.use('*', logger())
 app.use('*', cors())
 
+// IP-based rate limiting: 30 requests per minute per IP
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+app.use('*', async (c, next) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
+  const now = Date.now()
+  const windowMs = 60_000
+  const limit = 30
+
+  const record = rateLimitMap.get(ip)
+  if (!record || now > record.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs })
+  } else {
+    record.count++
+    if (record.count > limit) {
+      return c.json({ error: 'Rate limit exceeded. Try again in a minute.' }, 429)
+    }
+  }
+  await next()
+})
+
 app.route('/info', infoRoute)
 app.route('/availability', availabilityRoute)
 app.route('/query', queryRoute)
@@ -32,5 +52,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 
 serve({ fetch: app.fetch, port }, () => {
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] registered and listening — GET+POST /query, /match, /info, /availability, /resume, /profile, /projects, /.well-known/agent.json')
+  console.log('[routes] GET /info, /availability, /projects, /.well-known/agent.json')
+  console.log('[routes] POST /query, /match, /resume (key-protected) | PATCH /profile (key-protected)')
+  console.log('[middleware] rate-limit: 30 req/min per IP')
 })

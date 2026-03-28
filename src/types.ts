@@ -121,3 +121,12 @@ export interface MatchResponse {
 export interface ResumeRequest {
   job_description: string
 }
+
+export interface ResumeResponse {
+  contact: Contact
+  summary: string
+  skills: Skill[]
+  employment: Employment[]
+  education: Education[]
+  projects: Project[]
+}

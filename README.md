@@ -57,7 +57,7 @@ Full read/write GET /.well-known/agent-card.json
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | MCP only (private) | Raw notes, captures, work-in-progress |
-| `job_hunt_pipeline` | MCP only (private) | Applications, interviews, contacts |
+| `job_hunt_pipeline` | MCP only (private) — _planned_ | Applications, interviews, contacts |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
@@ -93,7 +93,7 @@ Response:
   "sources": ["experience.company_name", "skills.languages"],
   "follow_up_suggestions": ["..."],
   "contact": { "email": "...", "calendly": "..." },
-  "meta": { "model": "claude-sonnet-4-6", "latency_ms": 740 }
+  "meta": { "model": "claude-haiku-4-5-20251001", "latency_ms": 740 }
 }
 ```
 
@@ -183,7 +183,7 @@ Then in Claude:
 | Layer | Technology |
 |---|---|
 | API framework | Hono (TypeScript) |
-| AI | Anthropic SDK — claude-sonnet-4-6 |
+| AI | Anthropic SDK — Haiku (query/resume) + Sonnet (match) |
 | Database | Supabase (Postgres + pgvector) |
 | Private interface | MCP (Model Context Protocol) via OB1 |
 | Validation | Zod |
@@ -205,21 +205,21 @@ Then in Claude:
 
 ## Setup
 
-> Full setup guide in [`docs/setup.md`](docs/setup.md)
-
 1. Clone this repo
-2. Set up a Supabase project and run migrations in `supabase/migrations/`
-3. Set up OB1 on the same Supabase project (see OB1 docs)
-4. Copy `.env.example` → `.env` and fill in your keys
-5. `npm install && npm run dev`
-6. Deploy to Railway
-7. Generate a QR code pointing to `https://your-domain.dev/.well-known/agent-card.json`
+2. Set up a Supabase project and run migrations: `npm run db:link && npm run db:push`
+3. Set up OB1 on the same Supabase project (see [OB1 docs](https://github.com/NateBJones-Projects/OB1))
+4. Copy `.env.example` → `.env.local` and fill in your keys
+5. Seed your profile: `npm run seed`
+6. `npm install && npm run dev`
+7. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
+8. Set env vars in Railway dashboard (see `.env.example` for the full list)
+9. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
 
 ---
 
 ## Project status
 
-Early stage. The architecture is decided. Implementation in progress.
+Live at [agent.yuens.me](https://agent.yuens.me). All public endpoints are operational.
 
 Contributions welcome — particularly around the job match scoring methodology and MCP tool definitions.
 
