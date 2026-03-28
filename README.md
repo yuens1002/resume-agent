@@ -159,16 +159,21 @@ You interact with your own knowledge base through whichever AI tool you are alre
 ```json
 {
   "mcpServers": {
-    "resume-agent": {
+    "open-brain": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-fetch"],
-      "env": {
-        "MCP_URL": "https://YOUR_PROJECT_REF.supabase.co/functions/v1/open-brain-mcp?key=YOUR_KEY"
-      }
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://YOUR_PROJECT_REF.supabase.co/functions/v1/open-brain-mcp",
+        "--header",
+        "x-brain-key:YOUR_MCP_ACCESS_KEY"
+      ]
     }
   }
 }
 ```
+
+> On Windows, Claude Desktop is a packaged app — the config file is at `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json`, not the standard `%APPDATA%\Claude\` path.
 
 Then in Claude:
 > "Am I a good fit for this role? [paste JD]"
