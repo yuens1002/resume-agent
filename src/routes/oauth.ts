@@ -12,6 +12,15 @@ const ALLOWED_CLIENT_IDS = new Set(
   (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
 )
 
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? ''
+
+function timingSafeEqual(a: string, b: string): boolean {
+  // Compare fixed-length digests to avoid length-based timing differences
+  const aDigest = crypto.createHash('sha256').update(a).digest()
+  const bDigest = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(aDigest, bDigest)
+}
+
 const ALLOWED_REDIRECT_URIS = new Set([
   'https://claude.ai/api/mcp/auth_callback',
 ])
@@ -43,9 +52,9 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     authorization_endpoint: `${base}/authorize`,
     token_endpoint: `${base}/token`,
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code'],
+    grant_types_supported: ['authorization_code', 'client_credentials'],
     code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: ['none'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   })
 })
 
@@ -99,6 +108,7 @@ oauth.post('/token', async (c) => {
   let code: string | undefined
   let code_verifier: string | undefined
   let client_id: string | undefined
+  let client_secret: string | undefined
   let redirect_uri: string | undefined
 
   if (contentType.includes('application/x-www-form-urlencoded')) {
@@ -107,6 +117,7 @@ oauth.post('/token', async (c) => {
     code = body.get('code')?.toString()
     code_verifier = body.get('code_verifier')?.toString()
     client_id = body.get('client_id')?.toString()
+    client_secret = body.get('client_secret')?.toString()
     redirect_uri = body.get('redirect_uri')?.toString()
   } else {
     const body = await c.req.json().catch(() => ({}))
@@ -114,7 +125,33 @@ oauth.post('/token', async (c) => {
     code = body.code
     code_verifier = body.code_verifier
     client_id = body.client_id
+    client_secret = body.client_secret
     redirect_uri = body.redirect_uri
+  }
+
+  const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
+
+  if (grant_type === 'client_credentials') {
+    if (!client_id || !client_secret) {
+      return c.json({ error: 'invalid_request', error_description: 'client_id and client_secret required' }, 400, noCacheHeaders)
+    }
+    if (!ALLOWED_CLIENT_IDS.has(client_id) || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
+      return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
+    }
+
+    const now = Math.floor(Date.now() / 1000)
+    const expiresIn = 3600
+    const access_token = await new SignJWT({ sub: client_id })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(now)
+      .setExpirationTime(now + expiresIn)
+      .sign(jwtSecretBytes)
+
+    return c.json(
+      { access_token, token_type: 'Bearer', expires_in: expiresIn },
+      200,
+      noCacheHeaders
+    )
   }
 
   if (grant_type !== 'authorization_code') {
