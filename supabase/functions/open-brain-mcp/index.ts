@@ -14,6 +14,8 @@ const MCP_ACCESS_KEY = Deno.env.get("MCP_ACCESS_KEY")!;
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// ── Helpers ───────────────────────────────────────────────
+
 async function getEmbedding(text: string): Promise<number[]> {
   const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
     method: "POST",
@@ -72,14 +74,135 @@ Only extract what's explicitly there.`,
   }
 }
 
-// --- MCP Server Setup ---
+interface MatchScoreResult {
+  fit_score: number;
+  match_verdict: string;
+  match_scoring: Record<string, unknown>;
+  recommended_action: string;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+async function scoreMatch(jobDescription: string): Promise<MatchScoreResult | null> {
+  try {
+    const { data: profile, error } = await supabase
+      .from("public_profile")
+      .select("*")
+      .eq("id", "00000000-0000-0000-0000-000000000001")
+      .single();
+
+    if (error || !profile) return null;
+
+    const systemPrompt = `You are a precise job fit evaluator. Extract requirements from the job description and score the candidate profile against them using only the discrete values defined below.
+
+--- SCORING RUBRIC ---
+
+SKILLS
+For each skill explicitly marked as REQUIRED in the JD (ignore preferred/nice-to-have):
+- matched (1.0): directly present in candidate profile
+- partial (0.5): adjacent technology (e.g. Vue when React required, MySQL when Postgres required)
+- missing (0.0): absent from profile
+
+EXPERIENCE — score each sub-factor independently:
+- years:    meets or exceeds required (1.0) | 1-2 years short (0.7) | 3-4 years short (0.4) | significantly under (0.1)
+- scope:    IC/lead/manager alignment — exact match (1.0) | similar (0.7) | different (0.3)
+- recency:  relevant exp is current/last role (1.0) | within 3 yrs (0.7) | 3-5 yrs ago (0.4) | 5+ yrs ago (0.1)
+
+DOMAIN — score each sub-factor independently:
+- industry:      same industry (1.0) | adjacent (0.6) | different (0.3)
+- product_type:  same product category (1.0) | similar (0.7) | different (0.3)
+- scale:         company/product scale matches (1.0) | similar (0.7) | different (0.4)
+
+--- OUTPUT ---
+
+Respond ONLY with valid JSON. No prose, no markdown fences.
+
+{
+  "required_skills_extracted": ["skill1", "skill2"],
+  "skills": {
+    "matched": ["skill1"],
+    "partial": ["skill2"],
+    "missing": ["skill3"]
+  },
+  "experience": { "years": 0.7, "scope": 1.0, "recency": 1.0 },
+  "domain": { "industry": 0.6, "product_type": 1.0, "scale": 0.7 },
+  "verdict": "one sentence explaining the overall fit honestly"
+}`;
+
+    const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-sonnet-4-5",
+        max_tokens: 1024,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Candidate profile:\n${JSON.stringify(profile, null, 2)}\n\nJob description:\n${jobDescription}`,
+          },
+        ],
+      }),
+    });
+
+    if (!r.ok) return null;
+
+    const d = await r.json();
+    const raw = d.choices[0].message.content as string;
+
+    // Strip markdown fences if present
+    const json = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const scores = JSON.parse(json);
+
+    const total_required = (scores.required_skills_extracted as string[]).length || 1;
+    const skills_score =
+      (scores.skills.matched.length * 1.0 + scores.skills.partial.length * 0.5) / total_required;
+
+    const { years, scope, recency } = scores.experience;
+    const exp_score = (years + scope + recency) / 3;
+
+    const { industry, product_type, scale } = scores.domain;
+    const domain_score = (industry + product_type + scale) / 3;
+
+    const fit_score = round2(0.5 * skills_score + 0.3 * exp_score + 0.2 * domain_score);
+
+    const recommended_action =
+      fit_score >= 0.8 ? "apply" : fit_score >= 0.6 ? "apply-with-tailoring" : "pass";
+
+    return {
+      fit_score,
+      match_verdict: scores.verdict,
+      match_scoring: {
+        skills: {
+          matched: scores.skills.matched,
+          partial: scores.skills.partial,
+          missing: scores.skills.missing,
+          score: round2(skills_score),
+        },
+        experience: { years, scope, recency, score: round2(exp_score) },
+        domain: { industry, product_type, scale, score: round2(domain_score) },
+      },
+      recommended_action,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── MCP Server ────────────────────────────────────────────
 
 const server = new McpServer({
   name: "open-brain",
   version: "1.0.0",
 });
 
-// Tool 1: Semantic Search
+// ── Thoughts Tools (existing) ─────────────────────────────
+
 server.registerTool(
   "search_thoughts",
   {
@@ -159,7 +282,6 @@ server.registerTool(
   }
 );
 
-// Tool 2: List Recent
 server.registerTool(
   "list_thoughts",
   {
@@ -235,7 +357,6 @@ server.registerTool(
   }
 );
 
-// Tool 3: Stats
 server.registerTool(
   "thought_stats",
   {
@@ -320,7 +441,6 @@ server.registerTool(
   }
 );
 
-// Tool 4: Capture Thought
 server.registerTool(
   "capture_thought",
   {
@@ -372,7 +492,474 @@ server.registerTool(
   }
 );
 
-// --- Hono App with Auth + CORS ---
+// ── Pipeline Tools ────────────────────────────────────────
+
+const STAGES = ["applied", "phone_screen", "technical", "final", "offer", "rejected", "withdrawn"] as const;
+
+server.registerTool(
+  "log_application",
+  {
+    title: "Log Job Application",
+    description:
+      "Log a new job application. If a job description is provided, automatically scores fit against the candidate profile. Use this whenever the user says they applied to a job or want to track a new opportunity.",
+    inputSchema: {
+      company: z.string().describe("Company name"),
+      role: z.string().describe("Job title / role name"),
+      job_description: z.string().optional().describe("Full JD text — used to auto-score fit"),
+      source: z.string().optional().describe("Where you found it: LinkedIn, referral, cold, etc."),
+      url: z.string().optional().describe("Job posting URL"),
+      applied_at: z.string().optional().describe("ISO date if not today, e.g. 2026-03-25"),
+      notes: z.string().optional().describe("Any initial notes about the role or company"),
+    },
+  },
+  async ({ company, role, job_description, source, url, applied_at, notes }) => {
+    try {
+      // Auto-score if JD provided (non-fatal if it fails)
+      let scoreResult: MatchScoreResult | null = null;
+      if (job_description) {
+        scoreResult = await scoreMatch(job_description);
+      }
+
+      const { data, error } = await supabase
+        .from("job_applications")
+        .insert({
+          company,
+          role,
+          job_description,
+          source,
+          url,
+          notes,
+          applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
+          ...(scoreResult && {
+            fit_score: scoreResult.fit_score,
+            match_verdict: scoreResult.match_verdict,
+            match_scoring: scoreResult.match_scoring,
+            recommended_action: scoreResult.recommended_action,
+          }),
+        })
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to log application: ${error?.message}` }],
+          isError: true,
+        };
+      }
+
+      // Seed the stage history
+      await supabase.from("application_stages").insert({
+        application_id: data.id,
+        stage: "applied",
+        note: "Application logged",
+      });
+
+      const fitLine = scoreResult
+        ? `Fit: ${scoreResult.fit_score} (${scoreResult.recommended_action})`
+        : "Fit: not scored (no JD provided)";
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `Application logged: ${company} — ${role}`,
+              `Stage: applied | ${fitLine}`,
+              scoreResult ? `Verdict: ${scoreResult.match_verdict}` : "",
+              `ID: ${data.id}`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "update_stage",
+  {
+    title: "Update Application Stage",
+    description:
+      "Move a job application to a new stage and record it in the history. Use this when the user reports progress: got a call, passed technical, received offer, was rejected, etc.",
+    inputSchema: {
+      application_id: z.string().uuid().describe("The application ID (from log_application or list_applications)"),
+      stage: z.enum(STAGES).describe("New stage: applied, phone_screen, technical, final, offer, rejected, withdrawn"),
+      note: z.string().optional().describe("Optional note about this transition (e.g. 'recruiter called, scheduling next steps')"),
+    },
+  },
+  async ({ application_id, stage, note }) => {
+    try {
+      const { data: app, error: fetchErr } = await supabase
+        .from("job_applications")
+        .select("company, role, stage")
+        .eq("id", application_id)
+        .single();
+
+      if (fetchErr || !app) {
+        return {
+          content: [{ type: "text" as const, text: `Application not found: ${application_id}` }],
+          isError: true,
+        };
+      }
+
+      const { error: updateErr } = await supabase
+        .from("job_applications")
+        .update({ stage })
+        .eq("id", application_id);
+
+      if (updateErr) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to update stage: ${updateErr.message}` }],
+          isError: true,
+        };
+      }
+
+      await supabase.from("application_stages").insert({
+        application_id,
+        stage,
+        note: note ?? null,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `${app.company} — ${app.role}: ${app.stage} → ${stage}${note ? `\nNote: ${note}` : ""}`,
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "add_contact",
+  {
+    title: "Add Contact",
+    description:
+      "Add a recruiter, hiring manager, or other contact to a job application. Use this when the user mentions someone they spoke with or want to track at a company.",
+    inputSchema: {
+      application_id: z.string().uuid().describe("The application ID"),
+      name: z.string().describe("Contact's full name"),
+      title: z.string().optional().describe("Their job title (e.g. Senior Recruiter, Hiring Manager)"),
+      linkedin: z.string().optional().describe("LinkedIn profile URL"),
+      email: z.string().optional().describe("Email address"),
+      notes: z.string().optional().describe("Any notes about this contact"),
+    },
+  },
+  async ({ application_id, name, title, linkedin, email, notes }) => {
+    try {
+      const { data, error } = await supabase
+        .from("job_contacts")
+        .insert({ application_id, name, title, linkedin, email, notes })
+        .select("id")
+        .single();
+
+      if (error || !data) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to add contact: ${error?.message}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Contact added: ${name}${title ? ` (${title})` : ""} | ID: ${data.id}`,
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "list_applications",
+  {
+    title: "List Applications",
+    description:
+      "List job applications with optional filters. Use this for 'where am I with everything', 'show me active applications', 'what needs a follow-up this week', etc.",
+    inputSchema: {
+      stage: z.enum(STAGES).optional().describe("Filter by stage"),
+      company: z.string().optional().describe("Filter by company name (partial match)"),
+      limit: z.number().int().min(1).max(100).optional().default(20),
+      days: z.number().int().optional().describe("Only applications from the last N days"),
+      upcoming_followups: z.boolean().optional().describe("Only applications with a follow-up date in the next 7 days"),
+    },
+  },
+  async ({ stage, company, limit, days, upcoming_followups }) => {
+    try {
+      let q = supabase
+        .from("job_applications")
+        .select("id, company, role, stage, fit_score, recommended_action, follow_up_date, applied_at, notes")
+        .order("applied_at", { ascending: false })
+        .limit(limit ?? 20);
+
+      if (stage) q = q.eq("stage", stage);
+      if (company) q = q.ilike("company", `%${company}%`);
+      if (days) {
+        const since = new Date();
+        since.setDate(since.getDate() - days);
+        q = q.gte("applied_at", since.toISOString());
+      }
+      if (upcoming_followups) {
+        const today = new Date().toISOString().slice(0, 10);
+        const in7 = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+        q = q.gte("follow_up_date", today).lte("follow_up_date", in7);
+      }
+
+      const { data, error } = await q;
+
+      if (error) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${error.message}` }],
+          isError: true,
+        };
+      }
+
+      if (!data || !data.length) {
+        return { content: [{ type: "text" as const, text: "No applications found." }] };
+      }
+
+      const rows = data.map((a) => {
+        const date = new Date(a.applied_at).toLocaleDateString();
+        const fit = a.fit_score != null ? ` | fit: ${a.fit_score}` : "";
+        const followup = a.follow_up_date ? ` | follow-up: ${a.follow_up_date}` : "";
+        return `• [${date}] ${a.company} — ${a.role} | ${a.stage}${fit}${followup}${a.notes ? `\n  ${a.notes}` : ""}\n  ID: ${a.id}`;
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `${data.length} application(s):\n\n${rows.join("\n\n")}`,
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "get_application",
+  {
+    title: "Get Application Details",
+    description:
+      "Get the full details of a specific job application including contacts and stage history. Use this when the user asks about a specific company or role.",
+    inputSchema: {
+      application_id: z.string().uuid().describe("The application ID"),
+    },
+  },
+  async ({ application_id }) => {
+    try {
+      const [appRes, contactsRes, stagesRes] = await Promise.all([
+        supabase.from("job_applications").select("*").eq("id", application_id).single(),
+        supabase
+          .from("job_contacts")
+          .select("name, title, linkedin, email, notes, created_at")
+          .eq("application_id", application_id)
+          .order("created_at"),
+        supabase
+          .from("application_stages")
+          .select("stage, note, occurred_at")
+          .eq("application_id", application_id)
+          .order("occurred_at"),
+      ]);
+
+      if (appRes.error || !appRes.data) {
+        return {
+          content: [{ type: "text" as const, text: `Application not found: ${application_id}` }],
+          isError: true,
+        };
+      }
+
+      const a = appRes.data;
+      const lines: string[] = [
+        `${a.company} — ${a.role}`,
+        `Stage: ${a.stage} | Applied: ${new Date(a.applied_at).toLocaleDateString()}`,
+      ];
+
+      if (a.fit_score != null) {
+        lines.push(
+          `Fit score: ${a.fit_score} | Action: ${a.recommended_action}`,
+          `Verdict: ${a.match_verdict}`
+        );
+      }
+      if (a.source) lines.push(`Source: ${a.source}`);
+      if (a.url) lines.push(`URL: ${a.url}`);
+      if (a.follow_up_date) lines.push(`Follow-up: ${a.follow_up_date}`);
+      if (a.notes) lines.push(`Notes: ${a.notes}`);
+
+      if (contactsRes.data?.length) {
+        lines.push("", "Contacts:");
+        for (const c of contactsRes.data) {
+          lines.push(
+            `  • ${c.name}${c.title ? ` (${c.title})` : ""}${c.email ? ` — ${c.email}` : ""}${c.linkedin ? ` | ${c.linkedin}` : ""}${c.notes ? `\n    ${c.notes}` : ""}`
+          );
+        }
+      }
+
+      if (stagesRes.data?.length) {
+        lines.push("", "Stage history:");
+        for (const s of stagesRes.data) {
+          lines.push(
+            `  ${new Date(s.occurred_at).toLocaleDateString()} → ${s.stage}${s.note ? `: ${s.note}` : ""}`
+          );
+        }
+      }
+
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "set_follow_up",
+  {
+    title: "Set Follow-up Date",
+    description:
+      "Set or update a follow-up date on a job application. Use this when the user says 'remind me to follow up Thursday' or 'set a follow-up for next week'.",
+    inputSchema: {
+      application_id: z.string().uuid().describe("The application ID"),
+      follow_up_date: z.string().describe("Date in YYYY-MM-DD format"),
+      notes: z.string().optional().describe("What to follow up on"),
+    },
+  },
+  async ({ application_id, follow_up_date, notes }) => {
+    try {
+      const { data: app, error: fetchErr } = await supabase
+        .from("job_applications")
+        .select("company, role")
+        .eq("id", application_id)
+        .single();
+
+      if (fetchErr || !app) {
+        return {
+          content: [{ type: "text" as const, text: `Application not found: ${application_id}` }],
+          isError: true,
+        };
+      }
+
+      const update: Record<string, unknown> = { follow_up_date };
+      if (notes) update.notes = notes;
+
+      const { error } = await supabase
+        .from("job_applications")
+        .update(update)
+        .eq("id", application_id);
+
+      if (error) {
+        return {
+          content: [{ type: "text" as const, text: `Failed to set follow-up: ${error.message}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Follow-up set: ${app.company} — ${app.role} on ${follow_up_date}${notes ? `\nNote: ${notes}` : ""}`,
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.registerTool(
+  "search_applications",
+  {
+    title: "Search Applications",
+    description:
+      "Search job applications by free text across company name, role, job description, and notes. Use this when the user mentions a company or technology they want to find.",
+    inputSchema: {
+      query: z.string().describe("Search term — matches against company, role, job description, and notes"),
+      limit: z.number().int().min(1).max(50).optional().default(10),
+    },
+  },
+  async ({ query, limit }) => {
+    try {
+      const { data, error } = await supabase
+        .from("job_applications")
+        .select("id, company, role, stage, fit_score, applied_at")
+        .or(
+          `company.ilike.%${query}%,role.ilike.%${query}%,job_description.ilike.%${query}%,notes.ilike.%${query}%`
+        )
+        .order("applied_at", { ascending: false })
+        .limit(limit ?? 10);
+
+      if (error) {
+        return {
+          content: [{ type: "text" as const, text: `Error: ${error.message}` }],
+          isError: true,
+        };
+      }
+
+      if (!data || !data.length) {
+        return {
+          content: [{ type: "text" as const, text: `No applications found matching "${query}".` }],
+        };
+      }
+
+      const rows = data.map(
+        (a) =>
+          `• ${a.company} — ${a.role} | ${a.stage}${a.fit_score != null ? ` | fit: ${a.fit_score}` : ""} | ${new Date(a.applied_at).toLocaleDateString()}\n  ID: ${a.id}`
+      );
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `${data.length} result(s) for "${query}":\n\n${rows.join("\n\n")}`,
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ── Hono App with Auth + CORS ─────────────────────────────
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -382,22 +969,16 @@ const corsHeaders = {
 
 const app = new Hono();
 
-// CORS preflight — required for browser/Electron-based clients (Claude Desktop, claude.ai)
 app.options("*", (c) => {
   return c.text("ok", 200, corsHeaders);
 });
 
 app.all("*", async (c) => {
-  // Accept access key via header (preferred) or URL query param.
-  // Note: query param leaks the key via logs/history — use header auth where possible.
   const provided = c.req.header("x-brain-key") || new URL(c.req.url).searchParams.get("key");
   if (!provided || provided !== MCP_ACCESS_KEY) {
     return c.json({ error: "Invalid or missing access key" }, 401, corsHeaders);
   }
 
-  // Fix: Claude Desktop connectors don't send the Accept header that
-  // StreamableHTTPTransport requires. Build a patched request if missing.
-  // See: https://github.com/NateBJones-Projects/OB1/issues/33
   if (!c.req.header("accept")?.includes("text/event-stream")) {
     const headers = new Headers(c.req.raw.headers);
     headers.set("Accept", "application/json, text/event-stream");

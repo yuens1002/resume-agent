@@ -1,6 +1,6 @@
 {
   "name": "resume-agent",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,7 +14,8 @@
     "db:link": "supabase link --project-ref $SUPABASE_PROJECT_REF",
     "db:push": "supabase db push",
     "ob1:deploy": "supabase functions deploy open-brain-mcp --no-verify-jwt",
-    "ob1:logs": "supabase functions logs open-brain-mcp"
+    "ob1:logs": "supabase functions logs open-brain-mcp",
+    "test": "tsx --env-file=.env.local --test tests/pipeline.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.9",
