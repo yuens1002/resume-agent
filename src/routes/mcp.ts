@@ -384,13 +384,16 @@ function buildServer(): McpServer {
           return { content: [{ type: 'text' as const, text: 'No fields provided — nothing updated.' }] }
         }
 
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('public_profile')
           .update({ ...updates, updated_at: new Date().toISOString() })
           .eq('id', '00000000-0000-0000-0000-000000000001')
+          .select('id')
+          .single()
 
-        if (error) {
-          return { content: [{ type: 'text' as const, text: `Failed to update profile: ${error.message}` }], isError: true }
+        if (error || !data) {
+          const message = error?.message ?? 'Profile not found or not updated.'
+          return { content: [{ type: 'text' as const, text: `Failed to update profile: ${message}` }], isError: true }
         }
 
         const updated = Object.keys(updates).join(', ')
