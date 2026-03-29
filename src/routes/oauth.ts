@@ -15,10 +15,10 @@ const ALLOWED_CLIENT_IDS = new Set(
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? ''
 
 function timingSafeEqual(a: string, b: string): boolean {
-  const aBytes = Buffer.from(a)
-  const bBytes = Buffer.from(b)
-  if (aBytes.length !== bBytes.length) return false
-  return crypto.timingSafeEqual(aBytes, bBytes)
+  // Compare fixed-length digests to avoid length-based timing differences
+  const aDigest = crypto.createHash('sha256').update(a).digest()
+  const bDigest = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(aDigest, bDigest)
 }
 
 const ALLOWED_REDIRECT_URIS = new Set([
@@ -54,7 +54,7 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials'],
     code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: ['none'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   })
 })
 
@@ -129,12 +129,14 @@ oauth.post('/token', async (c) => {
     redirect_uri = body.redirect_uri
   }
 
+  const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
+
   if (grant_type === 'client_credentials') {
     if (!client_id || !client_secret) {
-      return c.json({ error: 'invalid_request', error_description: 'client_id and client_secret required' }, 400)
+      return c.json({ error: 'invalid_request', error_description: 'client_id and client_secret required' }, 400, noCacheHeaders)
     }
     if (!ALLOWED_CLIENT_IDS.has(client_id) || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
-      return c.json({ error: 'invalid_client' }, 401)
+      return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -148,7 +150,7 @@ oauth.post('/token', async (c) => {
     return c.json(
       { access_token, token_type: 'Bearer', expires_in: expiresIn },
       200,
-      { 'Cache-Control': 'no-store', Pragma: 'no-cache' }
+      noCacheHeaders
     )
   }
 
