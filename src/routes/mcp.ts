@@ -1,7 +1,7 @@
 import '../lib/env.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPTransport } from '@hono/mcp'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
 import { supabase } from '../lib/supabase.js'
@@ -713,48 +713,79 @@ function buildServer(): McpServer {
 
 // ── Hono App ──────────────────────────────────────────────
 
-const mcpRoute = new Hono()
+// Allowed browser origins — prevents DNS rebinding attacks (MCP Streamable HTTP spec MUST)
+// Non-browser clients (curl, Claude Desktop) send no Origin header and are always allowed.
+const ALLOWED_ORIGINS = new Set([
+  'https://claude.ai',
+  ...(process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+])
 
-mcpRoute.options('*', (c) => c.text('ok', 200, {
+const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-}))
+  'Access-Control-Allow-Methods': 'POST, OPTIONS, DELETE',
+} as const
 
-mcpRoute.all('*', async (c) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+function checkOrigin(c: Context): Response | null {
+  const origin = c.req.header('origin')
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    })
   }
+  return null
+}
 
-  // Auth: x-brain-key header (Claude Desktop) OR Authorization: Bearer <jwt> (claude.ai)
+async function authenticate(c: Context): Promise<boolean> {
   const brainKey = c.req.header('x-brain-key')
+  if (brainKey && brainKey === MCP_ACCESS_KEY) return true
+
   const authHeader = c.req.header('authorization') ?? ''
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-
-  let authenticated = false
-
-  if (brainKey && brainKey === MCP_ACCESS_KEY) {
-    authenticated = true
-  } else if (bearerToken && jwtSecretBytes) {
+  if (bearerToken && jwtSecretBytes) {
     try {
       await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ['HS256'] })
-      authenticated = true
+      return true
     } catch {
       // fall through
     }
   }
+  return false
+}
 
-  if (!authenticated) {
+const mcpRoute = new Hono()
+
+// CORS preflight
+mcpRoute.options('*', (c) => c.text('ok', 200, corsHeaders))
+
+// GET — this server uses JSON response mode (no SSE); return 405 per MCP spec
+mcpRoute.get('*', (c) => c.json(
+  { error: 'Method not allowed — server operates in JSON response mode, not SSE' },
+  405,
+  { ...corsHeaders, Allow: 'POST, OPTIONS, DELETE' }
+))
+
+// DELETE — stateless server, no sessions to track; acknowledge and return 200
+mcpRoute.delete('*', (c) => {
+  const originErr = checkOrigin(c)
+  if (originErr) return originErr
+  return c.body(null, 200)
+})
+
+// POST — main MCP handler
+mcpRoute.post('*', async (c) => {
+  const originErr = checkOrigin(c)
+  if (originErr) return originErr
+
+  if (!await authenticate(c)) {
     const baseUrl = process.env.PUBLIC_URL
       ? new URL(process.env.PUBLIC_URL)
       : new URL(c.req.url)
-    const realm = baseUrl.origin
     const resourceMetadataUrl = new URL('/.well-known/oauth-protected-resource', baseUrl).toString()
     return c.json({ error: 'Invalid or missing credentials' }, 401, {
       ...corsHeaders,
-      'WWW-Authenticate': `Bearer realm="${realm}", resource_metadata="${resourceMetadataUrl}"`,
+      'WWW-Authenticate': `Bearer realm="${baseUrl.origin}", resource_metadata="${resourceMetadataUrl}"`,
     })
   }
 

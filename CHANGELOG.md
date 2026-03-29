@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — fix(mcp): enforce Origin validation, add GET→405 and DELETE→200 per MCP Streamable HTTP spec
+
 - 2026-03-29 — feat(oauth): add client_credentials grant so claude.ai custom connectors can authenticate with client_id + client_secret
 
 - 2026-03-29 — fix(mcp): enable JSON response mode to fix SSE streaming incompatibility in Node.js
