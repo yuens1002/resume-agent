@@ -125,9 +125,15 @@ Response:
 
 ## Candidate workflow (private MCP interface)
 
-You interact with your own knowledge base through Claude Desktop or Cursor — no browser, no app. See the [MCP config in README](../README.md#private-agentic-interface) for setup.
+You interact with your own knowledge base through Claude — web, mobile, or desktop. The MCP server lives at `/mcp` on the same Railway deployment as the public API, protected by OAuth 2.0 (claude.ai connector) or `x-brain-key` header (direct API access).
 
-Once connected, the 4 available tools are:
+**Connecting via claude.ai** (recommended — works on web, phone, and desktop automatically): add a custom connector at `Settings → Connectors` with your OAuth client ID and secret. See the [MCP config in README](../README.md#private-agentic-interface) for the full setup.
+
+**Connecting via Claude Desktop directly**: use `mcp-remote` with your `x-brain-key` in the config. See README for details.
+
+Once connected, 11 tools are available across two groups:
+
+**Open Brain — personal knowledge capture**
 
 | Tool | What it does |
 |---|---|
@@ -135,6 +141,18 @@ Once connected, the 4 available tools are:
 | `search_thoughts` | Semantic search by meaning — "find thoughts about accessibility work" |
 | `list_thoughts` | Chronological list with filters by type, topic, person, or date range |
 | `thought_stats` | Aggregate view — total count, distribution by type/topic/people |
+
+**Job Hunt Pipeline — application tracking**
+
+| Tool | What it does |
+|---|---|
+| `log_application` | Record a new job application with company, role, JD, and auto fit-score |
+| `update_stage` | Move an application through stages (`applied`, `phone_screen`, `technical`, `final`, `offer`, `rejected`, `withdrawn`) |
+| `add_contact` | Log a contact at a company with name, role, and notes |
+| `list_applications` | List all applications with optional stage/company filters |
+| `get_application` | Full detail on one application including stage history and contacts |
+| `set_follow_up` | Create a follow-up reminder tied to an application |
+| `search_applications` | Semantic search across application notes and JD text |
 
 **Common workflows:**
 
@@ -158,8 +176,8 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 
 | Scenario | Status | Notes |
 |---|---|---|
-| Claude Desktop with MCP | ✅ Works | Full private interface — capture, search, match, resume |
-| Claude.ai (Web) with WebFetch | ✅ Works | Can call endpoints directly if given the URL |
+| Claude Desktop with MCP | ✅ Works | Via claude.ai custom connector (OAuth) or direct x-brain-key config |
+| Claude.ai (web + mobile) | ✅ Works | Custom connector with OAuth Client Credentials — one setup, all surfaces |
 | Cursor / AI coding assistants | ✅ Works | Via MCP or manual HTTP calls |
 | Custom employer AI agent | ✅ Works | If they're given the agent card URL to target |
 | Consumer phone AI apps (Gemini, ChatGPT) | ❌ No HTTP | These apps have no mechanism to make GET/POST requests |
