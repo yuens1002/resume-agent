@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — fix(api): redirect /.well-known/agent-card.json to /.well-known/agent.json for Google A2A compatibility
 - 2026-03-29 — chore(mcp): add public/private visibility guidance and voice reference notes to update_profile tool
 - 2026-03-29 — feat(mcp): add update_profile tool — closes OB1 → public profile sync loop
 
