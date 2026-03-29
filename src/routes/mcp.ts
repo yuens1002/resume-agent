@@ -711,6 +711,9 @@ function buildServer(): McpServer {
   return server
 }
 
+// Single server instance — tools registered once at startup
+const mcpServer = buildServer()
+
 // ── Hono App ──────────────────────────────────────────────
 
 const mcpRoute = new Hono()
@@ -728,8 +731,8 @@ mcpRoute.all('*', async (c) => {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
   }
 
-  // Auth: x-brain-key (Claude Desktop) OR Authorization: Bearer <jwt> (claude.ai)
-  const brainKey = c.req.header('x-brain-key') ?? new URL(c.req.url).searchParams.get('key')
+  // Auth: x-brain-key header (Claude Desktop) OR Authorization: Bearer <jwt> (claude.ai)
+  const brainKey = c.req.header('x-brain-key')
   const authHeader = c.req.header('authorization') ?? ''
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
 
@@ -750,9 +753,8 @@ mcpRoute.all('*', async (c) => {
     return c.json({ error: 'Invalid or missing credentials' }, 401, corsHeaders)
   }
 
-  const server = buildServer()
   const transport = new StreamableHTTPTransport()
-  await server.connect(transport)
+  await mcpServer.connect(transport)
 
   const response = await transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)

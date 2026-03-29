@@ -33,7 +33,6 @@ app.all("*", async (c) => {
         token_endpoint: `${base}/token`,
         grant_types_supported: ["client_credentials"],
         token_endpoint_auth_methods_supported: ["client_secret_post"],
-        response_types_supported: ["token"],
       },
       200,
       corsHeaders

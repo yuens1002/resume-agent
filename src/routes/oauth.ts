@@ -7,23 +7,32 @@ const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('Missing JWT_SECRET')
 const jwtSecretBytes = new TextEncoder().encode(JWT_SECRET)
 
+// Allowlist of permitted client IDs — set OAUTH_CLIENT_ID env var (comma-separated for multiple)
+const ALLOWED_CLIENT_IDS = new Set(
+  (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
+)
+
 const ALLOWED_REDIRECT_URIS = new Set([
   'https://claude.ai/api/mcp/auth_callback',
 ])
 
 // In-memory auth code store (5-min TTL, one-time use)
+// Note: single-instance Railway deployment — in-memory is sufficient. For multi-instance,
+// migrate to a shared store (Redis/Supabase table) or use self-contained signed tokens.
 const authCodes = new Map<string, {
   code_challenge: string
+  redirect_uri: string
   client_id: string
   expires_at: number
 }>()
 
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now()
   for (const [code, data] of authCodes) {
     if (now > data.expires_at) authCodes.delete(code)
   }
 }, 60_000)
+cleanupInterval.unref()
 
 const oauth = new Hono()
 
@@ -46,8 +55,8 @@ oauth.get('/authorize', (c) => {
   if (response_type !== 'code') {
     return c.json({ error: 'unsupported_response_type' }, 400)
   }
-  if (!client_id) {
-    return c.json({ error: 'invalid_request', error_description: 'client_id required' }, 400)
+  if (!client_id || !ALLOWED_CLIENT_IDS.has(client_id)) {
+    return c.json({ error: 'unauthorized_client', error_description: 'client_id not registered' }, 400)
   }
   if (!redirect_uri || !ALLOWED_REDIRECT_URIS.has(redirect_uri)) {
     return c.json({ error: 'invalid_request', error_description: 'redirect_uri not allowed' }, 400)
@@ -59,6 +68,7 @@ oauth.get('/authorize', (c) => {
   const code = crypto.randomBytes(32).toString('hex')
   authCodes.set(code, {
     code_challenge,
+    redirect_uri,
     client_id,
     expires_at: Date.now() + 5 * 60_000,
   })
@@ -76,6 +86,7 @@ oauth.post('/token', async (c) => {
   let code: string | undefined
   let code_verifier: string | undefined
   let client_id: string | undefined
+  let redirect_uri: string | undefined
 
   if (contentType.includes('application/x-www-form-urlencoded')) {
     const body = await c.req.formData()
@@ -83,12 +94,14 @@ oauth.post('/token', async (c) => {
     code = body.get('code')?.toString()
     code_verifier = body.get('code_verifier')?.toString()
     client_id = body.get('client_id')?.toString()
+    redirect_uri = body.get('redirect_uri')?.toString()
   } else {
     const body = await c.req.json().catch(() => ({}))
     grant_type = body.grant_type
     code = body.code
     code_verifier = body.code_verifier
     client_id = body.client_id
+    redirect_uri = body.redirect_uri
   }
 
   if (grant_type !== 'authorization_code') {
@@ -101,6 +114,11 @@ oauth.post('/token', async (c) => {
   const stored = authCodes.get(code)
   if (!stored || Date.now() > stored.expires_at || stored.client_id !== client_id) {
     return c.json({ error: 'invalid_grant' }, 400)
+  }
+
+  // Verify redirect_uri matches the one used at /authorize (RFC 6749 §4.1.3)
+  if (redirect_uri && redirect_uri !== stored.redirect_uri) {
+    return c.json({ error: 'invalid_grant', error_description: 'redirect_uri mismatch' }, 400)
   }
 
   // Verify PKCE: SHA-256(code_verifier) base64url === code_challenge
