@@ -2,6 +2,9 @@
 -- Job Hunt Pipeline
 -- ============================================================
 
+-- pg_trgm enables efficient ILIKE '%...%' substring searches via GIN indexes
+create extension if not exists pg_trgm;
+
 -- ── Table 1: job_applications ─────────────────────────────
 create table job_applications (
   id                 uuid        primary key default gen_random_uuid(),
@@ -37,9 +40,13 @@ create table job_applications (
 );
 
 create index on job_applications (stage);
-create index on job_applications (company);
 create index on job_applications (applied_at desc);
 create index on job_applications (follow_up_date) where follow_up_date is not null;
+-- GIN trigram indexes for efficient ILIKE '%...%' search on text columns
+create index job_applications_company_trgm_idx  on job_applications using gin (company       gin_trgm_ops);
+create index job_applications_role_trgm_idx     on job_applications using gin (role          gin_trgm_ops);
+create index job_applications_jd_trgm_idx       on job_applications using gin (job_description gin_trgm_ops);
+create index job_applications_notes_trgm_idx    on job_applications using gin (notes         gin_trgm_ops);
 
 -- ── Table 2: application_stages (audit trail) ─────────────
 create table application_stages (

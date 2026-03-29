@@ -508,7 +508,11 @@ server.registerTool(
       job_description: z.string().optional().describe("Full JD text — used to auto-score fit"),
       source: z.string().optional().describe("Where you found it: LinkedIn, referral, cold, etc."),
       url: z.string().optional().describe("Job posting URL"),
-      applied_at: z.string().optional().describe("ISO date if not today, e.g. 2026-03-25"),
+      applied_at: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "applied_at must be YYYY-MM-DD (e.g. 2026-03-25)")
+        .optional()
+        .describe("Date applied if not today, e.g. 2026-03-25"),
       notes: z.string().optional().describe("Any initial notes about the role or company"),
     },
   },
@@ -548,11 +552,20 @@ server.registerTool(
       }
 
       // Seed the stage history
-      await supabase.from("application_stages").insert({
+      const { error: stageError } = await supabase.from("application_stages").insert({
         application_id: data.id,
         stage: "applied",
         note: "Application logged",
       });
+
+      if (stageError) {
+        // Roll back the application row to keep data consistent
+        await supabase.from("job_applications").delete().eq("id", data.id);
+        return {
+          content: [{ type: "text" as const, text: `Failed to log stage history: ${stageError.message}` }],
+          isError: true,
+        };
+      }
 
       const fitLine = scoreResult
         ? `Fit: ${scoreResult.fit_score} (${scoreResult.recommended_action})`
@@ -621,11 +634,23 @@ server.registerTool(
         };
       }
 
-      await supabase.from("application_stages").insert({
+      const { error: insertErr } = await supabase.from("application_stages").insert({
         application_id,
         stage,
         note: note ?? null,
       });
+
+      if (insertErr) {
+        // Roll back the stage change to preserve consistency with history
+        const { error: rollbackErr } = await supabase
+          .from("job_applications")
+          .update({ stage: app.stage })
+          .eq("id", application_id);
+        const msg = rollbackErr
+          ? `Failed to record stage history: ${insertErr.message}; rollback also failed: ${rollbackErr.message}`
+          : `Failed to record stage history: ${insertErr.message}; stage change rolled back.`;
+        return { content: [{ type: "text" as const, text: msg }], isError: true };
+      }
 
       return {
         content: [
@@ -701,7 +726,7 @@ server.registerTool(
       stage: z.enum(STAGES).optional().describe("Filter by stage"),
       company: z.string().optional().describe("Filter by company name (partial match)"),
       limit: z.number().int().min(1).max(100).optional().default(20),
-      days: z.number().int().optional().describe("Only applications from the last N days"),
+      days: z.number().int().min(1).optional().describe("Only applications from the last N days"),
       upcoming_followups: z.boolean().optional().describe("Only applications with a follow-up date in the next 7 days"),
     },
   },
@@ -715,7 +740,7 @@ server.registerTool(
 
       if (stage) q = q.eq("stage", stage);
       if (company) q = q.ilike("company", `%${company}%`);
-      if (days) {
+      if (days != null) {
         const since = new Date();
         since.setDate(since.getDate() - days);
         q = q.gte("applied_at", since.toISOString());
@@ -851,7 +876,10 @@ server.registerTool(
       "Set or update a follow-up date on a job application. Use this when the user says 'remind me to follow up Thursday' or 'set a follow-up for next week'.",
     inputSchema: {
       application_id: z.string().uuid().describe("The application ID"),
-      follow_up_date: z.string().describe("Date in YYYY-MM-DD format"),
+      follow_up_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "follow_up_date must be YYYY-MM-DD (e.g. 2026-04-01)")
+        .describe("Date in YYYY-MM-DD format"),
       notes: z.string().optional().describe("What to follow up on"),
     },
   },
@@ -915,11 +943,13 @@ server.registerTool(
   },
   async ({ query, limit }) => {
     try {
+      // Sanitize query to prevent PostgREST filter-injection via reserved characters
+      const sanitizedQuery = query.replace(/[%'"(),]/g, " ").trim();
       const { data, error } = await supabase
         .from("job_applications")
         .select("id, company, role, stage, fit_score, applied_at")
         .or(
-          `company.ilike.%${query}%,role.ilike.%${query}%,job_description.ilike.%${query}%,notes.ilike.%${query}%`
+          `company.ilike.%${sanitizedQuery}%,role.ilike.%${sanitizedQuery}%,job_description.ilike.%${sanitizedQuery}%,notes.ilike.%${sanitizedQuery}%`
         )
         .order("applied_at", { ascending: false })
         .limit(limit ?? 10);

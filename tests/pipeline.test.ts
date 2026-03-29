@@ -9,7 +9,7 @@
  *   MCP_ACCESS_KEY     — the x-brain-key value
  *
  * Run:
- *   npm test
+ *   npm run test:integration
  */
 
 import { describe, it, before, after } from "node:test";
@@ -22,8 +22,13 @@ const MCP_URL = process.env.SUPABASE_MCP_URL;
 const MCP_KEY = process.env.MCP_ACCESS_KEY;
 
 if (!MCP_URL || !MCP_KEY) {
-  console.error("SUPABASE_MCP_URL and MCP_ACCESS_KEY must be set in .env.local");
-  process.exit(1);
+  throw new Error("SUPABASE_MCP_URL and MCP_ACCESS_KEY must be set in .env.local");
+}
+
+const SUPA_URL = process.env.SUPA_PROJECT_URL;
+const SUPA_ROLE_KEY = process.env.SUPA_SERVICE_ROLE;
+if (!SUPA_URL || !SUPA_ROLE_KEY) {
+  throw new Error("SUPA_PROJECT_URL and SUPA_SERVICE_ROLE must be set in .env.local (required for test cleanup)");
 }
 
 // ── MCP JSON-RPC helper ───────────────────────────────────
@@ -96,14 +101,12 @@ const SAMPLE_JD = `
 describe("Job Hunt Pipeline", () => {
   after(async () => {
     // Clean up test data so repeated runs don't accumulate rows
+    // Deleting the application cascades to stages and contacts via FK
     if (applicationId) {
-      // Deleting the application cascades to stages and contacts via FK
       const { createClient } = await import("@supabase/supabase-js");
-      const supabase = createClient(
-        process.env.SUPA_PROJECT_URL!,
-        process.env.SUPA_SERVICE_ROLE!
-      );
-      await supabase.from("job_applications").delete().eq("id", applicationId);
+      const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+      const { error } = await supabase.from("job_applications").delete().eq("id", applicationId);
+      if (error) console.warn(`Cleanup warning: failed to delete test application ${applicationId}: ${error.message}`);
     }
   });
 
@@ -140,10 +143,7 @@ describe("Job Hunt Pipeline", () => {
     const match = text.match(/ID: ([0-9a-f-]{36})/);
     if (match) {
       const { createClient } = await import("@supabase/supabase-js");
-      const supabase = createClient(
-        process.env.SUPA_PROJECT_URL!,
-        process.env.SUPA_SERVICE_ROLE!
-      );
+      const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
       await supabase.from("job_applications").delete().eq("id", match[1]);
     }
   });
