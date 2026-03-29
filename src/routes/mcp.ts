@@ -758,8 +758,9 @@ mcpRoute.all('*', async (c) => {
     })
   }
 
+  const server = buildServer()
   const transport = new StreamableHTTPTransport()
-  await buildServer().connect(transport)
+  await server.connect(transport)
 
   const response = await transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
