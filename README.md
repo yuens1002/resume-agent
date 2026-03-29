@@ -57,7 +57,7 @@ Full read/write GET /.well-known/agent.json
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | MCP only (private) | Raw notes, captures, work-in-progress |
-| `job_hunt_pipeline` | MCP only (private) — _planned_ | Applications, interviews, contacts |
+| `job_hunt_pipeline` | MCP only (private) | Applications, stages, contacts, follow-up tasks |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
@@ -153,9 +153,23 @@ The private `/resume` endpoint uses the same methodology to generate a resume th
 
 ## Private agentic interface
 
-You interact with your own knowledge base through whichever AI tool you are already using. No browser, no app.
+You interact with your own knowledge base through Claude — no browser, no app, no local config required.
 
-**Claude Desktop** — add to `claude_desktop_config.json`:
+### claude.ai (web + mobile) — recommended
+
+Add a custom connector at `claude.ai → Settings → Connectors → Add custom connector`:
+
+| Field | Value |
+|---|---|
+| Remote MCP server URL | `https://your-agent-domain.com/mcp` |
+| OAuth Client ID | your `OAUTH_CLIENT_ID` env var value |
+| OAuth Client Secret | your `OAUTH_CLIENT_SECRET` env var value |
+
+This connects via OAuth 2.0 Client Credentials flow. Works on web, phone, and Claude Desktop automatically — one connector, all surfaces.
+
+### Claude Desktop (direct API access)
+
+If you prefer a direct connection bypassing OAuth, add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -164,7 +178,7 @@ You interact with your own knowledge base through whichever AI tool you are alre
       "args": [
         "-y",
         "mcp-remote",
-        "https://YOUR_PROJECT_REF.supabase.co/functions/v1/open-brain-mcp",
+        "https://your-agent-domain.com/mcp",
         "--header",
         "x-brain-key:YOUR_MCP_ACCESS_KEY"
       ]
@@ -173,13 +187,13 @@ You interact with your own knowledge base through whichever AI tool you are alre
 }
 ```
 
-> On Windows, Claude Desktop is a packaged app — the config file is at `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json`, not the standard `%APPDATA%\Claude\` path.
+> **Windows:** Claude Desktop (Store app) reads from `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json`, not the standard `%APPDATA%\Claude\` path.
 
 Then in Claude:
-> "Am I a good fit for this role? [paste JD]"
-> "Add the Acme project to my work history"
-> "Generate a resume for this staff engineer role"
+> "Capture this: had a good call with Acme, following up Thursday"
 > "What have I shipped in the last 6 months?"
+> "Am I a good fit for this role? [paste JD]"
+> "Log an application to Stripe — staff engineer, applied today"
 
 ---
 
@@ -202,7 +216,9 @@ Then in Claude:
 - All secrets in `.env.local`, never committed
 - `public_profile` table: read-only, no auth required, rate-limited by IP
 - `/resume` endpoint: when `AUTH_MODE=key`, requires `Authorization: Bearer <key>` header; when `AUTH_MODE=open` (default in `.env.example`), it is publicly accessible
-- MCP server (OB1): requires `x-brain-key: <key>` header (passed via `--header` arg in `mcp-remote`)
+- MCP server: OAuth 2.0 Client Credentials (claude.ai connector) or `x-brain-key` header (direct API / Claude Desktop)
+- OAuth endpoints: `/authorize`, `/token`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (RFC 8414 + RFC 9728)
+- Origin header validation on MCP endpoint (DNS rebinding protection per MCP Streamable HTTP spec)
 - Supabase service role key: server-side only, never returned to clients
 - Postgres Row Level Security enforces public/private table boundary
 - No personal data in this repo — data lives in your Supabase instance
