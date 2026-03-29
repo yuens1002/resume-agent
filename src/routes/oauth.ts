@@ -52,7 +52,9 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
 // RFC 9728 — OAuth 2.0 Protected Resource Metadata
 // claude.ai fetches this after receiving a 401 to discover which auth server to use
 oauth.get('/.well-known/oauth-protected-resource', (c) => {
-  const base = process.env.PUBLIC_URL ?? 'https://agent.yuens.me'
+  const base = process.env.PUBLIC_URL
+    ? new URL(process.env.PUBLIC_URL).origin
+    : new URL(c.req.url).origin
   return c.json({
     resource: base,
     authorization_servers: [base],

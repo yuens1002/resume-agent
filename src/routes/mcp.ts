@@ -750,10 +750,14 @@ mcpRoute.all('*', async (c) => {
   }
 
   if (!authenticated) {
-    const base = process.env.PUBLIC_URL ?? 'https://agent.yuens.me'
+    const baseUrl = process.env.PUBLIC_URL
+      ? new URL(process.env.PUBLIC_URL)
+      : new URL(c.req.url)
+    const realm = baseUrl.origin
+    const resourceMetadataUrl = new URL('/.well-known/oauth-protected-resource', baseUrl).toString()
     return c.json({ error: 'Invalid or missing credentials' }, 401, {
       ...corsHeaders,
-      'WWW-Authenticate': `Bearer realm="${base}", resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+      'WWW-Authenticate': `Bearer realm="${realm}", resource_metadata="${resourceMetadataUrl}"`,
     })
   }
 
