@@ -757,20 +757,28 @@ async function authenticate(c: Context): Promise<boolean> {
 const mcpRoute = new Hono()
 
 // CORS preflight
-mcpRoute.options('*', (c) => c.text('ok', 200, corsHeaders))
+mcpRoute.options('*', (c) => {
+  const originErr = checkOrigin(c)
+  if (originErr) return originErr
+  return c.text('ok', 200, corsHeaders)
+})
 
 // GET — this server uses JSON response mode (no SSE); return 405 per MCP spec
-mcpRoute.get('*', (c) => c.json(
-  { error: 'Method not allowed — server operates in JSON response mode, not SSE' },
-  405,
-  { ...corsHeaders, Allow: 'POST, OPTIONS, DELETE' }
-))
+mcpRoute.get('*', (c) => {
+  const originErr = checkOrigin(c)
+  if (originErr) return originErr
+  return c.json(
+    { error: 'Method not allowed — server operates in JSON response mode, not SSE' },
+    405,
+    { ...corsHeaders, Allow: 'POST, OPTIONS, DELETE' }
+  )
+})
 
 // DELETE — stateless server, no sessions to track; acknowledge and return 200
 mcpRoute.delete('*', (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
-  return c.body(null, 200)
+  return c.body(null, 200, corsHeaders)
 })
 
 // POST — main MCP handler
