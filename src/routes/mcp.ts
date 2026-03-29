@@ -363,7 +363,7 @@ function buildServer(): McpServer {
     {
       title: 'Update Public Profile',
       description:
-        'Update one or more fields of the public-facing profile. All fields are optional — only send what should change. Use this after reviewing recent thoughts to keep the profile current with new skills, projects, roles, or availability.',
+        'Update one or more fields of the public-facing profile. All fields are optional — only send what should change. Use this after reviewing recent thoughts to keep the profile current with new skills, projects, roles, or availability. IMPORTANT: this profile is publicly queryable by employer AI systems — only include professional achievements, skills, projects, and availability. Never include private observations, personal notes, salary expectations, or anything not suitable for a resume. When updating the summary, search Open Brain for a voice reference thought first and write in the candidate\'s own voice.',
       inputSchema: {
         summary:      z.string().optional().describe('Updated professional summary'),
         skills:       z.array(z.unknown()).optional().describe('Full updated skills array (replaces existing)'),
