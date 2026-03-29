@@ -750,7 +750,11 @@ mcpRoute.all('*', async (c) => {
   }
 
   if (!authenticated) {
-    return c.json({ error: 'Invalid or missing credentials' }, 401, corsHeaders)
+    const base = process.env.PUBLIC_URL ?? 'https://agent.yuens.me'
+    return c.json({ error: 'Invalid or missing credentials' }, 401, {
+      ...corsHeaders,
+      'WWW-Authenticate': `Bearer realm="${base}", resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+    })
   }
 
   const transport = new StreamableHTTPTransport()
