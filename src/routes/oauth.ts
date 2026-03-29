@@ -49,6 +49,19 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
   })
 })
 
+// RFC 9728 — OAuth 2.0 Protected Resource Metadata
+// claude.ai fetches this after receiving a 401 to discover which auth server to use
+oauth.get('/.well-known/oauth-protected-resource', (c) => {
+  const base = process.env.PUBLIC_URL
+    ? new URL(process.env.PUBLIC_URL).origin
+    : new URL(c.req.url).origin
+  return c.json({
+    resource: base,
+    authorization_servers: [base],
+    bearer_methods_supported: ['header'],
+  })
+})
+
 oauth.get('/authorize', (c) => {
   const { response_type, client_id, redirect_uri, state, code_challenge, code_challenge_method } = c.req.query()
 

@@ -750,7 +750,15 @@ mcpRoute.all('*', async (c) => {
   }
 
   if (!authenticated) {
-    return c.json({ error: 'Invalid or missing credentials' }, 401, corsHeaders)
+    const baseUrl = process.env.PUBLIC_URL
+      ? new URL(process.env.PUBLIC_URL)
+      : new URL(c.req.url)
+    const realm = baseUrl.origin
+    const resourceMetadataUrl = new URL('/.well-known/oauth-protected-resource', baseUrl).toString()
+    return c.json({ error: 'Invalid or missing credentials' }, 401, {
+      ...corsHeaders,
+      'WWW-Authenticate': `Bearer realm="${realm}", resource_metadata="${resourceMetadataUrl}"`,
+    })
   }
 
   const transport = new StreamableHTTPTransport()
