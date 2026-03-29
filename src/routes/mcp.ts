@@ -711,9 +711,6 @@ function buildServer(): McpServer {
   return server
 }
 
-// Single server instance — tools registered once at startup
-const mcpServer = buildServer()
-
 // ── Hono App ──────────────────────────────────────────────
 
 const mcpRoute = new Hono()
@@ -762,7 +759,7 @@ mcpRoute.all('*', async (c) => {
   }
 
   const transport = new StreamableHTTPTransport()
-  await mcpServer.connect(transport)
+  await buildServer().connect(transport)
 
   const response = await transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
