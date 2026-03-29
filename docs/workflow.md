@@ -125,7 +125,7 @@ Response:
 
 ## Candidate workflow (private MCP interface)
 
-You interact with your own knowledge base through Claude — web, mobile, or desktop. The MCP server lives at `/mcp` on the same Railway deployment as the public API and is protected by OAuth 2.0.
+You interact with your own knowledge base through Claude — web, mobile, or desktop. The MCP server lives at `/mcp` on the same Railway deployment as the public API, protected by OAuth 2.0 (claude.ai connector) or `x-brain-key` header (direct API access).
 
 **Connecting via claude.ai** (recommended — works on web, phone, and desktop automatically): add a custom connector at `Settings → Connectors` with your OAuth client ID and secret. See the [MCP config in README](../README.md#private-agentic-interface) for the full setup.
 
@@ -147,11 +147,11 @@ Once connected, 11 tools are available across two groups:
 | Tool | What it does |
 |---|---|
 | `log_application` | Record a new job application with company, role, JD, and auto fit-score |
-| `stage_update` | Move an application through stages (applied → screen → interview → offer → closed) |
-| `contact_log` | Log a contact at a company with name, role, and notes |
+| `update_stage` | Move an application through stages (`applied`, `phone_screen`, `technical`, `final`, `offer`, `rejected`, `withdrawn`) |
+| `add_contact` | Log a contact at a company with name, role, and notes |
 | `list_applications` | List all applications with optional stage/company filters |
 | `get_application` | Full detail on one application including stage history and contacts |
-| `follow_up_task` | Create a follow-up reminder tied to an application |
+| `set_follow_up` | Create a follow-up reminder tied to an application |
 | `search_applications` | Semantic search across application notes and JD text |
 
 **Common workflows:**

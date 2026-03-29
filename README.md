@@ -57,7 +57,7 @@ Full read/write GET /.well-known/agent.json
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | MCP only (private) | Raw notes, captures, work-in-progress |
-| `job_hunt_pipeline` | MCP only (private) | Applications, stages, contacts, follow-up tasks |
+| `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
