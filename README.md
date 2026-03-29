@@ -1,5 +1,9 @@
 # resume-agent
 
+[![Agent QR Code](qr.png)](https://agent.yuens.me/.well-known/agent.json)
+
+> Scan to load the live agent card — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me/.well-known/agent.json).
+
 A machine-queryable AI agent that represents a professional profile. No UI. Two access tiers: a public HTTP API for employer AI systems, and a private MCP server for personal interaction.
 
 Built on top of [OB1 (Open Brain)](https://github.com/NateBJones-Projects/OB1) by Nate B. Jones — OB1 handles the knowledge capture and storage layer; this project handles the public-facing agentic interface and job match methodology.

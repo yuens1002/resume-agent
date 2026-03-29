@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — docs(readme): add live QR code pointing to agent.yuens.me/.well-known/agent.json
+
 - 2026-03-29 — docs(readme): update MCP section to Railway+OAuth, add job pipeline to data tier table, expand security model
 
 - 2026-03-29 — fix(mcp): enforce Origin validation, add GET→405 and DELETE→200 per MCP Streamable HTTP spec
