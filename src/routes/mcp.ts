@@ -759,7 +759,7 @@ mcpRoute.all('*', async (c) => {
   }
 
   const server = buildServer()
-  const transport = new StreamableHTTPTransport()
+  const transport = new StreamableHTTPTransport({ enableJsonResponse: true })
   await server.connect(transport)
 
   const response = await transport.handleRequest(c)
