@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — feat(oauth): add client_credentials grant so claude.ai custom connectors can authenticate with client_id + client_secret
+
 - 2026-03-29 — fix(mcp): enable JSON response mode to fix SSE streaming incompatibility in Node.js
 - 2026-03-29 — fix(mcp): create new McpServer per request to fix 500 on concurrent connections
 - 2026-03-29 — fix(oauth): add RFC 9728 protected-resource metadata and WWW-Authenticate header on 401
