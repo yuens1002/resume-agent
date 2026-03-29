@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — fix(mcp): create new McpServer per request to fix 500 on concurrent connections
 - 2026-03-29 — fix(oauth): add RFC 9728 protected-resource metadata and WWW-Authenticate header on 401
 - 2026-03-29 — feat(mcp): port open-brain MCP server to Railway with Auth Code + PKCE OAuth for claude.ai support
 - 2026-03-29 — feat(pipeline): add job hunt pipeline — 3 tables, 7 MCP tools, auto-scoring, integration tests
