@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — feat(mcp): add update_profile tool — closes OB1 → public profile sync loop
+
 - 2026-03-29 — docs(readme): add live QR code pointing to agent.yuens.me/.well-known/agent.json
 
 - 2026-03-29 — docs(readme): update MCP section to Railway+OAuth, add job pipeline to data tier table, expand security model
