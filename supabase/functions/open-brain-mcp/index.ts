@@ -5,11 +5,14 @@ import { StreamableHTTPTransport } from "@hono/mcp";
 import { Hono } from "hono";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { jwtVerify } from "jose";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
 const MCP_ACCESS_KEY = Deno.env.get("MCP_ACCESS_KEY")!;
+const JWT_SECRET = Deno.env.get("JWT_SECRET");
+const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -1004,9 +1007,26 @@ app.options("*", (c) => {
 });
 
 app.all("*", async (c) => {
-  const provided = c.req.header("x-brain-key") || new URL(c.req.url).searchParams.get("key");
-  if (!provided || provided !== MCP_ACCESS_KEY) {
-    return c.json({ error: "Invalid or missing access key" }, 401, corsHeaders);
+  // Auth: accept x-brain-key (Claude Desktop) OR Authorization: Bearer <jwt> (claude.ai OAuth)
+  const brainKey = c.req.header("x-brain-key") || new URL(c.req.url).searchParams.get("key");
+  const authHeader = c.req.header("authorization") ?? "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  let authenticated = false;
+
+  if (brainKey && brainKey === MCP_ACCESS_KEY) {
+    authenticated = true;
+  } else if (bearerToken && jwtSecretBytes) {
+    try {
+      await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ["HS256"] });
+      authenticated = true;
+    } catch {
+      // Invalid or expired JWT — fall through to 401
+    }
+  }
+
+  if (!authenticated) {
+    return c.json({ error: "Invalid or missing credentials" }, 401, corsHeaders);
   }
 
   if (!c.req.header("accept")?.includes("text/event-stream")) {
