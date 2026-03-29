@@ -201,7 +201,8 @@ Then in Claude:
 
 - All secrets in `.env.local`, never committed
 - `public_profile` table: read-only, no auth required, rate-limited by IP
-- Private endpoints (`/resume`, MCP): require `Authorization: Bearer` header
+- `/resume` endpoint: when `AUTH_MODE=key`, requires `Authorization: Bearer <key>` header; when `AUTH_MODE=open` (default in `.env.example`), it is publicly accessible
+- MCP server (OB1): requires `x-brain-key: <key>` header (passed via `--header` arg in `mcp-remote`)
 - Supabase service role key: server-side only, never returned to clients
 - Postgres Row Level Security enforces public/private table boundary
 - No personal data in this repo — data lives in your Supabase instance

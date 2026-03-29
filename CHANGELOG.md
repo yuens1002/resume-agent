@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-03-29 — docs(readme): clarify auth headers — /resume uses `Authorization: Bearer <key>`, MCP uses x-brain-key
 - 2026-03-28 — fix(mcp): replace non-existent server-fetch package with mcp-remote, add Windows config path note
 - 2026-03-28 — docs(workflow): genericize workflow doc — remove personal names/details from examples
 - 2026-03-28 — docs(workflow): add workflow doc covering employer AI, candidate MCP, and real-world A2A limitations
