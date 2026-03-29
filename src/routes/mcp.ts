@@ -359,6 +359,52 @@ function buildServer(): McpServer {
   )
 
   server.registerTool(
+    'update_profile',
+    {
+      title: 'Update Public Profile',
+      description:
+        'Update one or more fields of the public-facing profile. All fields are optional — only send what should change. Use this after reviewing recent thoughts to keep the profile current with new skills, projects, roles, or availability.',
+      inputSchema: {
+        summary:      z.string().optional().describe('Updated professional summary'),
+        skills:       z.array(z.unknown()).optional().describe('Full updated skills array (replaces existing)'),
+        employment:   z.array(z.unknown()).optional().describe('Full updated employment array (replaces existing)'),
+        projects:     z.array(z.unknown()).optional().describe('Full updated projects array (replaces existing)'),
+        education:    z.array(z.unknown()).optional().describe('Full updated education array (replaces existing)'),
+        availability: z.record(z.unknown()).optional().describe('Updated availability object (status, roles, start_date, etc.)'),
+        contact:      z.record(z.unknown()).optional().describe('Updated contact object (email, calendly, linkedin, etc.)'),
+      },
+    },
+    async (delta) => {
+      try {
+        const updates = Object.fromEntries(
+          Object.entries(delta).filter(([, v]) => v !== undefined)
+        )
+
+        if (Object.keys(updates).length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No fields provided — nothing updated.' }] }
+        }
+
+        const { data, error } = await supabase
+          .from('public_profile')
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq('id', '00000000-0000-0000-0000-000000000001')
+          .select('id')
+          .single()
+
+        if (error || !data) {
+          const message = error?.message ?? 'Profile not found or not updated.'
+          return { content: [{ type: 'text' as const, text: `Failed to update profile: ${message}` }], isError: true }
+        }
+
+        const updated = Object.keys(updates).join(', ')
+        return { content: [{ type: 'text' as const, text: `Profile updated — fields changed: ${updated}` }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
     'capture_thought',
     {
       title: 'Capture Thought',
