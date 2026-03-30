@@ -303,8 +303,8 @@ function buildServer(): McpServer {
         'Use this to capture new portfolio work or update an existing project without touching the rest of the profile.',
       inputSchema: {
         slug:         z.string().describe('URL-safe identifier, e.g. "artisan-roast"'),
-        name:         z.string().describe('Display name of the project'),
-        description:  z.string().describe('One-liner for list views'),
+        name:         z.string().optional().describe('Display name of the project'),
+        description:  z.string().optional().describe('One-liner for list views'),
         problem:      z.string().optional().describe('What problem it solves'),
         role:         z.string().optional().describe('Your role on the project'),
         tech:         z.array(z.string()).optional().describe('Tech stack'),
@@ -338,20 +338,29 @@ function buildServer(): McpServer {
           projects[existingIdx] = { ...projects[existingIdx], ...incoming } as Project
           action = 'updated'
         } else {
+          const REQUIRED_FOR_INSERT = ['name', 'description', 'problem', 'role', 'tech', 'highlights', 'status'] as const
+          const missing = REQUIRED_FOR_INSERT.filter((f) => incoming[f] === undefined)
+          if (missing.length > 0) {
+            return { content: [{ type: 'text' as const, text: `Missing required field(s) for new project: ${missing.join(', ')}` }], isError: true }
+          }
           projects.push(incoming as unknown as Project)
           action = 'added'
         }
 
-        const { error: updateError } = await supabase
+        const { data: updated, error: updateError } = await supabase
           .from('public_profile')
           .update({ projects, updated_at: new Date().toISOString() })
           .eq('id', '00000000-0000-0000-0000-000000000001')
+          .select('id')
+          .single()
 
-        if (updateError) {
-          return { content: [{ type: 'text' as const, text: `Failed to save project: ${updateError.message}` }], isError: true }
+        if (updateError || !updated) {
+          const message = updateError?.message ?? 'Profile not found while saving project.'
+          return { content: [{ type: 'text' as const, text: `Failed to save project: ${message}` }], isError: true }
         }
 
-        return { content: [{ type: 'text' as const, text: `Project "${input.name}" (${input.slug}) ${action}.` }] }
+        const label = (input.name ?? input.slug)
+        return { content: [{ type: 'text' as const, text: `Project "${label}" (${input.slug}) ${action}.` }] }
       } catch (err: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
       }
@@ -408,9 +417,14 @@ function buildServer(): McpServer {
       },
     },
     async ({ job_description }) => {
-      const result = await scoreMatch(job_description)
+      let result
+      try {
+        result = await scoreMatch(job_description)
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Failed to score match: ${(err as Error).message}` }], isError: true }
+      }
       if (!result) {
-        return { content: [{ type: 'text' as const, text: 'Failed to score match — could not load profile or call model.' }], isError: true }
+        return { content: [{ type: 'text' as const, text: 'Failed to score match — model or parse error.' }], isError: true }
       }
 
       const lines = [

@@ -6,12 +6,28 @@ import type { MatchResponse, MatchScoring } from '../types.js'
 
 const MATCH_MODEL = process.env.MATCH_MODEL ?? 'claude-sonnet-4-6'
 
+export class ProfileNotFoundError extends Error {
+  constructor() { super('Profile not found') }
+}
+
 interface RawScores {
   required_skills_extracted: string[]
   skills: { matched: string[]; partial: string[]; missing: string[] }
   experience: { years: number; scope: number; recency: number }
   domain: { industry: number; product_type: number; scale: number }
   verdict: string
+}
+
+function isValidRawScores(s: unknown): s is RawScores {
+  if (!s || typeof s !== 'object') return false
+  const o = s as Record<string, unknown>
+  return (
+    Array.isArray(o.required_skills_extracted) &&
+    o.skills != null && typeof o.skills === 'object' &&
+    o.experience != null && typeof o.experience === 'object' &&
+    o.domain != null && typeof o.domain === 'object' &&
+    typeof o.verdict === 'string'
+  )
 }
 
 function round2(n: number): number {
@@ -54,6 +70,7 @@ Respond ONLY with valid JSON. No prose, no markdown fences.
   "verdict": "one sentence explaining the overall fit honestly"
 }`
 
+// Returns MatchResponse on success, null on model/parse failure, throws ProfileNotFoundError if profile is missing.
 export async function scoreMatch(
   jobDescription: string,
   callerHint?: string,
@@ -64,7 +81,7 @@ export async function scoreMatch(
     .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
-  if (error || !profile) return null
+  if (error || !profile) throw new ProfileNotFoundError()
 
   const systemPrompt = callerHint
     ? `${SCORING_RUBRIC}\n\nCaller context: ${callerHint}`
@@ -83,12 +100,15 @@ export async function scoreMatch(
     return null
   }
 
-  let scores: RawScores
+  let parsed: unknown
   try {
-    scores = parseJSON<RawScores>(raw)
+    parsed = parseJSON<unknown>(raw)
   } catch {
     return null
   }
+
+  if (!isValidRawScores(parsed)) return null
+  const scores = parsed
 
   const total_required = scores.required_skills_extracted.length || 1
   const skills_score =

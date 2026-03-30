@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { scoreMatch } from '../lib/score-match.js'
+import { scoreMatch, ProfileNotFoundError } from '../lib/score-match.js'
 import { detectCaller } from '../lib/detect-caller.js'
 
 const app = new Hono()
@@ -14,7 +14,15 @@ app.post('/', zValidator('json', schema), async (c) => {
   const { job_description } = c.req.valid('json')
   const caller = detectCaller(c)
 
-  const result = await scoreMatch(job_description, caller.hint)
+  let result
+  try {
+    result = await scoreMatch(job_description, caller.hint)
+  } catch (e) {
+    if (e instanceof ProfileNotFoundError) {
+      return c.json({ error: 'Profile not found' }, 404)
+    }
+    return c.json({ error: 'Failed to score match' }, 500)
+  }
 
   if (!result) {
     return c.json({ error: 'Failed to score match' }, 500)
