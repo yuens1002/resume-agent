@@ -49,7 +49,10 @@ Only extract what's explicitly there.`,
       prompt: text,
     })
     return parseJSON<Record<string, unknown>>(raw)
-  } catch {
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.error('extractMetadata failed; returning fallback metadata.', error)
+    }
     return { topics: ['uncategorized'], type: 'observation' }
   }
 }

@@ -2,7 +2,7 @@
  * score_match + upsert_project MCP tools — integration tests
  *
  * Calls the live MCP server over HTTP against the real Supabase database.
- * Projects array is snapshotted before and restored after to leave no test data.
+ * Projects array and updated_at are snapshotted before and restored after.
  *
  * Requirements:
  *   MCP_URL        — e.g. https://agent.yuens.me/mcp (or http://localhost:3000/mcp)
@@ -16,6 +16,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "dotenv";
+import { createMcpClient } from "./helpers/mcp.js";
 
 config({ path: ".env.local" });
 
@@ -32,55 +33,7 @@ if (!SUPA_URL || !SUPA_ROLE_KEY) {
   throw new Error("SUPA_PROJECT_URL and SUPA_SERVICE_ROLE must be set in .env.local (required for restore)");
 }
 
-// ── MCP JSON-RPC helper ───────────────────────────────────
-
-let sessionId: string | undefined;
-
-async function callTool(name: string, args: Record<string, unknown> = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-    "x-brain-key": MCP_KEY!,
-  };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-
-  const res = await fetch(MCP_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name, arguments: args },
-    }),
-  });
-
-  if (!sessionId) {
-    sessionId = res.headers.get("mcp-session-id") ?? undefined;
-  }
-
-  const text = await res.text();
-
-  if (text.includes("data:")) {
-    const lines = text.split("\n").filter((l) => l.startsWith("data:"));
-    for (const line of lines.reverse()) {
-      try {
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.result) return payload.result;
-        if (payload.error) throw new Error(JSON.stringify(payload.error));
-      } catch { /* skip non-JSON lines */ }
-    }
-    throw new Error(`No result in SSE response: ${text.slice(0, 200)}`);
-  }
-
-  const payload = JSON.parse(text);
-  if (payload.error) throw new Error(JSON.stringify(payload.error));
-  return payload.result;
-}
-
-function getText(result: { content: { type: string; text: string }[]; isError?: boolean }): string {
-  return result.content.map((c) => c.text).join("\n");
-}
+const { callTool, getText } = createMcpClient(MCP_URL, MCP_KEY);
 
 // ── Constants ─────────────────────────────────────────────
 
@@ -96,7 +49,9 @@ const SAMPLE_JD = `
 
 // ── Test state ────────────────────────────────────────────
 
+let snapshotTaken = false;
 let originalProjects: unknown[];
+let originalUpdatedAt: string;
 
 // ── Tests ─────────────────────────────────────────────────
 
@@ -106,19 +61,22 @@ describe("score_match + upsert_project MCP tools", () => {
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
     const { data, error } = await supabase
       .from("public_profile")
-      .select("projects")
+      .select("projects, updated_at")
       .eq("id", PROFILE_ID)
       .single();
-    if (error || !data) throw new Error(`Could not snapshot projects: ${error?.message}`);
+    if (error || !data) throw new Error(`Could not snapshot profile: ${error?.message}`);
     originalProjects = data.projects ?? [];
+    originalUpdatedAt = data.updated_at;
+    snapshotTaken = true;
   });
 
   after(async () => {
+    if (!snapshotTaken) return;
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
     const { error } = await supabase
       .from("public_profile")
-      .update({ projects: originalProjects })
+      .update({ projects: originalProjects, updated_at: originalUpdatedAt })
       .eq("id", PROFILE_ID);
     if (error) console.warn(`Restore warning: ${error.message}`);
   });
@@ -129,7 +87,7 @@ describe("score_match + upsert_project MCP tools", () => {
     assert.ok(!result.isError, `Expected success, got error: ${text}`);
     assert.match(text, /Fit score:/, "Response should contain fit score");
     assert.match(text, /Verdict:/, "Response should contain verdict");
-    assert.match(text, /recommended_action|apply|pass/, "Response should contain recommended action");
+    assert.match(text, /apply|pass/, "Response should contain recommended action");
   });
 
   it("upsert_project — inserts a new project when slug is new", async () => {
@@ -150,7 +108,6 @@ describe("score_match + upsert_project MCP tools", () => {
   });
 
   it("upsert_project — merges an existing project without overwriting unspecified fields", async () => {
-    // Only update the url — all other fields from the previous insert should be preserved
     const result = await callTool("upsert_project", {
       slug: TEST_SLUG,
       url: "https://example.com/test",
@@ -159,7 +116,7 @@ describe("score_match + upsert_project MCP tools", () => {
     assert.ok(!result.isError, `Expected success, got error: ${text}`);
     assert.match(text, /updated/, "Should confirm project was updated");
 
-    // Verify the merge — name and description should still be present
+    // Verify the merge — name should be preserved, url should be new
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
     const { data, error } = await supabase

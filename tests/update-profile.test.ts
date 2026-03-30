@@ -15,6 +15,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "dotenv";
+import { createMcpClient } from "./helpers/mcp.js";
 
 config({ path: ".env.local" });
 
@@ -31,55 +32,7 @@ if (!SUPA_URL || !SUPA_ROLE_KEY) {
   throw new Error("SUPA_PROJECT_URL and SUPA_SERVICE_ROLE must be set in .env.local (required for restore)");
 }
 
-// ── MCP JSON-RPC helper ───────────────────────────────────
-
-let sessionId: string | undefined;
-
-async function callTool(name: string, args: Record<string, unknown> = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-    "x-brain-key": MCP_KEY!,
-  };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-
-  const res = await fetch(MCP_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name, arguments: args },
-    }),
-  });
-
-  if (!sessionId) {
-    sessionId = res.headers.get("mcp-session-id") ?? undefined;
-  }
-
-  const text = await res.text();
-
-  if (text.includes("data:")) {
-    const lines = text.split("\n").filter((l) => l.startsWith("data:"));
-    for (const line of lines.reverse()) {
-      try {
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.result) return payload.result;
-        if (payload.error) throw new Error(JSON.stringify(payload.error));
-      } catch { /* skip */ }
-    }
-    throw new Error(`No result in SSE response: ${text.slice(0, 200)}`);
-  }
-
-  const payload = JSON.parse(text);
-  if (payload.error) throw new Error(JSON.stringify(payload.error));
-  return payload.result;
-}
-
-function getText(result: { content: { type: string; text: string }[] }): string {
-  return result.content.map((c) => c.text).join("\n");
-}
+const { callTool, getText } = createMcpClient(MCP_URL, MCP_KEY);
 
 // ── Tests ─────────────────────────────────────────────────
 
