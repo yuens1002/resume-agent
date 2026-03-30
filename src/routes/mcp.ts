@@ -5,6 +5,8 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
 import { supabase } from '../lib/supabase.js'
+import { scoreMatch } from '../lib/score-match.js'
+import type { Project } from '../types.js'
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 const MCP_ACCESS_KEY = process.env.MCP_ACCESS_KEY
@@ -69,123 +71,6 @@ Only extract what's explicitly there.`,
     return JSON.parse(d.choices[0].message.content)
   } catch {
     return { topics: ['uncategorized'], type: 'observation' }
-  }
-}
-
-interface MatchScoreResult {
-  fit_score: number
-  match_verdict: string
-  match_scoring: Record<string, unknown>
-  recommended_action: string
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-async function scoreMatch(jobDescription: string): Promise<MatchScoreResult | null> {
-  try {
-    const { data: profile, error } = await supabase
-      .from('public_profile')
-      .select('*')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
-      .single()
-
-    if (error || !profile) return null
-
-    const systemPrompt = `You are a precise job fit evaluator. Extract requirements from the job description and score the candidate profile against them using only the discrete values defined below.
-
---- SCORING RUBRIC ---
-
-SKILLS
-For each skill explicitly marked as REQUIRED in the JD (ignore preferred/nice-to-have):
-- matched (1.0): directly present in candidate profile
-- partial (0.5): adjacent technology (e.g. Vue when React required, MySQL when Postgres required)
-- missing (0.0): absent from profile
-
-EXPERIENCE — score each sub-factor independently:
-- years:    meets or exceeds required (1.0) | 1-2 years short (0.7) | 3-4 years short (0.4) | significantly under (0.1)
-- scope:    IC/lead/manager alignment — exact match (1.0) | similar (0.7) | different (0.3)
-- recency:  relevant exp is current/last role (1.0) | within 3 yrs (0.7) | 3-5 yrs ago (0.4) | 5+ yrs ago (0.1)
-
-DOMAIN — score each sub-factor independently:
-- industry:      same industry (1.0) | adjacent (0.6) | different (0.3)
-- product_type:  same product category (1.0) | similar (0.7) | different (0.3)
-- scale:         company/product scale matches (1.0) | similar (0.7) | different (0.4)
-
---- OUTPUT ---
-
-Respond ONLY with valid JSON. No prose, no markdown fences.
-
-{
-  "required_skills_extracted": ["skill1", "skill2"],
-  "skills": {
-    "matched": ["skill1"],
-    "partial": ["skill2"],
-    "missing": ["skill3"]
-  },
-  "experience": { "years": 0.7, "scope": 1.0, "recency": 1.0 },
-  "domain": { "industry": 0.6, "product_type": 1.0, "scale": 0.7 },
-  "verdict": "one sentence explaining the overall fit honestly"
-}`
-
-    const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4-5',
-        max_tokens: 1024,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: `Candidate profile:\n${JSON.stringify(profile, null, 2)}\n\nJob description:\n${jobDescription}`,
-          },
-        ],
-      }),
-    })
-
-    if (!r.ok) return null
-
-    const d = await r.json()
-    const raw = d.choices[0].message.content as string
-    const json = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-    const scores = JSON.parse(json)
-
-    const total_required = (scores.required_skills_extracted as string[]).length || 1
-    const skills_score =
-      (scores.skills.matched.length * 1.0 + scores.skills.partial.length * 0.5) / total_required
-
-    const { years, scope, recency } = scores.experience
-    const exp_score = (years + scope + recency) / 3
-
-    const { industry, product_type, scale } = scores.domain
-    const domain_score = (industry + product_type + scale) / 3
-
-    const fit_score = round2(0.5 * skills_score + 0.3 * exp_score + 0.2 * domain_score)
-    const recommended_action =
-      fit_score >= 0.8 ? 'apply' : fit_score >= 0.6 ? 'apply-with-tailoring' : 'pass'
-
-    return {
-      fit_score,
-      match_verdict: scores.verdict,
-      match_scoring: {
-        skills: {
-          matched: scores.skills.matched,
-          partial: scores.skills.partial,
-          missing: scores.skills.missing,
-          score: round2(skills_score),
-        },
-        experience: { years, scope, recency, score: round2(exp_score) },
-        domain: { industry, product_type, scale, score: round2(domain_score) },
-      },
-      recommended_action,
-    }
-  } catch {
-    return null
   }
 }
 
@@ -410,6 +295,70 @@ function buildServer(): McpServer {
   )
 
   server.registerTool(
+    'upsert_project',
+    {
+      title: 'Upsert Project',
+      description:
+        'Add or update a portfolio project by slug. If a project with the same slug exists it is merged (only provided fields overwrite); otherwise it is appended. ' +
+        'Use this to capture new portfolio work or update an existing project without touching the rest of the profile.',
+      inputSchema: {
+        slug:         z.string().describe('URL-safe identifier, e.g. "artisan-roast"'),
+        name:         z.string().describe('Display name of the project'),
+        description:  z.string().describe('One-liner for list views'),
+        problem:      z.string().optional().describe('What problem it solves'),
+        role:         z.string().optional().describe('Your role on the project'),
+        tech:         z.array(z.string()).optional().describe('Tech stack'),
+        highlights:   z.array(z.string()).optional().describe('Key achievements'),
+        architecture: z.string().optional().describe('Technical architecture summary'),
+        impact:       z.string().optional().describe('Measurable business/user impact'),
+        status:       z.enum(['active', 'in-progress', 'archived']).optional().describe('Project status'),
+        started:      z.string().optional().describe('Start month, e.g. "2024-01"'),
+        url:          z.string().optional().describe('Live URL'),
+        repo:         z.string().optional().describe('Source repo URL'),
+      },
+    },
+    async (input) => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('public_profile')
+          .select('projects')
+          .eq('id', '00000000-0000-0000-0000-000000000001')
+          .single()
+
+        if (fetchError || !data) {
+          return { content: [{ type: 'text' as const, text: 'Failed to load profile.' }], isError: true }
+        }
+
+        const projects: Project[] = data.projects ?? []
+        const existingIdx = projects.findIndex((p) => p.slug === input.slug)
+        const incoming = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined))
+
+        let action: string
+        if (existingIdx >= 0) {
+          projects[existingIdx] = { ...projects[existingIdx], ...incoming } as Project
+          action = 'updated'
+        } else {
+          projects.push(incoming as unknown as Project)
+          action = 'added'
+        }
+
+        const { error: updateError } = await supabase
+          .from('public_profile')
+          .update({ projects, updated_at: new Date().toISOString() })
+          .eq('id', '00000000-0000-0000-0000-000000000001')
+
+        if (updateError) {
+          return { content: [{ type: 'text' as const, text: `Failed to save project: ${updateError.message}` }], isError: true }
+        }
+
+        return { content: [{ type: 'text' as const, text: `Project "${input.name}" (${input.slug}) ${action}.` }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
     'capture_thought',
     {
       title: 'Capture Thought',
@@ -449,6 +398,35 @@ function buildServer(): McpServer {
   const STAGES = ['applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
 
   server.registerTool(
+    'score_match',
+    {
+      title: 'Score Job Match',
+      description:
+        'Score a job description against the candidate profile and return a fit breakdown with skills, experience, domain scores, and a recommended action.',
+      inputSchema: {
+        job_description: z.string().describe('Full or partial job description text'),
+      },
+    },
+    async ({ job_description }) => {
+      const result = await scoreMatch(job_description)
+      if (!result) {
+        return { content: [{ type: 'text' as const, text: 'Failed to score match — could not load profile or call model.' }], isError: true }
+      }
+
+      const lines = [
+        `Fit score: ${result.fit_score} → ${result.recommended_action}`,
+        `Verdict: ${result.verdict}`,
+        ``,
+        `Skills: ${result.scoring.skills.score} | matched: ${result.scoring.skills.matched.join(', ') || 'none'} | partial: ${result.scoring.skills.partial.join(', ') || 'none'} | missing: ${result.scoring.skills.missing.join(', ') || 'none'}`,
+        `Experience: ${result.scoring.experience.score} (years: ${result.scoring.experience.years}, scope: ${result.scoring.experience.scope}, recency: ${result.scoring.experience.recency})`,
+        `Domain: ${result.scoring.domain.score} (industry: ${result.scoring.domain.industry}, product_type: ${result.scoring.domain.product_type}, scale: ${result.scoring.domain.scale})`,
+      ]
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] }
+    }
+  )
+
+  server.registerTool(
     'log_application',
     {
       title: 'Log Job Application',
@@ -466,7 +444,7 @@ function buildServer(): McpServer {
     },
     async ({ company, role, job_description, source, url, applied_at, notes }) => {
       try {
-        let scoreResult: MatchScoreResult | null = null
+        let scoreResult: Awaited<ReturnType<typeof scoreMatch>> = null
         if (job_description) scoreResult = await scoreMatch(job_description)
 
         const { data, error } = await supabase
@@ -476,8 +454,8 @@ function buildServer(): McpServer {
             applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
             ...(scoreResult && {
               fit_score: scoreResult.fit_score,
-              match_verdict: scoreResult.match_verdict,
-              match_scoring: scoreResult.match_scoring,
+              match_verdict: scoreResult.verdict,
+              match_scoring: scoreResult.scoring,
               recommended_action: scoreResult.recommended_action,
             }),
           })
@@ -506,7 +484,7 @@ function buildServer(): McpServer {
         return {
           content: [{
             type: 'text' as const,
-            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.match_verdict}` : '', `ID: ${data.id}`].filter(Boolean).join('\n'),
+            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}`].filter(Boolean).join('\n'),
           }],
         }
       } catch (err: unknown) {
