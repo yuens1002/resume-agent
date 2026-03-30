@@ -1,6 +1,6 @@
 {
   "name": "resume-agent",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,7 +16,7 @@
     "ob1:deploy": "supabase functions deploy open-brain-mcp --no-verify-jwt",
     "ob1:logs": "supabase functions logs open-brain-mcp",
     "test": "echo 'No unit tests. Run npm run test:integration for live integration tests.'",
-    "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts"
+    "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.9",
