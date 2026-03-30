@@ -4,7 +4,10 @@ import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
+import { generateText, embed } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
 import { supabase } from '../lib/supabase.js'
+import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import type { Project } from '../types.js'
 
@@ -16,60 +19,40 @@ const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null
 if (!OPENROUTER_API_KEY) throw new Error('Missing OPENROUTER_API_KEY')
 if (!MCP_ACCESS_KEY) throw new Error('Missing MCP_ACCESS_KEY')
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
+const openrouter = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: OPENROUTER_API_KEY,
+})
 
 // ── Helpers ───────────────────────────────────────────────
 
 async function getEmbedding(text: string): Promise<number[]> {
-  const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model: 'openai/text-embedding-3-small', input: text }),
+  const { embedding } = await embed({
+    model: openrouter.embedding('openai/text-embedding-3-small'),
+    value: text,
   })
-  if (!r.ok) {
-    const msg = await r.text().catch(() => '')
-    throw new Error(`OpenRouter embeddings failed: ${r.status} ${msg}`)
-  }
-  const d = await r.json()
-  return d.data[0].embedding
+  return embedding
 }
 
 async function extractMetadata(text: string): Promise<Record<string, unknown>> {
-  const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'openai/gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `Extract metadata from the user's captured thought. Return JSON with:
+  try {
+    const { text: raw } = await generateText({
+      model: openrouter('openai/gpt-4o-mini'),
+      system: `Extract metadata from the user's captured thought. Respond ONLY with valid JSON — no prose, no markdown fences.
+Return an object with:
 - "people": array of people mentioned (empty if none)
 - "action_items": array of implied to-dos (empty if none)
 - "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
 - "topics": array of 1-3 short topic tags (always at least one)
 - "type": one of "observation", "task", "idea", "reference", "person_note"
 Only extract what's explicitly there.`,
-        },
-        { role: 'user', content: text },
-      ],
-    }),
-  })
-  if (!r.ok) {
-    console.error(`OpenRouter metadata extraction failed: ${r.status}`)
-    return { topics: ['uncategorized'], type: 'observation' }
-  }
-  const d = await r.json()
-  try {
-    return JSON.parse(d.choices[0].message.content)
-  } catch {
+      prompt: text,
+    })
+    return parseJSON<Record<string, unknown>>(raw)
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.error('extractMetadata failed; returning fallback metadata.', error)
+    }
     return { topics: ['uncategorized'], type: 'observation' }
   }
 }

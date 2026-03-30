@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-03-30 — refactor(mcp): normalize extractMetadata + getEmbedding to Vercel AI SDK, add score_match + upsert_project integration tests
+
 - 2026-03-30 — refactor(match): extract scoreMatch to lib, register score_match + upsert_project MCP tools
 
 - 2026-03-29 — fix(api): redirect /.well-known/agent-card.json to /.well-known/agent.json for Google A2A compatibility
