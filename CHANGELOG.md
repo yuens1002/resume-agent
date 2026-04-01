@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-01 — refactor(ai): consolidate all providers to OpenRouter, remove @ai-sdk/anthropic and @ai-sdk/google
+
 - 2026-03-30 — refactor(mcp): normalize extractMetadata + getEmbedding to Vercel AI SDK, add score_match + upsert_project integration tests
 
 - 2026-03-30 — refactor(match): extract scoreMatch to lib, register score_match + upsert_project MCP tools

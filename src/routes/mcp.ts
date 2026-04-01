@@ -5,24 +5,17 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
 import { generateText, embed } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
+import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import type { Project } from '../types.js'
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 const MCP_ACCESS_KEY = process.env.MCP_ACCESS_KEY
 const JWT_SECRET = process.env.JWT_SECRET
 const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null
 
-if (!OPENROUTER_API_KEY) throw new Error('Missing OPENROUTER_API_KEY')
 if (!MCP_ACCESS_KEY) throw new Error('Missing MCP_ACCESS_KEY')
-
-const openrouter = createOpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: OPENROUTER_API_KEY,
-})
 
 // ── Helpers ───────────────────────────────────────────────
 
