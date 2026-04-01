@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
+
+const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
 import { parseJSON } from '../lib/parse-json.js'
 import type { ResumeResponse } from '../types.js'
 
@@ -65,8 +67,8 @@ Target job description:
 ${job_description}`
 
   const { text: raw } = await generateText({
-    model: getModel(),
-    maxTokens: 2048,
+    model: getModel(RESUME_MODEL),
+    maxTokens: 4096,
     system: systemPrompt,
     prompt: userMessage,
   })
