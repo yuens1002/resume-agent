@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
+import crypto from 'crypto'
 
 import infoRoute from './routes/info.js'
 import availabilityRoute from './routes/availability.js'
@@ -13,6 +14,12 @@ import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
 import oauthRoute from './routes/oauth.js'
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const aDigest = crypto.createHash('sha256').update(a).digest()
+  const bDigest = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(aDigest, bDigest)
+}
 
 const app = new Hono({ strict: false })
 
@@ -44,6 +51,12 @@ app.use('*', async (c, next) => {
   // Skip OPTIONS preflights — don't count them toward the rate limit
   if (c.req.method === 'OPTIONS') return next()
 
+  // Owner bypass — valid API_KEY skips rate limiting entirely
+  const authHeader = c.req.header('Authorization') ?? ''
+  const match = /^bearer\s+(.+)$/i.exec(authHeader)
+  const apiKey = process.env.API_KEY
+  if (match && apiKey && timingSafeEqual(match[1], apiKey)) return next()
+
   const ip = getClientIp(c)
   const now = Date.now()
   const windowMs = 60_000
@@ -68,6 +81,7 @@ app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
 app.route('/.well-known/agent.json', agentCardRoute)
 app.get('/.well-known/agent-card.json', (c) => c.redirect('/.well-known/agent.json', 301))
+app.get('/try', (c) => c.redirect('/query?question=Tell+me+about+yourself&stream=true', 302))
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 app.route('/mcp', mcpRoute)
@@ -80,7 +94,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /.well-known/agent.json')
+  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent.json')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS)')
 })

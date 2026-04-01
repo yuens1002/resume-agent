@@ -78,18 +78,24 @@ Full structured profile snapshot. Skills, experience, projects, education. No Cl
 ### `GET /availability`
 Current job-seeking status, preferred roles, start date, contact links.
 
-### `POST /query`
-Natural language question → structured JSON answer powered by Claude.
+### `GET /try`
+Demo shortcut — redirects to `/query?question=Tell+me+about+yourself&stream=true`. Shareable CTA for humans and AI systems to see the agent in action.
+
+### `POST /query` · `GET /query?question=`
+Natural language question → structured JSON answer, or streaming plain text.
 
 Request:
 ```json
 {
   "question": "Has this person shipped production systems using TypeScript?",
-  "context": "ATS screening for a senior backend role"
+  "context": "ATS screening for a senior backend role",
+  "stream": false
 }
 ```
 
-Response:
+Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — useful for demo surfaces and human-readable interfaces.
+
+Response (default, `stream: false`):
 ```json
 {
   "answer": "...",
@@ -97,7 +103,7 @@ Response:
   "sources": ["experience.company_name", "skills.languages"],
   "follow_up_suggestions": ["..."],
   "contact": { "email": "...", "calendly": "..." },
-  "meta": { "model": "claude-haiku-4-5-20251001", "latency_ms": 740 }
+  "meta": { "model": "anthropic/claude-haiku-4-5-20251001", "latency_ms": 740 }
 }
 ```
 
@@ -206,7 +212,7 @@ Then in Claude:
 | Layer | Technology |
 |---|---|
 | API framework | Hono (TypeScript) |
-| AI | Anthropic SDK — Haiku (query/resume) + Sonnet (match) |
+| AI | Vercel AI SDK via OpenRouter — Haiku (query/resume) + Sonnet (match) |
 | Database | Supabase (Postgres + pgvector) |
 | Private interface | MCP (Model Context Protocol) via OB1 |
 | Validation | Zod |
@@ -218,7 +224,7 @@ Then in Claude:
 ## Security model
 
 - All secrets in `.env.local`, never committed
-- `public_profile` table: read-only, no auth required, rate-limited by IP
+- `public_profile` table: read-only, no auth required, rate-limited to 30 req/min per IP — bypassed for requests carrying a valid `Authorization: Bearer <API_KEY>` header
 - `/resume` endpoint: when `AUTH_MODE=key`, requires `Authorization: Bearer <key>` header; when `AUTH_MODE=open` (default in `.env.example`), it is publicly accessible
 - MCP server: OAuth 2.0 Client Credentials (claude.ai connector) or `x-brain-key` header (direct API / Claude Desktop)
 - OAuth endpoints: `/authorize`, `/token`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (RFC 8414 + RFC 9728)

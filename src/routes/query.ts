@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
-import { generateText } from 'ai'
+import { generateText, streamText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import type { QueryResponse } from '../types.js'
@@ -15,7 +15,7 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
-async function handleQuery(c: Context, question: string, context?: string): Promise<Response> {
+async function handleQuery(c: Context, question: string, context?: string, stream = false): Promise<Response> {
   const headerCaller = detectCaller(c)
   const queryCaller = callerContextFromQuery(question)
   const caller = headerCaller.type !== 'unknown'
@@ -32,6 +32,25 @@ async function handleQuery(c: Context, question: string, context?: string): Prom
 
   if (error || !profile) {
     return c.json({ error: 'Profile not found' }, 404)
+  }
+
+  const prompt = `Profile data:
+${JSON.stringify(profile, null, 2)}
+
+Question: ${question}`
+
+  if (stream) {
+    const result = streamText({
+      model: getModel(),
+      maxTokens: 1024,
+      system: `You are an AI agent representing a professional candidate. Answer questions about their profile accurately and honestly. Never fabricate credentials or inflate qualifications.
+
+Caller context: ${callerHint}
+Tailor your response accordingly — adjust tone, verbosity, and framing to suit the caller type.
+Respond in clear, direct prose.`,
+      prompt,
+    })
+    return result.toTextStreamResponse()
   }
 
   const start = Date.now()
@@ -53,11 +72,6 @@ Confidence levels:
 - high: directly supported by profile data
 - medium: inferred from adjacent data
 - low: not well-supported, answering with caveats`
-
-  const prompt = `Profile data:
-${JSON.stringify(profile, null, 2)}
-
-Question: ${question}`
 
   const { text: raw } = await generateText({
     model: getModel(),
@@ -95,7 +109,8 @@ app.get('/', async (c) => {
     if (!result.success) {
       return c.json({ error: 'Invalid query', details: result.error.format() }, 400)
     }
-    return handleQuery(c, result.data.question, result.data.context)
+    const stream = c.req.query('stream') === 'true'
+    return handleQuery(c, result.data.question, result.data.context, stream)
   }
   const url = new URL(c.req.url)
   return c.json({
@@ -103,15 +118,24 @@ app.get('/', async (c) => {
     method: 'POST',
     also_supports: 'GET ?question=',
     description: 'Ask a natural language question about this candidate.',
-    body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")' },
-    get_usage: 'GET /query?question=Your+question+here',
-    example: { question: 'What is your experience with TypeScript?' },
+    body: {
+      question: 'string (required)',
+      context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")',
+      stream: 'boolean (optional, default false)',
+    },
+    response: {
+      when_stream_false: 'application/json — { answer, confidence, sources, follow_up_suggestions, contact, meta }',
+      when_stream_true: 'text/plain — streamed plain text chunks; response body is not JSON in this mode',
+    },
+    get_usage: 'GET /query?question=Your+question+here&stream=true',
+    example: { question: 'What is your experience with TypeScript?', stream: false },
+    example_streaming: { question: 'What is your experience with TypeScript?', stream: true },
   })
 })
 
-app.post('/', zValidator('json', schema), async (c) => {
-  const { question, context } = c.req.valid('json')
-  return handleQuery(c, question, context)
+app.post('/', zValidator('json', schema.extend({ stream: z.boolean().optional() })), async (c) => {
+  const { question, context, stream } = c.req.valid('json')
+  return handleQuery(c, question, context, stream ?? false)
 })
 
 export default app
