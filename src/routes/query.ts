@@ -118,9 +118,18 @@ app.get('/', async (c) => {
     method: 'POST',
     also_supports: 'GET ?question=',
     description: 'Ask a natural language question about this candidate.',
-    body: { question: 'string (required)', context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")', stream: 'boolean (optional, default false)' },
+    body: {
+      question: 'string (required)',
+      context: 'string (optional, e.g. "ATS", "recruiter", "ai-agent")',
+      stream: 'boolean (optional, default false)',
+    },
+    response: {
+      when_stream_false: 'application/json — { answer, confidence, sources, follow_up_suggestions, contact, meta }',
+      when_stream_true: 'text/plain — streamed plain text chunks; response body is not JSON in this mode',
+    },
     get_usage: 'GET /query?question=Your+question+here&stream=true',
-    example: { question: 'What is your experience with TypeScript?' },
+    example: { question: 'What is your experience with TypeScript?', stream: false },
+    example_streaming: { question: 'What is your experience with TypeScript?', stream: true },
   })
 })
 

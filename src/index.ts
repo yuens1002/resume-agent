@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
+import crypto from 'crypto'
 
 import infoRoute from './routes/info.js'
 import availabilityRoute from './routes/availability.js'
@@ -13,6 +14,12 @@ import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
 import oauthRoute from './routes/oauth.js'
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const aDigest = crypto.createHash('sha256').update(a).digest()
+  const bDigest = crypto.createHash('sha256').update(b).digest()
+  return crypto.timingSafeEqual(aDigest, bDigest)
+}
 
 const app = new Hono({ strict: false })
 
@@ -45,8 +52,10 @@ app.use('*', async (c, next) => {
   if (c.req.method === 'OPTIONS') return next()
 
   // Owner bypass — valid API_KEY skips rate limiting entirely
-  const token = c.req.header('Authorization')?.replace('Bearer ', '')
-  if (token && token === process.env.API_KEY) return next()
+  const authHeader = c.req.header('Authorization') ?? ''
+  const match = /^bearer\s+(.+)$/i.exec(authHeader)
+  const apiKey = process.env.API_KEY
+  if (match && apiKey && timingSafeEqual(match[1], apiKey)) return next()
 
   const ip = getClientIp(c)
   const now = Date.now()
