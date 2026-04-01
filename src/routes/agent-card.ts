@@ -18,7 +18,9 @@ app.get('/', async (c) => {
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
     url: baseUrl,
+    auth: { type: 'none' },
     capabilities: ['query', 'match', 'info', 'availability', 'projects'],
+    rate_limits: { requests_per_minute: 30, scope: 'per_ip' },
     endpoints: {
       info: {
         url: `${baseUrl}/info`,
@@ -41,7 +43,18 @@ app.get('/', async (c) => {
           required: ['question'],
           properties: {
             question: { type: 'string', description: 'Natural language question about the candidate.' },
-            context: { type: 'string', description: 'Caller type hint — e.g. "ATS", "recruiter", "ai-agent".', required: false },
+            context: { type: 'string', description: 'Caller type hint — e.g. "ATS", "recruiter", "ai-agent".' },
+          },
+        },
+        output_schema: {
+          type: 'object',
+          properties: {
+            answer: { type: 'string' },
+            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+            sources: { type: 'array', items: { type: 'string' } },
+            follow_up_suggestions: { type: 'array', items: { type: 'string' } },
+            contact: { type: 'object', properties: { email: { type: 'string' }, calendly: { type: 'string' } } },
+            meta: { type: 'object', properties: { model: { type: 'string' }, latency_ms: { type: 'number' } } },
           },
         },
         example: { question: 'What is your experience with TypeScript?' },
@@ -56,6 +69,16 @@ app.get('/', async (c) => {
           required: ['job_description'],
           properties: {
             job_description: { type: 'string', description: 'Full or partial job description text.' },
+          },
+        },
+        output_schema: {
+          type: 'object',
+          properties: {
+            fit_score: { type: 'number', description: '0.0 – 1.0 weighted fit score.' },
+            matched: { type: 'array', items: { type: 'string' } },
+            gaps: { type: 'array', items: { type: 'string' } },
+            verdict: { type: 'string' },
+            recommended_action: { type: 'string', enum: ['apply', 'apply_with_framing', 'pass'] },
           },
         },
         example: { job_description: 'Senior frontend engineer, React, TypeScript, 5+ years.' },

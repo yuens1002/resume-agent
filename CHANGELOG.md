@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-01 — fix(agent-card): add output_schema, auth, rate_limits; remove invalid required: false from context property
+
 - 2026-04-01 — feat(api): add robots.txt allowlisting AI crawlers (GPTBot, ClaudeBot, Grok, etc.)
 
 - 2026-04-01 — feat(resume): use configurable RESUME_MODEL env var, default to openai/gpt-4o-mini, increase maxTokens to 4096
