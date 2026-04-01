@@ -39,20 +39,22 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
   thoughts table (private)
   public_profile table (read-only)
             |
-     -------+-------
-     |               |
-     v               v
-MCP Server      Resume Agent API
-(PRIVATE)       (PUBLIC)
+     -------+----------+-------
+     |                 |               |
+     v                 v               v
+MCP Server      job-hunt-agent    Resume Agent API
+(PRIVATE)        (LOCAL CLI)         (PUBLIC)
 
-Your AI tools   Employer AI / QR scan
-Claude Desktop  POST /query
-Cursor, etc.    GET /info
-Key-protected   GET /availability
-Full read/write GET /.well-known/agent.json
-                POST /match
-                POST /resume
-                Read-only, rate-limited
+Your AI tools   npm run apply     Employer AI / QR scan
+Claude Desktop  --jd <url>        GET /try  (→ /query demo)
+Cursor, etc.    --to <email>      POST /query
+Key-protected   --send            GET /info
+Full read/write                   GET /availability
+                POST /match       GET /.well-known/agent.json
+                POST /resume      GET /.well-known/agent-card.json
+                OB1 log           POST /match
+                                  POST /resume
+                                  Read-only, rate-limited
 ```
 
 ### Data tiers
