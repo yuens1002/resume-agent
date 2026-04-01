@@ -4,10 +4,10 @@ import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
-
-const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
 import { parseJSON } from '../lib/parse-json.js'
 import type { ResumeResponse } from '../types.js'
+
+const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
 
 const app = new Hono()
 
