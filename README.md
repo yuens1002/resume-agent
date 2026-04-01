@@ -103,7 +103,7 @@ Response (default, `stream: false`):
   "sources": ["experience.company_name", "skills.languages"],
   "follow_up_suggestions": ["..."],
   "contact": { "email": "...", "calendly": "..." },
-  "meta": { "model": "anthropic/claude-haiku-4-5-20251001", "latency_ms": 740 }
+  "meta": { "model": "anthropic/claude-haiku-4.5", "latency_ms": 740 }
 }
 ```
 
