@@ -51,10 +51,10 @@ Cursor, etc.    POST /query
 Key-protected   GET /info
 Full read/write GET /availability
                 GET /.well-known/agent.json
-                GET /.well-known/agent-card.json
+                GET /.well-known/agent-card.json (→ agent.json, 301)
                 POST /match
-                POST /resume
-                Read-only, rate-limited
+                POST /resume (owner-only, key-protected)
+                Rate-limited (public endpoints)
 ```
 
 ### Data tiers
