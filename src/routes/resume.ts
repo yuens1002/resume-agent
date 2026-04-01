@@ -7,6 +7,8 @@ import { generateText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import type { ResumeResponse } from '../types.js'
 
+const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
+
 const app = new Hono()
 
 const schema = z.object({
@@ -65,8 +67,8 @@ Target job description:
 ${job_description}`
 
   const { text: raw } = await generateText({
-    model: getModel(),
-    maxTokens: 2048,
+    model: getModel(RESUME_MODEL),
+    maxTokens: 4096,
     system: systemPrompt,
     prompt: userMessage,
   })
