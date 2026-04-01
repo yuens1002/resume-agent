@@ -44,6 +44,10 @@ app.use('*', async (c, next) => {
   // Skip OPTIONS preflights — don't count them toward the rate limit
   if (c.req.method === 'OPTIONS') return next()
 
+  // Owner bypass — valid API_KEY skips rate limiting entirely
+  const token = c.req.header('Authorization')?.replace('Bearer ', '')
+  if (token && token === process.env.API_KEY) return next()
+
   const ip = getClientIp(c)
   const now = Date.now()
   const windowMs = 60_000
@@ -68,6 +72,7 @@ app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
 app.route('/.well-known/agent.json', agentCardRoute)
 app.get('/.well-known/agent-card.json', (c) => c.redirect('/.well-known/agent.json', 301))
+app.get('/try', (c) => c.redirect('/query?question=Tell+me+about+yourself&stream=true', 302))
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 app.route('/mcp', mcpRoute)
@@ -80,7 +85,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /.well-known/agent.json')
+  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent.json')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS)')
 })
