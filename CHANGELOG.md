@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-01 — fix(config): correct OpenRouter model IDs to dot-notation format (claude-haiku-4.5, claude-sonnet-4.6)
+
 - 2026-04-01 — feat(query): add streaming support and owner rate-limit bypass, add /try demo redirect
 
 - 2026-04-01 — refactor(ai): consolidate all providers to OpenRouter, remove @ai-sdk/anthropic and @ai-sdk/google
