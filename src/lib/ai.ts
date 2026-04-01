@@ -1,23 +1,17 @@
 import './env.js'
-import { anthropic } from '@ai-sdk/anthropic'
-import { openai } from '@ai-sdk/openai'
-import { google } from '@ai-sdk/google'
+import { createOpenAI } from '@ai-sdk/openai'
 import type { LanguageModel } from 'ai'
 
-const PROVIDER = process.env.AI_PROVIDER ?? 'anthropic'
-const MODEL = process.env.AI_MODEL ?? 'claude-haiku-4-5-20251001'
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+if (!OPENROUTER_API_KEY) throw new Error('Missing OPENROUTER_API_KEY')
+
+export const MODEL = process.env.AI_MODEL ?? 'anthropic/claude-haiku-4-5-20251001'
+
+export const openrouter = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: OPENROUTER_API_KEY,
+})
 
 export function getModel(modelOverride?: string): LanguageModel {
-  const model = modelOverride ?? MODEL
-  switch (PROVIDER) {
-    case 'openai':
-      return openai(model)
-    case 'google':
-      return google(model)
-    case 'anthropic':
-    default:
-      return anthropic(model)
-  }
+  return openrouter(modelOverride ?? MODEL)
 }
-
-export { PROVIDER, MODEL }
