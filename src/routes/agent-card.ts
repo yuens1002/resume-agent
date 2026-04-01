@@ -44,10 +44,13 @@ app.get('/', async (c) => {
           properties: {
             question: { type: 'string', description: 'Natural language question about the candidate.' },
             context: { type: 'string', description: 'Caller type hint — e.g. "ATS", "recruiter", "ai-agent".' },
+            stream: { type: 'boolean', description: 'If true, returns text/plain streaming chunks instead of JSON. Default false.' },
           },
         },
         output_schema: {
           type: 'object',
+          description: 'Applies when stream is false (default). When stream is true, response is text/plain streaming chunks.',
+          required: ['answer', 'confidence', 'sources', 'follow_up_suggestions', 'contact', 'meta'],
           properties: {
             answer: { type: 'string' },
             confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
@@ -73,12 +76,21 @@ app.get('/', async (c) => {
         },
         output_schema: {
           type: 'object',
+          required: ['fit_score', 'matched', 'gaps', 'verdict', 'recommended_action', 'scoring'],
           properties: {
             fit_score: { type: 'number', description: '0.0 – 1.0 weighted fit score.' },
             matched: { type: 'array', items: { type: 'string' } },
             gaps: { type: 'array', items: { type: 'string' } },
             verdict: { type: 'string' },
-            recommended_action: { type: 'string', enum: ['apply', 'apply_with_framing', 'pass'] },
+            recommended_action: { type: 'string', enum: ['apply', 'apply-with-tailoring', 'pass'] },
+            scoring: {
+              type: 'object',
+              properties: {
+                skills: { type: 'object', properties: { matched: { type: 'array', items: { type: 'string' } }, partial: { type: 'array', items: { type: 'string' } }, missing: { type: 'array', items: { type: 'string' } }, score: { type: 'number' } } },
+                experience: { type: 'object', properties: { years: { type: 'number' }, scope: { type: 'number' }, recency: { type: 'number' }, score: { type: 'number' } } },
+                domain: { type: 'object', properties: { industry: { type: 'number' }, product_type: { type: 'number' }, scale: { type: 'number' }, score: { type: 'number' } } },
+              },
+            },
           },
         },
         example: { job_description: 'Senior frontend engineer, React, TypeScript, 5+ years.' },
