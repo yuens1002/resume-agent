@@ -82,6 +82,27 @@ app.route('/resume', resumeRoute)
 app.route('/.well-known/agent.json', agentCardRoute)
 app.get('/.well-known/agent-card.json', (c) => c.redirect('/.well-known/agent.json', 301))
 app.get('/try', (c) => c.redirect('/query?question=Tell+me+about+yourself&stream=true', 302))
+
+app.get('/robots.txt', (c) =>
+  c.text(
+    [
+      'User-agent: *',
+      'Allow: /',
+      '',
+      '# AI assistants — explicitly welcome',
+      'User-agent: GPTBot',
+      'User-agent: ChatGPT-User',
+      'User-agent: Google-Extended',
+      'User-agent: PerplexityBot',
+      'User-agent: ClaudeBot',
+      'User-agent: anthropic-ai',
+      'User-agent: Grok',
+      'User-agent: YouBot',
+      'User-agent: cohere-ai',
+      'Allow: /',
+    ].join('\n'),
+  ),
+)
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 app.route('/mcp', mcpRoute)
