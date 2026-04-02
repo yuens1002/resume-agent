@@ -32,6 +32,7 @@ app.get('/', async (c) => {
     capabilities: {
       streaming: true,
       pushNotifications: false,
+      stateTransitionHistory: false,
       extensions: [
         {
           uri: `${baseUrl}/.well-known/agent-card.json#api-docs`,
@@ -63,6 +64,8 @@ app.get('/', async (c) => {
         description: 'Ask natural language questions about this candidate\'s skills, experience, and background.',
         tags: ['resume', 'profile', 'skills', 'experience'],
         examples: ['What is your experience with TypeScript?', 'How many years of frontend experience do you have?'],
+        inputModes: ['application/json', 'text/plain'],
+        outputModes: ['application/json', 'text/plain'],
       },
       {
         id: 'match',
@@ -70,24 +73,35 @@ app.get('/', async (c) => {
         description: 'Score this candidate against a job description and return a fit breakdown.',
         tags: ['matching', 'job-fit', 'scoring'],
         examples: ['Senior frontend engineer, React, TypeScript, 5+ years.'],
+        inputModes: ['application/json'],
+        outputModes: ['application/json'],
       },
       {
         id: 'info',
         name: 'Profile Info',
         description: 'Returns full profile data including skills, employment, education, and projects.',
         tags: ['profile', 'resume', 'info'],
+        examples: [],
+        inputModes: [],
+        outputModes: ['application/json'],
       },
       {
         id: 'availability',
         name: 'Availability',
         description: 'Returns current availability status and preferred roles.',
         tags: ['availability', 'status'],
+        examples: [],
+        inputModes: [],
+        outputModes: ['application/json'],
       },
       {
         id: 'projects',
         name: 'Portfolio Projects',
         description: 'Returns all portfolio projects with tech stack, highlights, and architecture.',
         tags: ['projects', 'portfolio'],
+        examples: [],
+        inputModes: [],
+        outputModes: ['application/json'],
       },
     ],
   })
