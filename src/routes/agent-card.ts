@@ -25,8 +25,8 @@ app.get('/', async (c) => {
       },
     ],
     provider: {
-      name: data?.contact?.name ?? 'Resume Agent',
-      homepage: process.env.PROVIDER_HOMEPAGE,
+      organization: data?.contact?.name ?? 'Resume Agent',
+      url: process.env.PROVIDER_HOMEPAGE,
       contact: data?.contact?.email,
     },
     capabilities: {
