@@ -72,7 +72,62 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 ## Public API endpoints
 
 ### `GET /.well-known/agent-card.json`
-A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent.json` redirects here (301). AI systems use this to autodiscover the agent's supported interfaces, capabilities, and skills. The card includes `supportedInterfaces` (url, protocolBinding, protocolVersion), `provider`, `capabilities` (streaming, pushNotifications, extensions), `defaultInputModes`, `defaultOutputModes`, and a `skills` array — each skill with `id`, `name`, `description`, and `tags` as required by the A2A protocol spec. Custom metadata (rate limits, endpoints, contact) is nested under `capabilities.extensions`.
+A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent.json` redirects here (301).
+
+```json
+{
+  "name": "<from Supabase public_profile.contact.name>",
+  "description": "...",
+  "version": "1.0.0",
+  "supportedInterfaces": [
+    {
+      "url": "<PUBLIC_URL env var, falls back to request origin>",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "provider": {
+    "organization": "<from Supabase public_profile.contact.name>",
+    "url": "<PROVIDER_HOMEPAGE env var>",
+    "contact": "<from Supabase public_profile.contact.email>"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "extensions": [
+      {
+        "uri": "<baseUrl>/.well-known/agent-card.json#api-docs",
+        "description": "Custom API documentation, rate limits, and contact metadata.",
+        "required": false,
+        "params": {
+          "rate_limits": { "requests_per_minute": 30, "scope": "per_ip" },
+          "contact": { "email": "...", "calendly": "..." },
+          "endpoints": {
+            "info":         { "url": "<baseUrl>/info",         "method": "GET"  },
+            "availability": { "url": "<baseUrl>/availability", "method": "GET"  },
+            "query":        { "url": "<baseUrl>/query",        "method": "POST" },
+            "match":        { "url": "<baseUrl>/match",        "method": "POST" },
+            "projects":     { "url": "<baseUrl>/projects",     "method": "GET"  }
+          }
+        }
+      }
+    ]
+  },
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "query",
+      "name": "Query Profile",
+      "description": "Ask natural language questions about this candidate's skills, experience, and background.",
+      "tags": ["resume", "profile", "skills", "experience"],
+      "examples": ["What is your experience with TypeScript?", "..."]
+    }
+  ]
+}
+```
+
+> **Note on `provider` field names:** The [official A2A proto spec](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto) uses `provider.name` and `provider.homepage`. The a2aregistry.org validator requires `provider.organization` and `provider.url` (both required). This card uses the registry's schema. See [Schema discrepancies](#schema-discrepancies) below.
 
 ### `GET /info`
 Full structured profile snapshot. Skills, experience, projects, education. No Claude call — raw data from `public_profile`. Fast, cacheable, suitable for ATS systems that want facts without NL processing.
@@ -275,6 +330,19 @@ Visit the registry, find the register/submit option, and enter your `/.well-know
 
 ### [prassanna-ravishankar/a2a-registry](https://github.com/prassanna-ravishankar/a2a-registry) — GitHub PR
 Community-driven open-source directory. Open a PR adding your agent card URL to their directory.
+
+### Schema discrepancies
+
+The A2A ecosystem has multiple validators and registries, and they don't all agree with the [official proto spec](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto). Known differences as of April 2026:
+
+| Field | Official proto spec | a2aregistry.org validator |
+|---|---|---|
+| Provider name | `provider.name` (required) | `provider.organization` (required) |
+| Provider website | `provider.homepage` (optional) | `provider.url` (**required**) |
+| Interface array | `supportedInterfaces` (required) | not validated |
+| Skill input/output | `inputModes` / `outputModes` | not validated |
+
+This card uses `provider.organization` and `provider.url` to satisfy the registry. The `PROVIDER_HOMEPAGE` env var maps to `provider.url` — it must be set or the registry will reject the card.
 
 ---
 
