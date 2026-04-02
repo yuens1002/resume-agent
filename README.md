@@ -1,8 +1,8 @@
 # resume-agent
 
-[![Agent QR Code](qr.png)](https://agent.yuens.me/.well-known/agent.json)
+[![Agent QR Code](qr.png)](https://agent.yuens.me/.well-known/agent-card.json)
 
-> Scan to load the live agent card — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me/.well-known/agent.json).
+> Scan to load the live agent card — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me/.well-known/agent-card.json).
 
 A machine-queryable AI agent that represents a professional profile. No UI. Two access tiers: a public HTTP API for employer AI systems, and a private MCP server for personal interaction.
 
@@ -50,8 +50,8 @@ Claude Desktop  GET /try  (→ /query demo)
 Cursor, etc.    POST /query
 Key-protected   GET /info
 Full read/write GET /availability
-                GET /.well-known/agent.json
-                GET /.well-known/agent-card.json (→ agent.json, 301)
+                GET /.well-known/agent-card.json
+                GET /.well-known/agent.json (→ agent-card.json, 301)
                 POST /match
                 POST /resume (owner-only, key-protected)
                 Rate-limited (public endpoints)
@@ -71,8 +71,8 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 
 ## Public API endpoints
 
-### `GET /.well-known/agent.json`
-A2A-compliant agent card. The QR code points here. AI systems use this to autodiscover the query endpoint, capabilities, and contact info. The card includes `capabilities` (streaming, push notifications, state history), `defaultInputModes`, `defaultOutputModes`, and a `skills` array describing each agent capability — all required by the A2A protocol spec.
+### `GET /.well-known/agent-card.json`
+A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent.json` redirects here (301). AI systems use this to autodiscover the agent's supported interfaces, capabilities, and skills. The card includes `supportedInterfaces` (url, protocolBinding, protocolVersion), `provider`, `capabilities` (streaming, pushNotifications, extensions), `defaultInputModes`, `defaultOutputModes`, and a `skills` array — each skill with `id`, `name`, `description`, and `tags` as required by the A2A protocol spec. Custom metadata (rate limits, endpoints, contact) is nested under `capabilities.extensions`.
 
 ### `GET /info`
 Full structured profile snapshot. Skills, experience, projects, education. No Claude call — raw data from `public_profile`. Fast, cacheable, suitable for ATS systems that want facts without NL processing.
@@ -219,7 +219,7 @@ Then in Claude:
 | Private interface | MCP (Model Context Protocol) via OB1 |
 | Validation | Zod |
 | Deployment | Railway |
-| Agent discovery | A2A agent card spec (`/.well-known/agent.json`) |
+| Agent discovery | A2A v1.0 agent card spec (`/.well-known/agent-card.json`) |
 
 ---
 
@@ -254,7 +254,27 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 7. `npm run dev`
 8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
-10. Generate a QR code pointing to `https://your-domain/.well-known/agent.json`
+10. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
+
+---
+
+## Submitting to A2A registries
+
+Once your instance is live and `/.well-known/agent-card.json` is reachable, submit to any of these:
+
+### [a2aregistry.org](https://a2aregistry.org) — API
+```bash
+curl -X POST https://a2aregistry.org/api/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"wellKnownURI": "https://your-domain/.well-known/agent-card.json"}'
+```
+The registry fetches your card and validates it. Conformance status is re-checked every 30 minutes.
+
+### [a2agent.net](https://a2agent.net/agent-registry) — UI
+Visit the registry, find the register/submit option, and enter your `/.well-known/agent-card.json` URL.
+
+### [prassanna-ravishankar/a2a-registry](https://github.com/prassanna-ravishankar/a2a-registry) — GitHub PR
+Community-driven open-source directory. Open a PR adding your agent card URL to their directory.
 
 ---
 

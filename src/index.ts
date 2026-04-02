@@ -79,8 +79,8 @@ app.route('/availability', availabilityRoute)
 app.route('/query', queryRoute)
 app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
-app.route('/.well-known/agent.json', agentCardRoute)
-app.get('/.well-known/agent-card.json', (c) => c.redirect('/.well-known/agent.json', 301))
+app.route('/.well-known/agent-card.json', agentCardRoute)
+app.get('/.well-known/agent.json', (c) => c.redirect('/.well-known/agent-card.json', 301))
 app.get('/try', (c) => c.redirect('/query?question=Tell+me+about+yourself&stream=true', 302))
 
 app.get('/robots.txt', (c) =>
@@ -115,7 +115,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent.json')
+  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json (agent.json → 301)')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS)')
 })
