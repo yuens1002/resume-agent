@@ -14,11 +14,10 @@ app.get('/', async (c) => {
   const baseUrl = process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
 
   return c.json({
-    schema_version: '1.1',
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
     url: baseUrl,
-    auth: { type: 'none' },
+    version: '1.0.0',
     capabilities: {
       streaming: true,
       pushNotifications: false,

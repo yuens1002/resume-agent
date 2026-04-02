@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-02 — fix(agent-card): add required `version` field, remove non-spec `schema_version` and `auth` fields per A2A protocol spec
+
 - 2026-04-02 — fix(agent-card): conform capabilities to A2A protocol spec (object with streaming/pushNotifications/stateTransitionHistory), add required defaultInputModes, defaultOutputModes, and skills fields
 
 - 2026-04-01 — fix(agent-card): add output_schema, auth, rate_limits; remove invalid required: false from context property
