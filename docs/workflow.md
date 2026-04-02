@@ -11,10 +11,10 @@ An AI system or recruiter tool can interact with the agent entirely through HTTP
 ### Step 1 — Discover the agent
 
 ```
-GET https://your-agent.example.com/.well-known/agent.json
+GET https://your-agent.example.com/.well-known/agent-card.json
 ```
 
-Returns an A2A-compliant agent card: name, capabilities, full endpoint catalog with schemas and examples, and contact info. Designed to be machine-parseable so AI systems can learn what to call and how.
+Returns an A2A v1.0-compliant agent card: name, version, `supportedInterfaces` (url + protocol binding + protocol version), `provider`, `capabilities`, `defaultInputModes`, `defaultOutputModes`, and a `skills` array. Designed to be machine-parseable so AI systems can learn what to call and how. `/.well-known/agent.json` also works via a 301 redirect.
 
 ### Step 2 — Read the profile
 
@@ -181,7 +181,7 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 | Cursor / AI coding assistants | ✅ Works | Via MCP or manual HTTP calls |
 | Custom employer AI agent | ✅ Works | If they're given the agent card URL to target |
 | Consumer phone AI apps (Gemini, ChatGPT) | ❌ No HTTP | These apps have no mechanism to make GET/POST requests |
-| A2A auto-discovery | ❌ Not yet | No mainstream consumer app supports `/.well-known/agent.json` discovery |
+| A2A auto-discovery | ❌ Not yet | No mainstream consumer app supports `/.well-known/agent-card.json` discovery |
 | Fabricated responses | ⚠️ Common | Apps that can't call the API often hallucinate a plausible-sounding profile instead |
 
 **The practical gap:** Most consumer AI apps — the ones a recruiter might open on their phone — cannot make outbound HTTP requests. They'll either fail silently or invent a scenario ("this candidate would be...") rather than querying the real data. The conversational interview experience the agent card enables doesn't work in these contexts.
@@ -194,7 +194,7 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 
 Since auto-discovery doesn't work in consumer apps, the fallback is manual but still useful:
 
-1. QR code → `https://your-agent.example.com/.well-known/agent.json`
+1. QR code → `https://your-agent.example.com/.well-known/agent-card.json`
 2. Scan surfaces the full agent card JSON
 3. Paste the card into any AI conversation as context
 4. Ask questions — the AI reasons over the structured profile without needing to call the API
