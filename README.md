@@ -340,7 +340,9 @@ The A2A ecosystem has multiple validators and registries, and they don't all agr
 | Provider name | `provider.name` (required) | `provider.organization` (required) |
 | Provider website | `provider.homepage` (optional) | `provider.url` (**required**) |
 | Interface array | `supportedInterfaces` (required) | not validated |
-| Skill input/output | `inputModes` / `outputModes` | not validated |
+| Skill input/output modes | `inputModes` / `outputModes` (optional) | **required** lists (can be empty) |
+| Skill examples | `examples` (optional) | **required** list (can be empty) |
+| `capabilities.stateTransitionHistory` | not in spec | **required** boolean |
 
 This card uses `provider.organization` and `provider.url` to satisfy the registry. The `PROVIDER_HOMEPAGE` env var maps to `provider.url` — it must be set or the registry will reject the card.
 
