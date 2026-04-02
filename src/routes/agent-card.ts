@@ -11,7 +11,7 @@ app.get('/', async (c) => {
     .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
-  const baseUrl = process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
+  const baseUrl = process.env.PUBLIC_URL ?? new URL(c.req.url).origin
 
   return c.json({
     name: data?.contact?.name ?? 'Resume Agent',
