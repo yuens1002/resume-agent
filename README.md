@@ -72,7 +72,7 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 ## Public API endpoints
 
 ### `GET /.well-known/agent.json`
-A2A-compliant agent card. The QR code points here. AI systems use this to autodiscover the query endpoint, capabilities, and contact info.
+A2A-compliant agent card. The QR code points here. AI systems use this to autodiscover the query endpoint, capabilities, and contact info. The card includes `capabilities` (streaming, push notifications, state history), `defaultInputModes`, `defaultOutputModes`, and a `skills` array describing each agent capability — all required by the A2A protocol spec.
 
 ### `GET /info`
 Full structured profile snapshot. Skills, experience, projects, education. No Claude call — raw data from `public_profile`. Fast, cacheable, suitable for ATS systems that want facts without NL processing.

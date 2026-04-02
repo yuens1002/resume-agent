@@ -19,7 +19,47 @@ app.get('/', async (c) => {
     description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
     url: baseUrl,
     auth: { type: 'none' },
-    capabilities: ['query', 'match', 'info', 'availability', 'projects'],
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      stateTransitionHistory: false,
+    },
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json', 'text/plain'],
+    skills: [
+      {
+        id: 'query',
+        name: 'Query Profile',
+        description: 'Ask natural language questions about this candidate\'s skills, experience, and background.',
+        tags: ['resume', 'profile', 'skills', 'experience'],
+        examples: ['What is your experience with TypeScript?', 'How many years of frontend experience do you have?'],
+      },
+      {
+        id: 'match',
+        name: 'Job Match',
+        description: 'Score this candidate against a job description and return a fit breakdown.',
+        tags: ['matching', 'job-fit', 'scoring'],
+        examples: ['Senior frontend engineer, React, TypeScript, 5+ years.'],
+      },
+      {
+        id: 'info',
+        name: 'Profile Info',
+        description: 'Returns full profile data including skills, employment, education, and projects.',
+        tags: ['profile', 'resume', 'info'],
+      },
+      {
+        id: 'availability',
+        name: 'Availability',
+        description: 'Returns current availability status and preferred roles.',
+        tags: ['availability', 'status'],
+      },
+      {
+        id: 'projects',
+        name: 'Portfolio Projects',
+        description: 'Returns all portfolio projects with tech stack, highlights, and architecture.',
+        tags: ['projects', 'portfolio'],
+      },
+    ],
     rate_limits: { requests_per_minute: 30, scope: 'per_ip' },
     endpoints: {
       info: {
