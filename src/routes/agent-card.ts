@@ -20,12 +20,12 @@ app.get('/', async (c) => {
     url: baseUrl,
     auth: { type: 'none' },
     capabilities: {
-      streaming: false,
+      streaming: true,
       pushNotifications: false,
       stateTransitionHistory: false,
     },
-    defaultInputModes: ['text/plain'],
-    defaultOutputModes: ['application/json'],
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json', 'text/plain'],
     skills: [
       {
         id: 'query',
