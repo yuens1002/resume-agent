@@ -742,7 +742,7 @@ const ALLOWED_ORIGINS = new Set([
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS, DELETE',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
 } as const
 
 function checkOrigin(c: Context): Response | null {
@@ -773,6 +773,31 @@ async function authenticate(c: Context): Promise<boolean> {
   return false
 }
 
+// ── Session management ────────────────────────────────────
+// SSE transport — sessions are persistent; cached by mcp-session-id with 10-minute TTL.
+// Single Railway replica required for session affinity (see railway.toml).
+
+interface McpSession {
+  server: McpServer
+  transport: StreamableHTTPTransport
+  lastUsed: number
+}
+
+const sessions = new Map<string, McpSession>()
+const SESSION_TTL_MS = 10 * 60_000
+
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, session] of sessions) {
+    if (now - session.lastUsed > SESSION_TTL_MS) {
+      session.transport.close?.()
+      sessions.delete(id)
+    }
+  }
+}, 5 * 60_000)
+
+// ── Routes ────────────────────────────────────────────────
+
 const mcpRoute = new Hono()
 
 // CORS preflight
@@ -782,25 +807,45 @@ mcpRoute.options('*', (c) => {
   return c.text('ok', 200, corsHeaders)
 })
 
-// GET — this server uses JSON response mode (no SSE); return 405 per MCP spec
-mcpRoute.get('*', (c) => {
+// GET — opens the SSE stream for an existing session
+mcpRoute.get('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
-  return c.json(
-    { error: 'Method not allowed — server operates in JSON response mode, not SSE' },
-    405,
-    { ...corsHeaders, Allow: 'POST, OPTIONS, DELETE' }
-  )
+
+  if (!await authenticate(c)) {
+    return c.json({ error: 'Invalid or missing credentials' }, 401, corsHeaders)
+  }
+
+  const sessionId = c.req.header('mcp-session-id')
+  const session = sessionId ? sessions.get(sessionId) : undefined
+  if (!session) {
+    return c.json({ error: 'Session not found — initiate with a POST first' }, 404, corsHeaders)
+  }
+
+  session.lastUsed = Date.now()
+  const response = await session.transport.handleRequest(c)
+  if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
+  for (const [key, value] of Object.entries(corsHeaders)) {
+    response.headers.set(key, value)
+  }
+  return response
 })
 
-// DELETE — stateless server, no sessions to track; acknowledge and return 200
+// DELETE — tear down session and close the SSE stream
 mcpRoute.delete('*', (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
+
+  const sessionId = c.req.header('mcp-session-id')
+  if (sessionId) {
+    const session = sessions.get(sessionId)
+    session?.transport.close?.()
+    sessions.delete(sessionId)
+  }
   return c.body(null, 200, corsHeaders)
 })
 
-// POST — main MCP handler
+// POST — initialize or resume session, then handle the MCP request
 mcpRoute.post('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
@@ -816,12 +861,27 @@ mcpRoute.post('*', async (c) => {
     })
   }
 
-  const server = buildServer()
-  const transport = new StreamableHTTPTransport({ enableJsonResponse: true })
-  await server.connect(transport)
+  const incomingSessionId = c.req.header('mcp-session-id')
+  let session = incomingSessionId ? sessions.get(incomingSessionId) : undefined
 
-  const response = await transport.handleRequest(c)
+  if (!session) {
+    const server = buildServer()
+    const transport = new StreamableHTTPTransport()
+    await server.connect(transport)
+    session = { server, transport, lastUsed: Date.now() }
+  }
+
+  session.lastUsed = Date.now()
+
+  const response = await session.transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
+
+  // Cache by the session ID the transport assigns on initialization
+  const assignedId = response.headers.get('mcp-session-id')
+  if (assignedId && !sessions.has(assignedId)) {
+    sessions.set(assignedId, session)
+  }
+
   for (const [key, value] of Object.entries(corsHeaders)) {
     response.headers.set(key, value)
   }
