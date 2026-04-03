@@ -1,3 +1,19 @@
+/**
+ * BACKUP / EMERGENCY RECOVERY — Supabase Edge Function MCP Server
+ *
+ * This Edge Function is intentionally kept as a standby.
+ * It is NOT the primary MCP server — that runs on Railway (src/routes/mcp.ts)
+ * with SSE streaming transport for reliable session handling.
+ *
+ * Reinstate this if Railway goes down or the primary MCP server becomes
+ * unavailable. It provides JSON-response-mode (stateless) MCP access as a
+ * read-compatible fallback. Long-lived SSE sessions are not possible here
+ * (Edge Functions have aggressive cold-start and connection limits), so
+ * treat this as a read-only / degraded-mode emergency endpoint only.
+ *
+ * To activate: re-deploy to Supabase and point Claude connectors at the
+ * Supabase Edge Function URL instead of the Railway URL.
+ */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

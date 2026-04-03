@@ -1,3 +1,15 @@
+/**
+ * BACKUP / EMERGENCY RECOVERY — Supabase Edge Function OAuth Token Endpoint
+ *
+ * This Edge Function is intentionally kept as a standby.
+ * It is NOT the primary OAuth server — that runs on Railway (src/routes/oauth.ts).
+ *
+ * Reinstate this if Railway goes down and OAuth token issuance needs to continue.
+ * Handles the client_credentials grant for claude.ai custom connectors.
+ *
+ * To activate: re-deploy to Supabase and update the token endpoint URL in
+ * the claude.ai custom connector settings and /.well-known/oauth-authorization-server.
+ */
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { Hono } from "hono";
 import { SignJWT } from "jose";
