@@ -247,7 +247,7 @@ If you prefer a direct connection bypassing OAuth, add to `claude_desktop_config
         "mcp-remote",
         "https://your-agent-domain.com/mcp",
         "--header",
-        "x-brain-key:YOUR_MCP_ACCESS_KEY"
+        "x-brain-key:YOUR_OPEN_BRAIN_KEY"
       ]
     }
   }

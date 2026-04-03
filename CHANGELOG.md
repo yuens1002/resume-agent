@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-03 — chore(config): rename MCP_ACCESS_KEY to OPEN_BRAIN_KEY across all files and tests
+
 - 2026-04-03 — feat(resume): add optional framing_hints parameter to /resume endpoint
 
 - 2026-04-03 — feat(mcp): switch to SSE streaming transport — session map with 10-min TTL, GET stream handler, proper DELETE teardown, numReplicas=1 in railway.toml

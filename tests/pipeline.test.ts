@@ -1,12 +1,12 @@
 /**
  * Job Hunt Pipeline — integration tests
  *
- * Calls the live OB1 MCP Edge Function over HTTP, exercising all 7 pipeline
+ * Calls the live OB1 MCP server (Railway) over HTTP, exercising all 7 pipeline
  * tools end-to-end against the real Supabase database.
  *
  * Requirements:
- *   SUPABASE_MCP_URL   — e.g. https://<ref>.supabase.co/functions/v1/open-brain-mcp
- *   MCP_ACCESS_KEY     — the x-brain-key value
+ *   MCP_URL        — e.g. https://agent.yuens.me/mcp (or http://localhost:3000/mcp)
+ *   OPEN_BRAIN_KEY — the x-brain-key value
  *
  * Run:
  *   npm run test:integration
@@ -15,14 +15,15 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "dotenv";
+import { createMcpClient } from "./helpers/mcp.js";
 
 config({ path: ".env.local" });
 
-const MCP_URL = process.env.SUPABASE_MCP_URL;
-const MCP_KEY = process.env.MCP_ACCESS_KEY;
+const MCP_URL = process.env.MCP_URL ?? `http://localhost:${process.env.PORT ?? 3000}/mcp`;
+const MCP_KEY = process.env.OPEN_BRAIN_KEY;
 
-if (!MCP_URL || !MCP_KEY) {
-  throw new Error("SUPABASE_MCP_URL and MCP_ACCESS_KEY must be set in .env.local");
+if (!MCP_KEY) {
+  throw new Error("OPEN_BRAIN_KEY must be set in .env.local");
 }
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL;
@@ -31,56 +32,9 @@ if (!SUPA_URL || !SUPA_ROLE_KEY) {
   throw new Error("SUPA_PROJECT_URL and SUPA_SERVICE_ROLE must be set in .env.local (required for test cleanup)");
 }
 
-// ── MCP JSON-RPC helper ───────────────────────────────────
+// ── MCP helper ───────────────────────────────────────────
 
-let sessionId: string | undefined;
-
-async function callTool(name: string, args: Record<string, unknown> = {}) {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-    "x-brain-key": MCP_KEY!,
-  };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: { name, arguments: args },
-  });
-
-  const res = await fetch(MCP_URL!, { method: "POST", headers, body });
-
-  if (!sessionId) {
-    sessionId = res.headers.get("mcp-session-id") ?? undefined;
-  }
-
-  const text = await res.text();
-
-  // SSE response: extract the last `data:` line that contains a JSON-RPC result
-  if (text.includes("data:")) {
-    const lines = text.split("\n").filter((l) => l.startsWith("data:"));
-    for (const line of lines.reverse()) {
-      try {
-        const payload = JSON.parse(line.slice(5).trim());
-        if (payload.result) return payload.result;
-        if (payload.error) throw new Error(JSON.stringify(payload.error));
-      } catch {
-        /* skip non-JSON lines */
-      }
-    }
-    throw new Error(`No result in SSE response: ${text.slice(0, 200)}`);
-  }
-
-  const payload = JSON.parse(text);
-  if (payload.error) throw new Error(JSON.stringify(payload.error));
-  return payload.result;
-}
-
-function getText(result: { content: { type: string; text: string }[] }): string {
-  return result.content.map((c: { type: string; text: string }) => c.text).join("\n");
-}
+const { callTool, getText } = createMcpClient(MCP_URL, MCP_KEY!);
 
 // ── Test state ────────────────────────────────────────────
 

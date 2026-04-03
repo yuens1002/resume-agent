@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server'
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
-import crypto from 'crypto'
+import { timingSafeEqual } from './lib/crypto.js'
 
 import infoRoute from './routes/info.js'
 import availabilityRoute from './routes/availability.js'
@@ -15,11 +15,6 @@ import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
 import oauthRoute from './routes/oauth.js'
 
-function timingSafeEqual(a: string, b: string): boolean {
-  const aDigest = crypto.createHash('sha256').update(a).digest()
-  const bDigest = crypto.createHash('sha256').update(b).digest()
-  return crypto.timingSafeEqual(aDigest, bDigest)
-}
 
 const app = new Hono({ strict: false })
 

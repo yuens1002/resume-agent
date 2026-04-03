@@ -26,7 +26,7 @@ import { jwtVerify } from "jose";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
-const MCP_ACCESS_KEY = Deno.env.get("MCP_ACCESS_KEY")!;
+const OPEN_BRAIN_KEY = Deno.env.get("OPEN_BRAIN_KEY")!;
 const JWT_SECRET = Deno.env.get("JWT_SECRET");
 const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 
@@ -1030,7 +1030,7 @@ app.all("*", async (c) => {
 
   let authenticated = false;
 
-  if (brainKey && brainKey === MCP_ACCESS_KEY) {
+  if (brainKey && brainKey === OPEN_BRAIN_KEY) {
     authenticated = true;
   } else if (bearerToken && jwtSecretBytes) {
     try {
