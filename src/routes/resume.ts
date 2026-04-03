@@ -13,7 +13,7 @@ const app = new Hono()
 
 const schema = z.object({
   job_description: z.string().min(1),
-  framing_hints: z.array(z.string()).optional(),
+  framing_hints: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
 })
 
 // Private endpoint — requires Authorization: Bearer header
@@ -68,7 +68,7 @@ Target job description:
 ${job_description}`
 
   if (framing_hints?.length) {
-    userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h}`).join('\n')}`
+    userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h.replace(/\n+/g, ' ')}`).join('\n')}`
   }
 
   const { text: raw } = await generateText({
