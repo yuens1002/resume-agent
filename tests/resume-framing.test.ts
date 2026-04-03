@@ -11,7 +11,9 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { z } from 'zod'
 
-// ── Schema (mirrors src/routes/resume.ts) ─────────────────
+// ── Schema (copied from src/routes/resume.ts for isolation) ──────────────
+// Partial mirror — only covers framing_hints injection logic, not the full
+// route handler. If the schema or prompt builder changes in the route, update here.
 
 const schema = z.object({
   job_description: z.string().min(1),

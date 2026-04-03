@@ -1,4 +1,5 @@
 import '../lib/env.js'
+import { timingSafeEqual } from '../lib/crypto.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono, type Context } from 'hono'
@@ -759,7 +760,7 @@ function checkOrigin(c: Context): Response | null {
 
 async function authenticate(c: Context): Promise<boolean> {
   const brainKey = c.req.header('x-brain-key')
-  if (brainKey && brainKey === OPEN_BRAIN_KEY) return true
+  if (brainKey && timingSafeEqual(brainKey, OPEN_BRAIN_KEY!)) return true
 
   const authHeader = c.req.header('authorization') ?? ''
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
