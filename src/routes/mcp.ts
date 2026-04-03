@@ -743,6 +743,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
+  'Access-Control-Expose-Headers': 'mcp-session-id',
 } as const
 
 function checkOrigin(c: Context): Response | null {
@@ -771,6 +772,17 @@ async function authenticate(c: Context): Promise<boolean> {
     }
   }
   return false
+}
+
+function unauthorized(c: Context): Response {
+  const baseUrl = process.env.PUBLIC_URL
+    ? new URL(process.env.PUBLIC_URL)
+    : new URL(c.req.url)
+  const resourceMetadataUrl = new URL('/.well-known/oauth-protected-resource', baseUrl).toString()
+  return c.json({ error: 'Invalid or missing credentials' }, 401, {
+    ...corsHeaders,
+    'WWW-Authenticate': `Bearer realm="${baseUrl.origin}", resource_metadata="${resourceMetadataUrl}"`,
+  }) as Response
 }
 
 // ── Session management ────────────────────────────────────
@@ -812,9 +824,7 @@ mcpRoute.get('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
 
-  if (!await authenticate(c)) {
-    return c.json({ error: 'Invalid or missing credentials' }, 401, corsHeaders)
-  }
+  if (!await authenticate(c)) return unauthorized(c)
 
   const sessionId = c.req.header('mcp-session-id')
   const session = sessionId ? sessions.get(sessionId) : undefined
@@ -832,9 +842,11 @@ mcpRoute.get('*', async (c) => {
 })
 
 // DELETE — tear down session and close the SSE stream
-mcpRoute.delete('*', (c) => {
+mcpRoute.delete('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
+
+  if (!await authenticate(c)) return unauthorized(c)
 
   const sessionId = c.req.header('mcp-session-id')
   if (sessionId) {
@@ -850,16 +862,7 @@ mcpRoute.post('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
 
-  if (!await authenticate(c)) {
-    const baseUrl = process.env.PUBLIC_URL
-      ? new URL(process.env.PUBLIC_URL)
-      : new URL(c.req.url)
-    const resourceMetadataUrl = new URL('/.well-known/oauth-protected-resource', baseUrl).toString()
-    return c.json({ error: 'Invalid or missing credentials' }, 401, {
-      ...corsHeaders,
-      'WWW-Authenticate': `Bearer realm="${baseUrl.origin}", resource_metadata="${resourceMetadataUrl}"`,
-    })
-  }
+  if (!await authenticate(c)) return unauthorized(c)
 
   const incomingSessionId = c.req.header('mcp-session-id')
   let session = incomingSessionId ? sessions.get(incomingSessionId) : undefined
@@ -876,9 +879,9 @@ mcpRoute.post('*', async (c) => {
   const response = await session.transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
 
-  // Cache by the session ID the transport assigns on initialization
+  // Cache by the session ID the transport assigns on initialization; overwrite if ID reused
   const assignedId = response.headers.get('mcp-session-id')
-  if (assignedId && !sessions.has(assignedId)) {
+  if (assignedId) {
     sessions.set(assignedId, session)
   }
 
