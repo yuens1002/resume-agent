@@ -13,6 +13,7 @@ const app = new Hono()
 
 const schema = z.object({
   job_description: z.string().min(1),
+  framing_hints: z.array(z.string()).optional(),
 })
 
 // Private endpoint — requires Authorization: Bearer header
@@ -29,7 +30,7 @@ app.use('/', async (c, next) => {
 })
 
 app.post('/', zValidator('json', schema), async (c) => {
-  const { job_description } = c.req.valid('json')
+  const { job_description, framing_hints } = c.req.valid('json')
 
   const { data: profile, error } = await supabase
     .from('public_profile')
@@ -60,11 +61,15 @@ Respond with structured JSON:
   "projects": [...]
 }`
 
-  const userMessage = `Candidate profile:
+  let userMessage = `Candidate profile:
 ${JSON.stringify(profile, null, 2)}
 
 Target job description:
 ${job_description}`
+
+  if (framing_hints?.length) {
+    userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h}`).join('\n')}`
+  }
 
   const { text: raw } = await generateText({
     model: getModel(RESUME_MODEL),
