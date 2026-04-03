@@ -33,7 +33,7 @@ Once SSE lands, sessions are cached by `mcp-session-id`:
 
 Two paths, checked in order:
 
-1. **Static key** — `x-brain-key` header matches `MCP_ACCESS_KEY` env var (Claude Desktop direct access)
+1. **Static key** — `x-brain-key` header matches `OPEN_BRAIN_KEY` env var (Claude Desktop direct access)
 2. **JWT** — `Authorization: Bearer <token>` verified with `jose` against `JWT_SECRET` (claude.ai OAuth connector)
 
 ---

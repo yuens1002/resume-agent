@@ -6,7 +6,7 @@
  *
  * Requirements:
  *   MCP_URL        — e.g. https://agent.yuens.me/mcp (or http://localhost:3000/mcp)
- *   MCP_ACCESS_KEY — the x-brain-key value
+ *   OPEN_BRAIN_KEY — the x-brain-key value
  *   SUPA_PROJECT_URL + SUPA_SERVICE_ROLE — for snapshot/restore
  *
  * Run:
@@ -21,10 +21,10 @@ import { createMcpClient } from "./helpers/mcp.js";
 config({ path: ".env.local" });
 
 const MCP_URL = process.env.MCP_URL ?? `http://localhost:${process.env.PORT ?? 3000}/mcp`;
-const MCP_KEY = process.env.MCP_ACCESS_KEY;
+const MCP_KEY = process.env.OPEN_BRAIN_KEY;
 
 if (!MCP_KEY) {
-  throw new Error("MCP_ACCESS_KEY must be set in .env.local");
+  throw new Error("OPEN_BRAIN_KEY must be set in .env.local");
 }
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL;

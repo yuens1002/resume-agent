@@ -11,11 +11,11 @@ import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import type { Project } from '../types.js'
 
-const MCP_ACCESS_KEY = process.env.MCP_ACCESS_KEY
+const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
 const JWT_SECRET = process.env.JWT_SECRET
 const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null
 
-if (!MCP_ACCESS_KEY) throw new Error('Missing MCP_ACCESS_KEY')
+if (!OPEN_BRAIN_KEY) throw new Error('Missing OPEN_BRAIN_KEY')
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -759,7 +759,7 @@ function checkOrigin(c: Context): Response | null {
 
 async function authenticate(c: Context): Promise<boolean> {
   const brainKey = c.req.header('x-brain-key')
-  if (brainKey && brainKey === MCP_ACCESS_KEY) return true
+  if (brainKey && brainKey === OPEN_BRAIN_KEY) return true
 
   const authHeader = c.req.header('authorization') ?? ''
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
