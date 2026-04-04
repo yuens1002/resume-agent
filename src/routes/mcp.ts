@@ -839,7 +839,20 @@ mcpRoute.get('*', async (c) => {
   for (const [key, value] of Object.entries(corsHeaders)) {
     response.headers.set(key, value)
   }
-  return response
+
+  // Inject SSE keepalive pings every 30s to prevent Railway/Fastly idle-timeout
+  // from closing the stream during quiet periods between tool calls.
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  const keepalive = setInterval(() => {
+    writer.write(encoder.encode(': ping\n\n')).catch(() => clearInterval(keepalive))
+  }, 30_000)
+
+  response.body!.pipeTo(writable).finally(() => clearInterval(keepalive))
+
+  return new Response(readable, response)
 })
 
 // DELETE — tear down session and close the SSE stream
