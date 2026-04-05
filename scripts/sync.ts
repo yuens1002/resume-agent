@@ -11,7 +11,6 @@
  *          SUPA_PROJECT_URL, SUPA_SERVICE_ROLE  required
  */
 
-import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed } from 'ai'
@@ -41,8 +40,8 @@ const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
 const REPOS = [
-  { slug: 'artisan-roast', owner: 'yuens1002', repo: 'artisan-roast-platform', name: 'Artisan Roast Platform' },
-  { slug: 'resume-agent',  owner: 'yuens1002', repo: 'resume-agent',           name: 'Resume Agent' },
+  { slug: 'artisan-roast', owner: 'yuens1002', repo: 'artisan-roast-platform' },
+  { slug: 'resume-agent',  owner: 'yuens1002', repo: 'resume-agent' },
 ]
 
 // ── GitHub ────────────────────────────────────────────────
@@ -69,7 +68,7 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
 // ── Profile helpers ───────────────────────────────────────
 
 interface ProfileRow {
-  projects: Array<{ slug: string; [key: string]: unknown }>
+  projects: Array<{ slug: string; status?: string; name?: unknown; tech?: unknown; highlights?: unknown; [key: string]: unknown }>
   skills: Array<{ category: string; items: string[] }>
 }
 
@@ -87,20 +86,20 @@ async function loadProfile(): Promise<ProfileRow | null> {
 }
 
 async function saveProjects(projects: ProfileRow['projects']): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('public_profile')
     .update({ projects, updated_at: new Date().toISOString() })
     .eq('id', PROFILE_ID)
+  if (error) throw new Error(`Failed to save projects: ${error.message}`)
 }
 
 // ── Project sync ──────────────────────────────────────────
 
-async function syncProject(
+function syncProject(
   slug: string,
-  name: string,
   readme: string,
   projects: ProfileRow['projects'],
-): Promise<ProfileRow['projects']> {
+): ProfileRow['projects'] {
   const idx = projects.findIndex(p => p.slug === slug)
   if (idx < 0) {
     console.log(`  ⚠ "${slug}" not found in profile — skipping`)
@@ -129,24 +128,26 @@ function buildCandidateStack(profile: ProfileRow): string {
 async function upsertCandidateStack(stack: string): Promise<void> {
   const content = `CANDIDATE_STACK: ${stack}`
 
-  // Remove stale entries
-  await supabase
-    .from('thoughts')
-    .delete()
-    .contains('metadata', { topics: ['candidate_stack'] })
-
   const { embedding } = await embed({
     model: openrouter.embedding('openai/text-embedding-3-small'),
     value: content,
   })
 
-  const { error } = await supabase.from('thoughts').insert({
+  // Insert new thought first — if this fails, the old one is still intact
+  const { error: insertError } = await supabase.from('thoughts').insert({
     content,
     embedding,
     metadata: { type: 'reference', topics: ['candidate_stack'], source: 'sync' },
   })
+  if (insertError) throw new Error(`Failed to insert CANDIDATE_STACK thought: ${insertError.message}`)
 
-  if (error) throw new Error(`Failed to insert CANDIDATE_STACK thought: ${error.message}`)
+  // Only delete stale entries after the new one is safely written
+  const { error: deleteError } = await supabase
+    .from('thoughts')
+    .delete()
+    .contains('metadata', { topics: ['candidate_stack'] })
+    .neq('content', content)
+  if (deleteError) throw new Error(`Failed to delete stale CANDIDATE_STACK thoughts: ${deleteError.message}`)
 }
 
 // ── Main ──────────────────────────────────────────────────
@@ -161,7 +162,7 @@ async function sync(): Promise<void> {
     console.log(`Syncing ${r.slug}...`)
     const readme = await fetchGitHubFile(r.owner, r.repo, 'README.md')
     if (readme) {
-      projects = await syncProject(r.slug, r.name, readme, projects)
+      projects = syncProject(r.slug, readme, projects)
       console.log(`  ✔ architecture updated (${readme.length} chars → capped at 3000)`)
     } else {
       console.log(`  ⚠ README.md not found — skipping architecture update`)
