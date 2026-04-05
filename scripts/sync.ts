@@ -42,8 +42,9 @@ const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 // Repos to sync — slug must match the project slug in public_profile.projects
 // docsPath overrides README.md when the root README is just boilerplate
 const REPOS = [
-  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform', docsPath: 'docs/platform/platform.md' },
-  { slug: 'resume-agent',  owner: 'yuens1002',       repo: 'resume-agent' },
+  { slug: 'artisan-roast',          owner: 'yuens1002',       repo: 'artisan-roast' },
+  { slug: 'artisan-roast-platform', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform', docsPath: 'docs/platform/platform.md' },
+  { slug: 'resume-agent',           owner: 'yuens1002',       repo: 'resume-agent' },
 ]
 
 // ── GitHub ────────────────────────────────────────────────
