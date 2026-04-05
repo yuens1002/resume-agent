@@ -1,7 +1,8 @@
 /**
  * GitHub-to-OB1 project sync
  *
- * 1. Fetches README.md from configured GitHub repos via the GitHub Contents API
+ * 1. Fetches docs from configured GitHub repos via the GitHub Contents API
+ *    (README.md by default; overridden per repo via docsPath)
  * 2. Updates each project's architecture field in public_profile
  * 3. Rebuilds the CANDIDATE_STACK thought from the current profile —
  *    framing.ts in job-hunt-agent reads this at runtime instead of a hardcoded constant
@@ -39,8 +40,9 @@ const openrouter = createOpenAI({
 const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
+// docsPath overrides README.md when the root README is just boilerplate
 const REPOS = [
-  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform' },
+  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform', docsPath: 'docs/platform/platform.md' },
   { slug: 'resume-agent',  owner: 'yuens1002',       repo: 'resume-agent' },
 ]
 
@@ -97,7 +99,7 @@ async function saveProjects(projects: ProfileRow['projects']): Promise<void> {
 
 function syncProject(
   slug: string,
-  readme: string,
+  content: string,
   projects: ProfileRow['projects'],
 ): ProfileRow['projects'] {
   const idx = projects.findIndex(p => p.slug === slug)
@@ -105,8 +107,8 @@ function syncProject(
     console.log(`  ⚠ "${slug}" not found in profile — skipping`)
     return projects
   }
-  // Store the first 3000 chars of README as the architecture summary
-  const architecture = readme.slice(0, 3000)
+  // Store the first 3000 chars as the architecture summary
+  const architecture = content.slice(0, 3000)
   projects[idx] = { ...projects[idx], architecture }
   return projects
 }
@@ -162,12 +164,13 @@ async function sync(): Promise<void> {
 
   for (const r of REPOS) {
     console.log(`Syncing ${r.slug}...`)
-    const readme = await fetchGitHubFile(r.owner, r.repo, 'README.md')
-    if (readme) {
-      projects = syncProject(r.slug, readme, projects)
-      console.log(`  ✔ architecture updated (${readme.length} chars → capped at 3000)`)
+    const path = r.docsPath ?? 'README.md'
+    const content = await fetchGitHubFile(r.owner, r.repo, path)
+    if (content) {
+      projects = syncProject(r.slug, content, projects)
+      console.log(`  ✔ architecture updated from ${path} (${content.length} chars → capped at 3000)`)
     } else {
-      console.log(`  ⚠ README.md not found — skipping architecture update`)
+      console.log(`  ⚠ ${path} not found — skipping architecture update`)
     }
   }
 

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-04-05
+
+- 2026-04-05 — feat(sync): support docsPath override per repo; artisan-roast-platform now syncs from docs/platform/platform.md instead of boilerplate README
+
 ## [0.2.4] — 2026-04-05
 
 - 2026-04-05 — fix(sync): correct artisan-roast-platform owner to dev-yuen-agency; guard undefined skill items in buildCandidateStack; tighten ProfileRow types
