@@ -22,6 +22,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { jwtVerify } from "jose";
+import { timingSafeEqual } from "jsr:@std/crypto/timing-safe-equal";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1030,7 +1031,10 @@ app.all("*", async (c) => {
 
   let authenticated = false;
 
-  if (brainKey && brainKey === OPEN_BRAIN_KEY) {
+  if (brainKey && OPEN_BRAIN_KEY && timingSafeEqual(
+    new TextEncoder().encode(brainKey),
+    new TextEncoder().encode(OPEN_BRAIN_KEY),
+  )) {
     authenticated = true;
   } else if (bearerToken && jwtSecretBytes) {
     try {
