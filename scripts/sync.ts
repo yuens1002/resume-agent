@@ -69,7 +69,7 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
 
 interface ProfileRow {
   projects: Array<{ slug: string; status?: string; name?: unknown; tech?: unknown; highlights?: unknown; [key: string]: unknown }>
-  skills: Array<{ category: string; items: string[] }>
+  skills?: Array<{ category?: string; items?: string[] | null }> | null
 }
 
 async function loadProfile(): Promise<ProfileRow | null> {
