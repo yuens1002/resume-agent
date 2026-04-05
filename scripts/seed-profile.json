@@ -145,6 +145,24 @@
       "repo": "https://github.com/yuens1002/artisan-roast"
     },
     {
+      "name": "Artisan Roast SaaS Platform",
+      "slug": "artisan-roast-platform",
+      "description": "Multi-tenant SaaS layer on top of the open-source Artisan Roast store — managed hosting, billing, license enforcement, AI back office, and provisioning automation for independent coffee shop owners.",
+      "problem": "The open-source store requires self-hosting expertise. The SaaS platform removes that barrier: owners get a managed instance, Stripe billing, and AI-powered tools with zero DevOps overhead.",
+      "role": "Sole developer and architect — designed and built the SaaS layer, provisioning pipeline, and all platform services end-to-end.",
+      "tech": ["Next.js", "TypeScript", "Prisma", "Neon PostgreSQL", "Stripe", "NextAuth.js v5", "Tailwind CSS", "shadcn/ui", "MCP protocol", "Claude API", "GitHub Actions", "Vercel"],
+      "highlights": [
+        "Engineered a provisioning pipeline that spins up a fully configured Artisan Roast store instance (database, auth, Stripe, domain) for new customers on checkout completion",
+        "Built an AI back office MCP server — gives store owners natural-language access to orders, inventory, and analytics via Claude Desktop",
+        "Implemented tiered Stripe Billing (Free/Pro/Hosted) with automated license key generation, validation, and a telemetry ingestion system for platform-wide analytics",
+        "Designed an automated data migration pipeline for self-hosted → managed hosting transitions, modeled as a state machine (PENDING → EXPORTING → EXPORTED → IMPORTING → COMPLETED)"
+      ],
+      "status": "in-progress",
+      "started": "2025-11",
+      "url": "https://artisanroast.app",
+      "repo": "https://github.com/dev-yuen-agency/artisan-roast-platform"
+    },
+    {
       "name": "Resume Agent",
       "slug": "resume-agent",
       "description": "A2A-compatible AI agent that represents a professional profile as a machine-queryable JSON API — built for employer AI systems, ATS tools, and personal LLM interfaces.",
