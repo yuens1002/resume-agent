@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-04-05
+
+- 2026-04-05 — feat(sync): LLM-powered architecture + highlights reconciliation — strip markdown, semantic diff via claude-haiku-4.5, NO_CHANGE short-circuit to avoid unnecessary rewrites
+- 2026-04-05 — fix(mcp): use timingSafeEqual for OPEN_BRAIN_KEY comparison in Edge Function fallback
+
 ## [0.2.6] — 2026-04-05
 
 - 2026-04-05 — fix(sync): correct REPOS — artisan-roast → yuens1002/artisan-roast, add artisan-roast-platform as separate entry with platform.md
