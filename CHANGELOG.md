@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-04-05
+
+- 2026-04-05 — fix(sync): correct REPOS — artisan-roast → yuens1002/artisan-roast, add artisan-roast-platform as separate entry with platform.md
+
 ## [0.2.5] — 2026-04-05
 
 - 2026-04-05 — feat(sync): support docsPath override per repo; artisan-roast-platform now syncs from docs/platform/platform.md instead of boilerplate README
