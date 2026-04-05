@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-04-05
+
+- 2026-04-05 — fix(sync): correct artisan-roast-platform owner to dev-yuen-agency; guard undefined skill items in buildCandidateStack; tighten ProfileRow types
+
+## [0.2.3] — 2026-04-05
+
 - 2026-04-05 — feat(sync): GitHub-to-OB1 project sync — fetch READMEs, update project architecture, rebuild CANDIDATE_STACK thought
 
 - 2026-04-03 — chore(config): rename MCP_ACCESS_KEY to OPEN_BRAIN_KEY across all files and tests

@@ -40,8 +40,8 @@ const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
 const REPOS = [
-  { slug: 'artisan-roast', owner: 'yuens1002', repo: 'artisan-roast-platform' },
-  { slug: 'resume-agent',  owner: 'yuens1002', repo: 'resume-agent' },
+  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform' },
+  { slug: 'resume-agent',  owner: 'yuens1002',       repo: 'resume-agent' },
 ]
 
 // ── GitHub ────────────────────────────────────────────────
@@ -69,7 +69,7 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
 
 interface ProfileRow {
   projects: Array<{ slug: string; status?: string; name?: unknown; tech?: unknown; highlights?: unknown; [key: string]: unknown }>
-  skills: Array<{ category: string; items: string[] }>
+  skills?: Array<{ category?: string; items?: string[] | null }> | null
 }
 
 async function loadProfile(): Promise<ProfileRow | null> {
@@ -114,7 +114,9 @@ function syncProject(
 // ── CANDIDATE_STACK ───────────────────────────────────────
 
 function buildCandidateStack(profile: ProfileRow): string {
-  const skillLines = profile.skills.map(s => s.items.join(', '))
+  const skillLines = (profile.skills ?? [])
+    .map(s => Array.isArray(s.items) ? s.items.join(', ') : '')
+    .filter(Boolean)
   const projectLines = profile.projects
     .filter(p => p.status === 'active' || p.status === 'in-progress')
     .map(p => {
