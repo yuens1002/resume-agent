@@ -1,7 +1,8 @@
 /**
  * GitHub-to-OB1 project sync
  *
- * 1. Fetches README.md from configured GitHub repos via the GitHub Contents API
+ * 1. Fetches docs from configured GitHub repos via the GitHub Contents API
+ *    (README.md by default; overridden per repo via docsPath)
  * 2. Updates each project's architecture field in public_profile
  * 3. Rebuilds the CANDIDATE_STACK thought from the current profile —
  *    framing.ts in job-hunt-agent reads this at runtime instead of a hardcoded constant
@@ -98,7 +99,7 @@ async function saveProjects(projects: ProfileRow['projects']): Promise<void> {
 
 function syncProject(
   slug: string,
-  readme: string,
+  content: string,
   projects: ProfileRow['projects'],
 ): ProfileRow['projects'] {
   const idx = projects.findIndex(p => p.slug === slug)
@@ -106,8 +107,8 @@ function syncProject(
     console.log(`  ⚠ "${slug}" not found in profile — skipping`)
     return projects
   }
-  // Store the first 3000 chars of README as the architecture summary
-  const architecture = readme.slice(0, 3000)
+  // Store the first 3000 chars as the architecture summary
+  const architecture = content.slice(0, 3000)
   projects[idx] = { ...projects[idx], architecture }
   return projects
 }
