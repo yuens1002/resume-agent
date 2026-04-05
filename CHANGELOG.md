@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-05 — feat(sync): GitHub-to-OB1 project sync — fetch READMEs, update project architecture, rebuild CANDIDATE_STACK thought
+
 - 2026-04-03 — chore(config): rename MCP_ACCESS_KEY to OPEN_BRAIN_KEY across all files and tests
 
 - 2026-04-03 — feat(resume): add optional framing_hints parameter to /resume endpoint
