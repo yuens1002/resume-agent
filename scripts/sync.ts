@@ -1,22 +1,28 @@
 /**
  * GitHub-to-OB1 project sync
  *
- * 1. Fetches docs from configured GitHub repos via the GitHub Contents API
- *    (README.md by default; overridden per repo via docsPath)
- * 2. Updates each project's architecture field in public_profile
- * 3. Rebuilds the CANDIDATE_STACK thought from the current profile —
- *    framing.ts in job-hunt-agent reads this at runtime instead of a hardcoded constant
+ * Per repo:
+ * 1. Fetches architecture doc (README.md by default; overridden via docsPath)
+ * 2. Fetches CHANGELOG.md
+ * 3. Reconciles architecture field — LLM compares current value against docs,
+ *    rewrites only if something material changed
+ * 4. Reconciles highlights array — LLM scans full changelog for greatest-hit
+ *    engineering achievements, enriches without replacing what's already there
+ * 5. Writes both fields back via upsert_project
+ *
+ * Also rebuilds the CANDIDATE_STACK thought from the updated profile.
  *
  * Usage:   npm run sync
- * Env:     GITHUB_TOKEN  optional but recommended (higher rate limit)
- *          SUPA_PROJECT_URL, SUPA_SERVICE_ROLE  required
+ * Env:     GITHUB_TOKEN         optional but recommended (higher rate limit)
+ *          SUPA_PROJECT_URL     required
+ *          SUPA_SERVICE_ROLE    required
+ *          OPENROUTER_API_KEY   required
  */
 
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
-import { embed } from 'ai'
+import { embed, generateText } from 'ai'
 
-// Load env manually so the script works with --env-file flag
 const SUPA_URL = process.env.SUPA_PROJECT_URL
 const SUPA_KEY = process.env.SUPA_SERVICE_ROLE
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
@@ -37,6 +43,7 @@ const openrouter = createOpenAI({
   apiKey: OPENROUTER_API_KEY,
 })
 
+const MODEL = 'anthropic/claude-haiku-4.5'
 const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
@@ -70,8 +77,18 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
 
 // ── Profile helpers ───────────────────────────────────────
 
+interface ProjectEntry {
+  slug: string
+  name?: unknown
+  status?: string
+  tech?: unknown
+  highlights?: unknown
+  architecture?: string
+  [key: string]: unknown
+}
+
 interface ProfileRow {
-  projects: Array<{ slug: string; status?: string; name?: unknown; tech?: unknown; highlights?: unknown; [key: string]: unknown }>
+  projects: ProjectEntry[]
   skills?: Array<{ category?: string; items?: string[] | null }> | null
 }
 
@@ -96,21 +113,162 @@ async function saveProjects(projects: ProfileRow['projects']): Promise<void> {
   if (error) throw new Error(`Failed to save projects: ${error.message}`)
 }
 
+// ── Markdown stripping ────────────────────────────────────
+
+function stripMarkdown(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, '')
+    .replace(/!\[.*?\]\(.*?\)/g, '')
+    .replace(/\[!\[.*?\]\(.*?\)\]\(.*?\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]+`/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*_]{3,}\s*$/gm, '')
+    .replace(/^\|.*\|$/gm, '')
+    .replace(/^[-| :]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// ── Architecture reconciliation ───────────────────────────
+
+async function reconcileArchitecture(
+  projectName: string,
+  currentArchitecture: string,
+  archDoc: string,
+): Promise<{ updated: boolean; value: string }> {
+  const doc = stripMarkdown(archDoc).slice(0, 6000)
+
+  const { text } = await generateText({
+    model: openrouter(MODEL),
+    prompt: `You are maintaining the "architecture" field of a developer portfolio API.
+
+Current value:
+${currentArchitecture || '(empty)'}
+
+Latest documentation:
+${doc}
+
+If the current value is already an accurate summary of the documentation, respond with exactly:
+NO_CHANGE
+
+Otherwise, write a new 3–5 sentence plain-prose summary covering:
+1. What the project does
+2. Key technical stack and components
+3. Notable engineering decisions or patterns
+
+No markdown, no bullet points. Audience: hiring engineers and AI agents.
+Project: ${projectName}`,
+    maxTokens: 350,
+  })
+
+  const result = text.trim()
+  if (result === 'NO_CHANGE') return { updated: false, value: currentArchitecture }
+  return { updated: true, value: result }
+}
+
+// ── Highlights reconciliation ─────────────────────────────
+
+async function reconcileHighlights(
+  projectName: string,
+  currentHighlights: string[],
+  changelog: string,
+): Promise<{ updated: boolean; value: string[] }> {
+  const log = stripMarkdown(changelog).slice(0, 8000)
+
+  const { text } = await generateText({
+    model: openrouter(MODEL),
+    prompt: `You are maintaining the "highlights" array of a developer portfolio API.
+This is a curated list of the greatest engineering achievements on the project — the kind of things that demonstrate technical depth to a hiring engineer.
+
+Current highlights:
+${currentHighlights.length ? currentHighlights.map((h, i) => `${i + 1}. ${h}`).join('\n') : '(empty)'}
+
+Full changelog:
+${log}
+
+Rules:
+- Scan the changelog for significant engineering achievements not already captured in the current highlights
+- Add new entries for anything impressive: novel systems built, hard problems solved, meaningful scale or automation
+- Remove or update any existing entries that are now outdated or superseded
+- Keep entries specific and technical (mention the thing built, not just that something was "added")
+- Aim for 5–8 total highlights, ordered from most to least impressive
+- If current highlights already capture everything well, respond with exactly: NO_CHANGE
+
+If changes are needed, respond with a JSON array of strings only — no prose, no markdown.
+Project: ${projectName}`,
+    maxTokens: 600,
+  })
+
+  const result = text.trim()
+  if (result === 'NO_CHANGE') return { updated: false, value: currentHighlights }
+
+  try {
+    const cleaned = result.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+    const parsed = JSON.parse(cleaned) as string[]
+    return { updated: true, value: parsed }
+  } catch {
+    console.warn('  ⚠ Could not parse highlights JSON — keeping current')
+    return { updated: false, value: currentHighlights }
+  }
+}
+
 // ── Project sync ──────────────────────────────────────────
 
-function syncProject(
-  slug: string,
-  content: string,
+async function syncProject(
+  r: typeof REPOS[number],
   projects: ProfileRow['projects'],
-): ProfileRow['projects'] {
-  const idx = projects.findIndex(p => p.slug === slug)
+): Promise<ProfileRow['projects']> {
+  const idx = projects.findIndex(p => p.slug === r.slug)
   if (idx < 0) {
-    console.log(`  ⚠ "${slug}" not found in profile — skipping`)
+    console.log(`  ⚠ "${r.slug}" not found in profile — skipping`)
     return projects
   }
-  // Store the first 3000 chars as the architecture summary
-  const architecture = content.slice(0, 3000)
-  projects[idx] = { ...projects[idx], architecture }
+
+  const project = projects[idx]
+  const projectName = String(project.name ?? r.slug)
+  const currentArchitecture = project.architecture ?? ''
+  const currentHighlights = Array.isArray(project.highlights)
+    ? (project.highlights as string[])
+    : []
+
+  // Fetch both docs in parallel
+  const archPath = r.docsPath ?? 'README.md'
+  const [archDoc, changelog] = await Promise.all([
+    fetchGitHubFile(r.owner, r.repo, archPath),
+    fetchGitHubFile(r.owner, r.repo, 'CHANGELOG.md'),
+  ])
+
+  let updated = false
+
+  if (archDoc) {
+    const arch = await reconcileArchitecture(projectName, currentArchitecture, archDoc)
+    if (arch.updated) {
+      project.architecture = arch.value
+      updated = true
+      console.log(`  ✔ architecture updated`)
+    } else {
+      console.log(`  — architecture unchanged`)
+    }
+  } else {
+    console.log(`  ⚠ ${archPath} not found — skipping architecture`)
+  }
+
+  if (changelog) {
+    const hi = await reconcileHighlights(projectName, currentHighlights, changelog)
+    if (hi.updated) {
+      project.highlights = hi.value
+      updated = true
+      console.log(`  ✔ highlights updated (${hi.value.length} entries)`)
+    } else {
+      console.log(`  — highlights unchanged`)
+    }
+  } else {
+    console.log(`  ⚠ CHANGELOG.md not found — skipping highlights`)
+  }
+
+  if (updated) projects[idx] = { ...project }
   return projects
 }
 
@@ -138,7 +296,6 @@ async function upsertCandidateStack(stack: string): Promise<void> {
     value: content,
   })
 
-  // Insert new thought first — if this fails, the old one is still intact
   const { error: insertError } = await supabase.from('thoughts').insert({
     content,
     embedding,
@@ -146,7 +303,6 @@ async function upsertCandidateStack(stack: string): Promise<void> {
   })
   if (insertError) throw new Error(`Failed to insert CANDIDATE_STACK thought: ${insertError.message}`)
 
-  // Only delete stale entries after the new one is safely written
   const { error: deleteError } = await supabase
     .from('thoughts')
     .delete()
@@ -165,21 +321,14 @@ async function sync(): Promise<void> {
 
   for (const r of REPOS) {
     console.log(`Syncing ${r.slug}...`)
-    const path = r.docsPath ?? 'README.md'
-    const content = await fetchGitHubFile(r.owner, r.repo, path)
-    if (content) {
-      projects = syncProject(r.slug, content, projects)
-      console.log(`  ✔ architecture updated from ${path} (${content.length} chars → capped at 3000)`)
-    } else {
-      console.log(`  ⚠ ${path} not found — skipping architecture update`)
-    }
+    projects = await syncProject(r, projects)
   }
 
   await saveProjects(projects)
-  console.log('Projects saved.\n')
+  console.log('\nProjects saved.')
 
-  console.log('Rebuilding CANDIDATE_STACK...')
-  const stack = buildCandidateStack(profile)
+  console.log('\nRebuilding CANDIDATE_STACK...')
+  const stack = buildCandidateStack({ ...profile, projects })
   await upsertCandidateStack(stack)
   console.log('  ✔ CANDIDATE_STACK thought updated')
   console.log('\nSync complete.')
