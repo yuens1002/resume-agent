@@ -39,8 +39,9 @@ const openrouter = createOpenAI({
 const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
+// docsPath overrides README.md when the root README is just boilerplate
 const REPOS = [
-  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform' },
+  { slug: 'artisan-roast', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform', docsPath: 'docs/platform/platform.md' },
   { slug: 'resume-agent',  owner: 'yuens1002',       repo: 'resume-agent' },
 ]
 
@@ -162,12 +163,13 @@ async function sync(): Promise<void> {
 
   for (const r of REPOS) {
     console.log(`Syncing ${r.slug}...`)
-    const readme = await fetchGitHubFile(r.owner, r.repo, 'README.md')
-    if (readme) {
-      projects = syncProject(r.slug, readme, projects)
-      console.log(`  ✔ architecture updated (${readme.length} chars → capped at 3000)`)
+    const path = r.docsPath ?? 'README.md'
+    const content = await fetchGitHubFile(r.owner, r.repo, path)
+    if (content) {
+      projects = syncProject(r.slug, content, projects)
+      console.log(`  ✔ architecture updated from ${path} (${content.length} chars → capped at 3000)`)
     } else {
-      console.log(`  ⚠ README.md not found — skipping architecture update`)
+      console.log(`  ⚠ ${path} not found — skipping architecture update`)
     }
   }
 
