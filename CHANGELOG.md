@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.9] — 2026-04-06
+
+- 2026-04-06 — fix(resume): pin contact block from profile in system prompt so LLM returns it verbatim instead of choosing which fields to include — fixes inconsistent contact info on generated resumes
+
 ## [0.2.8] — 2026-04-05
 
 - 2026-04-05 — docs(sync): document npm run sync in workflow.md; add nightly bat script; fix NO_CHANGE false-positive for raw-markdown architecture values

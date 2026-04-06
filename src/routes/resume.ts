@@ -50,10 +50,10 @@ Rules:
 - Omit irrelevant history
 - Never fabricate credentials, titles, dates, or skills
 - Keep to 2 pages worth of content
+- Do NOT include a "contact" key in your JSON — it will be injected server-side
 
 Respond with structured JSON:
 {
-  "contact": { ... },
   "summary": "...",
   "skills": [...],
   "employment": [...],
@@ -84,6 +84,9 @@ ${job_description}`
   } catch {
     return c.json({ error: 'Failed to parse resume response' }, 500)
   }
+
+  // Override contact server-side — never trust the LLM to return it correctly
+  parsed.contact = profile.contact
 
   return c.json(parsed)
 })
