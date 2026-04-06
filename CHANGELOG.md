@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.8] — 2026-04-05
+
+- 2026-04-05 — docs(sync): document npm run sync in workflow.md; add nightly bat script; fix NO_CHANGE false-positive for raw-markdown architecture values
+
 ## [0.2.7] — 2026-04-05
 
 - 2026-04-05 — feat(sync): LLM-powered architecture + highlights reconciliation — strip markdown, semantic diff via claude-haiku-4.5, NO_CHANGE short-circuit to avoid unnecessary rewrites

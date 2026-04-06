@@ -133,12 +133,19 @@ function stripMarkdown(raw: string): string {
 
 // ── Architecture reconciliation ───────────────────────────
 
+function looksLikeRawMarkdown(text: string): boolean {
+  return /^#{1,6}\s|\|.*\||\[!\[|!\[.*\]\(|```/.test(text)
+}
+
 async function reconcileArchitecture(
   projectName: string,
   currentArchitecture: string,
   archDoc: string,
 ): Promise<{ updated: boolean; value: string }> {
   const doc = stripMarkdown(archDoc).slice(0, 6000)
+
+  // Force rewrite if current value is raw markdown, not a clean prose summary
+  const forceRewrite = !currentArchitecture || looksLikeRawMarkdown(currentArchitecture)
 
   const { text } = await generateText({
     model: openrouter(MODEL),
@@ -150,10 +157,12 @@ ${currentArchitecture || '(empty)'}
 Latest documentation:
 ${doc}
 
-If the current value is already an accurate summary of the documentation, respond with exactly:
-NO_CHANGE
+${forceRewrite
+  ? 'The current value is raw or empty — write a fresh summary.'
+  : 'If the current value is already an accurate plain-prose summary, respond with exactly: NO_CHANGE'
+}
 
-Otherwise, write a new 3–5 sentence plain-prose summary covering:
+Write a 3–5 sentence plain-prose summary covering:
 1. What the project does
 2. Key technical stack and components
 3. Notable engineering decisions or patterns
@@ -165,7 +174,7 @@ Project: ${projectName}`,
 
   const result = text.trim()
   if (result === 'NO_CHANGE') return { updated: false, value: currentArchitecture }
-  return { updated: true, value: result }
+  return { updated: true, value: stripMarkdown(result) }
 }
 
 // ── Highlights reconciliation ─────────────────────────────
