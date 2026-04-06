@@ -131,6 +131,22 @@ You interact with your own knowledge base through Claude — web, mobile, or des
 
 **Connecting via Claude Desktop directly**: use `mcp-remote` with your `x-brain-key` in the config. See README for details.
 
+**Keeping the profile current — `npm run sync`**
+
+Run this from the resume-agent directory to refresh the public profile from GitHub (requires `.env.local` with `SUPA_PROJECT_URL`, `SUPA_SERVICE_ROLE`, and `OPENROUTER_API_KEY`):
+
+```bash
+npm run sync
+```
+
+What it does per repo (artisan-roast, artisan-roast-platform, resume-agent):
+1. Fetches the architecture doc (README or `docsPath` override) and `CHANGELOG.md` from GitHub
+2. Reconciles the `architecture` field — rewrites only if something material changed (`NO_CHANGE` if already accurate)
+3. Reconciles `highlights` — scans the full changelog for the greatest engineering achievements, updating, removing, and reordering entries as needed to keep the list accurate and focused
+4. Rebuilds the `CANDIDATE_STACK` thought in OB1 — used by job-hunt-agent at runtime for gap framing
+
+To run this automatically on Windows, configure a Task Scheduler job to run `scripts/sync-nightly.bat` on a nightly schedule. Run it manually after shipping a significant feature to keep `/info` current without waiting for the next scheduled run.
+
 Once connected, 11 tools are available across two groups:
 
 **Open Brain — personal knowledge capture**
