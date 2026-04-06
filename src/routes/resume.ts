@@ -42,6 +42,8 @@ app.post('/', zValidator('json', schema), async (c) => {
     return c.json({ error: 'Profile not found' }, 404)
   }
 
+  const contactBlock = JSON.stringify(profile.contact)
+
   const systemPrompt = `You are a professional resume writer. Generate a tailored resume for the candidate based on their profile and the target job description.
 
 Rules:
@@ -50,10 +52,11 @@ Rules:
 - Omit irrelevant history
 - Never fabricate credentials, titles, dates, or skills
 - Keep to 2 pages worth of content
+- IMPORTANT: Return the contact block EXACTLY as provided below — do not omit or reorder fields
 
 Respond with structured JSON:
 {
-  "contact": { ... },
+  "contact": ${contactBlock},
   "summary": "...",
   "skills": [...],
   "employment": [...],
