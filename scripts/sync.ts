@@ -134,7 +134,9 @@ function stripMarkdown(raw: string): string {
 // ── Architecture reconciliation ───────────────────────────
 
 function looksLikeRawMarkdown(text: string): boolean {
-  return /^#{1,6}\s|\|.*\||\[!\[|!\[.*\]\(|```/.test(text)
+  const normalized = text.trim()
+  if (!normalized) return false
+  return /(^|\n)\s*#{1,6}\s+|(^|\n)\s*\|.*\||\[!\[|!\[.*\]\(|```/.test(normalized)
 }
 
 async function reconcileArchitecture(
@@ -173,7 +175,11 @@ Project: ${projectName}`,
   })
 
   const result = text.trim()
-  if (result === 'NO_CHANGE') return { updated: false, value: currentArchitecture }
+  if (result === 'NO_CHANGE') {
+    if (!forceRewrite) return { updated: false, value: currentArchitecture }
+    // Model ignored the force-rewrite instruction — fall back to stripped doc
+    return { updated: true, value: stripMarkdown(doc) }
+  }
   return { updated: true, value: stripMarkdown(result) }
 }
 
