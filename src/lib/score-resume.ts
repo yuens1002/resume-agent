@@ -146,7 +146,7 @@ function scoreRule2(resume: ResumeResponse, jd: string): RuleResult {
   const jdKeywords = [...new Set(extractKeywords(jd))]
   const resumeText = [
     resume.summary ?? '',
-    ...(resume.skills?.map(s => `${s.category} ${s.items.join(' ')}`) ?? []),
+    ...((resume.skills ?? []) as unknown[]).map((s: unknown) => typeof s === 'string' ? s : `${(s as { category?: string }).category ?? ''} ${((s as { items?: string[] }).items ?? []).join(' ')}`),
     ...(resume.employment?.flatMap(e => [e.title, e.company, ...(e.bullets ?? [])]) ?? []),
     ...(resume.projects?.flatMap(p => [p.name, p.description ?? '', ...(p.highlights ?? [])]) ?? []),
   ].join(' ').toLowerCase()
@@ -247,8 +247,10 @@ function scoreRule5(resume: ResumeResponse, jd: string): RuleResult {
 
 /** Rule 6: Top skills in the skills list match JD requirements. */
 function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
-  const skills = resume.skills ?? []
-  const flatSkills = skills.flatMap(s => s.items.map((i: string) => i.toLowerCase()))
+  const skills = (resume.skills ?? []) as unknown[]
+  const flatSkills = skills.flatMap((s: unknown) =>
+    typeof s === 'string' ? [s.toLowerCase()] : ((s as { items?: string[] }).items ?? []).map((i: string) => i.toLowerCase()),
+  )
 
   if (flatSkills.length === 0) {
     return { rule: 6, name: 'Skills ordered by JD relevance', pass: false, score: 0, detail: 'No skills found' }
