@@ -35,7 +35,9 @@ const BANNED_PHRASES = [
   'proven track record',
   'dynamic team player',
   'leveraging synergies',
+  'leveraging',
   'synergies',
+  'spearheaded',
   'think outside the box',
   'go-getter',
   'self-starter',
@@ -75,11 +77,15 @@ function extractKeywords(text: string): string[] {
     'complete', 'properly', 'managed', 'adhere', 'development',
   ])
 
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s/+#.-]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 3 && !stop.has(w))
+  const words = text.toLowerCase().replace(/[^a-z0-9\s/+#.-]/g, ' ').split(/\s+/)
+  // Keep uppercase acronyms (2-3 chars like API, UX, AWS) and longer words (4+ chars)
+  const upperWords = text.replace(/[^a-zA-Z0-9\s/+#.-]/g, ' ').split(/\s+/)
+    .filter(w => w.length >= 2 && w.length <= 3 && /^[A-Z]+$/.test(w))
+    .map(w => w.toLowerCase())
+  return [...new Set([
+    ...words.filter(w => w.length > 3 && !stop.has(w)),
+    ...upperWords,
+  ])]
 }
 
 /** Extract JD job title from common patterns. */
@@ -113,11 +119,11 @@ function scoreRule1(resume: ResumeResponse, jd: string): RuleResult {
   }
 
   // Check if distinctive words from the JD title appear in the first sentence
-  // Filter out generic role words that match anything ("engineer", "senior", "developer")
-  // Normalize common abbreviations: sr→senior, jr→junior, etc.
+  // Normalize common abbreviations before comparison: sr→senior, jr→junior, etc.
   const abbrevMap: Record<string, string> = { sr: 'senior', jr: 'junior', mgr: 'manager', dev: 'developer', eng: 'engineer' }
   const genericTitleWords = new Set(['senior', 'junior', 'lead', 'staff', 'principal', 'engineer', 'developer', 'manager', 'analyst', 'specialist', 'associate', 'intern', 'sr', 'jr'])
-  const titleWords = jdTitle.split(/\s+/).filter(w => w.length > 1 && !genericTitleWords.has(w))
+  const normalizedTitle = jdTitle.split(/\s+/).map(w => abbrevMap[w] ?? w).join(' ')
+  const titleWords = normalizedTitle.split(/\s+/).filter(w => w.length > 1 && !genericTitleWords.has(w))
   // If all title words are generic (e.g. "Senior Engineer"), fall back to matching the full set
   const wordsToMatch = titleWords.length > 0 ? titleWords : jdTitle.split(/\s+/).filter(w => w.length > 2)
   const matched = wordsToMatch.filter(w => firstSentence.includes(w))
@@ -223,17 +229,17 @@ function scoreRule5(resume: ResumeResponse, jd: string): RuleResult {
   const primaryResp = jdLines.slice(0, 5).join(' ').toLowerCase()
   const bulletLower = firstBullet.toLowerCase()
 
-  // Keyword overlap between first bullet and JD opening
-  const jdWords = [...new Set(extractKeywords(primaryResp))]
+  // Keyword overlap between first bullet and JD opening (cap at 15 most relevant words)
+  const jdWords = [...new Set(extractKeywords(primaryResp))].slice(0, 15)
   const bulletWords = new Set(extractKeywords(bulletLower))
   const overlap = jdWords.filter(w => bulletWords.has(w))
-  const ratio = jdWords.length > 0 ? overlap.length / Math.min(jdWords.length, 15) : 0
+  const ratio = jdWords.length > 0 ? overlap.length / jdWords.length : 0
 
-  const score = Math.min(ratio / 0.2, 1) // 20%+ overlap = full score
+  const score = Math.min(ratio / 0.15, 1) // 15%+ overlap = full score
   return {
     rule: 5,
     name: 'First bullet matches JD primary responsibility',
-    pass: ratio >= 0.15,
+    pass: ratio >= 0.05,
     score,
     detail: `${overlap.length} keyword overlaps with JD opening (${(ratio * 100).toFixed(0)}%)`,
   }

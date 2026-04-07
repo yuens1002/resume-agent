@@ -51,7 +51,7 @@ Rules:
 1. SUMMARY — JD TITLE FIRST: Your opening words in the summary MUST use the exact job title from the job description, not the candidate's default self-description. Follow with years of experience and 3-5 high-priority skills from the JD woven naturally.
    Example: If JD says "Sr UX Engineer", open with "Senior UX Engineer with 6+ years..." — never "Full-stack engineer".
 
-2. KEYWORD COVERAGE: Achieve 60-80% coverage of the JD's key technical terms and responsibilities. Place the highest-priority keywords in: summary first sentence, skills section, and first bullet of each employment entry. Include both long-form and abbreviations where applicable (e.g., "Continuous Integration / CI/CD").
+2. KEYWORD COVERAGE: Achieve at least 25% coverage of the JD's key technical terms, targeting 40%+ for strong matches. Place the highest-priority keywords in: summary first sentence, skills section, and first bullet of each employment entry. Include both long-form and abbreviations where applicable (e.g., "Continuous Integration / CI/CD").
 
 3. IMPACT BULLETS: Every bullet must use "action verb + specific achievement + quantified result". Include real project names, real technologies, and real metrics from the candidate's profile. Never genericize specific accomplishments into vague descriptions.
    Bad: "Optimized front-end performance"
@@ -99,7 +99,8 @@ ${job_description}`
         prompt: userMessage,
       })
       return parseJSON<ResumeResponse>(raw)
-    } catch {
+    } catch (err) {
+      console.error(`[resume] Generation failed for model ${modelId}:`, err instanceof Error ? err.message : err)
       return null
     }
   }
@@ -135,13 +136,14 @@ ${job_description}`
         `JD: ${job_description.slice(0, 200).replace(/\n/g, ' ')}`,
       ].join(' | ')
       await supabase.from('thoughts').insert({
-        brain_id: '00000000-0000-0000-0000-000000000001',
         content: failureThought,
-        type: 'observation',
-        topics: ['resume-failure', 'rubric'],
+        metadata: {
+          type: 'observation',
+          topics: ['resume-failure', 'rubric'],
+        },
       })
-    } catch {
-      // Fire-and-forget — don't block the response
+    } catch (err) {
+      console.error('[resume] Failed to log rubric failure to OB1:', err instanceof Error ? err.message : err)
     }
   }
 

@@ -194,6 +194,31 @@ describe('Rule 4 — Authenticity (no generic phrases)', () => {
   })
 })
 
+// ── Rule 5: First bullet matches JD ─────────────────────
+
+describe('Rule 5 — First bullet matches JD primary responsibility', () => {
+  it('passes when first bullet addresses JD core requirements', () => {
+    const result = scoreResume(makeResume(), UX_ENGINEER_JD)
+    const r5 = result.rules.find(r => r.rule === 5)!
+    assert.ok(r5.pass, `Rule 5 should pass: ${r5.detail}`)
+  })
+
+  it('fails when first bullet is unrelated to JD', () => {
+    const resume = makeResume({
+      employment: [{
+        company: 'Co', title: 'Dev', start_date: '2023-01', end_date: null,
+        bullets: [
+          'Managed quarterly budget reports and vendor invoices for the finance department.',
+          'Built React components for the admin dashboard.',
+        ],
+      }],
+    })
+    const result = scoreResume(resume, UX_ENGINEER_JD)
+    const r5 = result.rules.find(r => r.rule === 5)!
+    assert.ok(!r5.pass, `Rule 5 should fail: ${r5.detail}`)
+  })
+})
+
 // ── Rule 6: Skills ordering ─────────────────────────────
 
 describe('Rule 6 — Skills ordered by JD relevance', () => {

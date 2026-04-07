@@ -96,7 +96,7 @@ The `_rubric` key is metadata for callers to log or surface — it does not affe
 
 | File | Tests | What's covered |
 |---|---|---|
-| `tests/score-resume.test.ts` | 16 | All 6 rules with pass/fail fixtures, title extraction, overall scoring |
+| `tests/score-resume.test.ts` | 18 | All 6 rules with pass/fail fixtures, title extraction, overall scoring |
 | `tests/resume-framing.test.ts` | 18 | Schema validation, prompt injection, framing hint formatting |
 
 ## Files Changed
