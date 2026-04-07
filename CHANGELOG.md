@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-07 — feat(resume): implement dual-gen + rubric scorer pipeline achieving 5.82/6 ATS score — two independent LLM models compete per JD, deterministic 6-rule rubric (title mirroring, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering) picks winner, structured failure logging to OB1 for pattern analysis; 16 new unit tests, 34 total passing
+
 ## [0.2.9] — 2026-04-06
 
 - 2026-04-06 — fix(resume): pin contact block from profile in system prompt so LLM returns it verbatim instead of choosing which fields to include — fixes inconsistent contact info on generated resumes

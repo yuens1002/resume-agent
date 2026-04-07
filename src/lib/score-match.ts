@@ -4,7 +4,7 @@ import { supabase } from './supabase.js'
 import { parseJSON } from './parse-json.js'
 import type { MatchResponse, MatchScoring } from '../types.js'
 
-const MATCH_MODEL = process.env.MATCH_MODEL ?? 'anthropic/claude-sonnet-4.6'
+const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
 
 export class ProfileNotFoundError extends Error {
   constructor() { super('Profile not found') }
