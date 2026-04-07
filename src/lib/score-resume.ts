@@ -206,12 +206,14 @@ function scoreRule4(resume: ResumeResponse): RuleResult {
 
   const found = BANNED_PHRASES.filter(phrase => fullText.includes(phrase))
 
+  // Rule 4 is a HARD VETO — any banned phrase disqualifies the candidate.
+  // Score 0 ensures this resume loses to the other generation.
   return {
     rule: 4,
     name: 'Authenticity (no generic phrases)',
     pass: found.length === 0,
-    score: found.length === 0 ? 1 : Math.max(0, 1 - found.length * 0.3),
-    detail: found.length === 0 ? 'No banned phrases detected' : `Found: ${found.join(', ')}`,
+    score: found.length === 0 ? 1 : 0,
+    detail: found.length === 0 ? 'No banned phrases detected' : `VETO — found: ${found.join(', ')}`,
   }
 }
 
