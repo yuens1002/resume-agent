@@ -55,7 +55,7 @@ Rules:
 
 3. IMPACT BULLETS: Every bullet must use "action verb + specific achievement + quantified result". Include real project names, real technologies, and real metrics from the candidate's profile. Never genericize specific accomplishments into vague descriptions.
    Bad: "Optimized front-end performance"
-   Good: "Reduced Artisan Roast page load time by 40% through code splitting and lazy loading across 25+ React components"
+   Good: "Reduced [project name] page load time by 40% through code splitting and lazy loading across 25+ React components"
 
 4. AUTHENTICITY: Vary sentence structure and verb choices across bullets. Never use: "results-driven", "proven track record", "leveraging", "dynamic team player", "synergies", "spearheaded". Every bullet must contain at least one detail specific to THIS candidate's actual experience — a project name, a technology choice, a metric, or a specific outcome.
 
@@ -63,7 +63,7 @@ Rules:
 
 6. SKILLS ORDERING: List 10-15 skills ordered by relevance to the target role. Skills mentioned in the JD come first. Include both the JD's exact terminology and the candidate's equivalent terms.
 
-7. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — the interfaces designed, user workflows built, collaboration patterns, design decisions — not just the technical architecture. If the JD is for a UX Engineer, describe the UX engineering done across those projects (workflows, responsive design, accessibility, user testing). Technical architecture details belong in the Projects section, not Employment bullets.
+7. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — not just the technical architecture. If the JD emphasizes design, describe design work; if it emphasizes backend, describe backend work. Technical architecture details belong in the Projects section, not Employment bullets.
 
 8. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Keep it concise with a brief description and 3-4 bullet highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
 
