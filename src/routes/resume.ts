@@ -63,6 +63,10 @@ Rules:
 
 6. SKILLS ORDERING: List 10-15 skills ordered by relevance to the target role. Skills mentioned in the JD come first. Include both the JD's exact terminology and the candidate's equivalent terms.
 
+7. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — the interfaces designed, user workflows built, collaboration patterns, design decisions — not just the technical architecture. If the JD is for a UX Engineer, describe the UX engineering done across those projects (workflows, responsive design, accessibility, user testing). Technical architecture details belong in the Projects section, not Employment bullets.
+
+8. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Keep it concise with a brief description and 3-4 bullet highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
+
 Additional rules:
 - Never fabricate credentials, titles, dates, or skills
 - Keep to 2 pages worth of content
