@@ -27,7 +27,7 @@ POST /resume  { job_description, framing_hints? }
   └─ Return winner + _rubric metadata
 ```
 
-## The 6 Rules (ATS-Informed)
+## The 8 Rules (ATS-Informed) — 6 Scored + 2 Prompt-Only
 
 | # | Rule | Measurement | Pass threshold |
 |---|------|-------------|----------------|
@@ -42,7 +42,7 @@ POST /resume  { job_description, framing_hints? }
 
 **Overall pass threshold:** 4.0 / 6.0 total score (Rules 1-6 scored; Rules 7-8 are prompt-only).
 
-**Hard vetoes:** Rule 4 scores 0 (not a penalty) — any banned phrase causes the resume to lose to the other candidate.
+**Hard vetoes:** Rule 4 scores 0 (not a penalty) — any banned phrase causes the resume to lose to the other candidate. Edge case: if both candidates contain banned phrases, the higher-scoring one still ships (with a warning logged). If only one candidate parsed successfully, it ships regardless of Rule 4.
 
 Rules 1-4 are fully deterministic (string matching, regex). Rules 5-6 use keyword overlap (no LLM needed). Rules 7-8 are prompt instructions only (not scored by the rubric).
 
@@ -54,7 +54,7 @@ Rules 1-4 are fully deterministic (string matching, regex). Rules 5-6 use keywor
 | Latency | Sequential (slow on retry) | Parallel (same wall-clock as single) |
 | Quality ceiling | Limited by one chain of thought | Wider sampling |
 | Complexity | Re-prompt construction + state machine | Fire two, score, pick max |
-| Cost | 1-2 LLM calls | 2 LLM calls always ($0.00 with free-tier models via OpenRouter) |
+| Cost | 1-2 LLM calls | 2 LLM calls always (cost varies by model; $0 with OpenRouter free-tier model IDs) |
 
 ## Failure Logging & Learning
 
