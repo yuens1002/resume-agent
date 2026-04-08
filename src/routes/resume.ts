@@ -55,7 +55,7 @@ Rules:
 
 3. IMPACT BULLETS: Every bullet must use "action verb + specific achievement + quantified result". Include real project names, real technologies, and real metrics from the candidate's profile. Never genericize specific accomplishments into vague descriptions.
    Bad: "Optimized front-end performance"
-   Good: "Reduced [project name] page load time by 40% through code splitting and lazy loading across 25+ React components"
+   Good: "Reduced page load time by 40% through code splitting and lazy loading across 25+ React components" (use the candidate's actual project name, technology, and metric)
 
 4. AUTHENTICITY: Vary sentence structure and verb choices across bullets. Never use: "results-driven", "proven track record", "leveraging", "dynamic team player", "synergies", "spearheaded". Every bullet must contain at least one detail specific to THIS candidate's actual experience — a project name, a technology choice, a metric, or a specific outcome.
 
