@@ -6,6 +6,7 @@
 - 2026-04-08 — fix(scorer): handle LLM returning skills as flat string[] instead of Skill[] objects — prevents runtime TypeError crash on Rules 2 and 6
 - 2026-04-08 — fix(scorer): make Rule 4 (banned phrases) a hard veto scoring 0 — resumes containing "proven track record" or "leveraging" now lose to cleaner candidates instead of shipping with a penalty
 - 2026-04-08 — feat(prompt): add Rules 7-8 — self-employment bullets reframed to match JD role (UX work for UX roles, not backend architecture); projects section reserved for technical highlights and scale
+- 2026-04-08 — refactor(prompt): remove user-specific examples from system prompt — genericize Rule 3 example and Rule 7 to work for any OB1 profile, not just one candidate
 
 ## [0.2.9] — 2026-04-06
 
