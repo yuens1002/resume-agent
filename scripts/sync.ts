@@ -19,6 +19,7 @@
  *          OPENROUTER_API_KEY   required
  */
 
+import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
@@ -48,10 +49,22 @@ const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Repos to sync — slug must match the project slug in public_profile.projects
 // docsPath overrides README.md when the root README is just boilerplate
+// featureDocsGlobs: additional doc paths to read for OB1 thought enrichment
 const REPOS = [
-  { slug: 'artisan-roast',          owner: 'yuens1002',       repo: 'artisan-roast' },
-  { slug: 'artisan-roast-platform', owner: 'dev-yuen-agency', repo: 'artisan-roast-platform', docsPath: 'docs/platform/platform.md' },
-  { slug: 'resume-agent',           owner: 'yuens1002',       repo: 'resume-agent' },
+  {
+    slug: 'artisan-roast',
+    owner: 'yuens1002',
+    repo: 'artisan-roast',
+    featureDocsGlobs: ['docs/features/', 'docs/plans/'],
+  },
+  {
+    slug: 'artisan-roast-platform',
+    owner: 'dev-yuen-agency',
+    repo: 'artisan-roast-platform',
+    docsPath: 'docs/platform/platform.md',
+    featureDocsGlobs: ['docs/platform/'],
+  },
+  { slug: 'resume-agent', owner: 'yuens1002', repo: 'resume-agent' },
 ]
 
 // ── GitHub ────────────────────────────────────────────────
@@ -75,6 +88,272 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
   return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
 }
 
+// ── GitHub tree + feature doc fetching ────────────────────
+
+interface TreeEntry { path: string; type: string }
+
+async function fetchGitHubTree(owner: string, repo: string): Promise<TreeEntry[]> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+  if (GITHUB_TOKEN) headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`
+
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    console.warn(`  GitHub tree ${res.status} for ${owner}/${repo}`)
+    return []
+  }
+  const data = await res.json() as { tree?: TreeEntry[] }
+  return data.tree ?? []
+}
+
+/** Fetch .md files under given directory prefixes, capped at 30 files. */
+async function fetchFeatureDocs(
+  owner: string,
+  repo: string,
+  prefixes: string[],
+): Promise<Array<{ path: string; content: string }>> {
+  const tree = await fetchGitHubTree(owner, repo)
+  const mdFiles = tree
+    .filter(e =>
+      e.type === 'blob' &&
+      e.path.endsWith('.md') &&
+      prefixes.some(p => e.path.startsWith(p)),
+    )
+    .slice(0, 30) // rate-limit guard
+
+  const results: Array<{ path: string; content: string }> = []
+  for (const file of mdFiles) {
+    const content = await fetchGitHubFile(owner, repo, file.path)
+    if (content) results.push({ path: file.path, content })
+  }
+  return results
+}
+
+// ── Changelog section parsing ────────────────────────────
+
+interface ChangelogSections { shipped: string; unreleased: string }
+
+/** Split a CHANGELOG into shipped (versioned) and unreleased sections. */
+export function splitChangelogSections(changelog: string): ChangelogSections {
+  const lines = changelog.split('\n')
+  let inUnreleased = false
+  const shipped: string[] = []
+  const unreleased: string[] = []
+
+  for (const line of lines) {
+    // Detect section headers: ## [Unreleased] vs ## [x.y.z]
+    if (/^##\s*\[unreleased\]/i.test(line)) {
+      inUnreleased = true
+      continue
+    }
+    if (/^##\s*\[\d/.test(line)) {
+      inUnreleased = false
+      shipped.push(line)
+      continue
+    }
+    ;(inUnreleased ? unreleased : shipped).push(line)
+  }
+
+  return {
+    shipped: shipped.join('\n').trim(),
+    unreleased: unreleased.join('\n').trim(),
+  }
+}
+
+// ── Thought extraction + storage ─────────────────────────
+
+interface ExtractedFact {
+  fact: string
+  status: 'shipped' | 'planned' | 'aspirational'
+  category: 'ux' | 'infra' | 'product' | 'api'
+  date: string | null
+}
+
+function contentHash(slug: string, fact: string): string {
+  return createHash('sha256')
+    .update(`${slug}:${fact.toLowerCase().replace(/\s+/g, ' ').trim()}`)
+    .digest('hex')
+}
+
+async function extractFacts(
+  projectSlug: string,
+  docContent: string,
+  defaultStatus: 'shipped' | 'planned' | 'aspirational',
+): Promise<ExtractedFact[]> {
+  const doc = stripMarkdown(docContent).slice(0, 8000)
+  if (!doc.trim()) return []
+
+  const { text } = await generateText({
+    model: openrouter(MODEL),
+    prompt: `You are a technical fact extractor for a developer portfolio.
+Extract discrete, standalone facts from this document. Each fact must:
+- Be a single sentence describing one concrete thing that was designed, built, or achieved
+- Include a category: ux (design decisions, user flows, IA, accessibility, interaction patterns), infra (deployment, CI/CD, databases), product (features, business logic), api (endpoints, integrations)
+- Include a date (YYYY-MM) if one is discernible from context, else null
+
+Respond ONLY with a JSON array:
+[{ "fact": "...", "category": "ux|infra|product|api", "date": "YYYY-MM|null" }]
+
+Rules:
+- Only extract facts containing specific technical detail (no generic statements like "improved performance")
+- Each fact must be self-contained and understandable without the surrounding document
+- Maximum 30 facts per document
+- Include design decisions, interaction patterns, and information architecture — not just what was coded
+
+Document (project: ${projectSlug}):
+${doc}`,
+    maxTokens: 1500,
+  })
+
+  try {
+    const cleaned = text.trim().replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+    const parsed = JSON.parse(cleaned) as Array<{ fact: string; category: string; date: string | null }>
+    return parsed.slice(0, 30).map(f => ({
+      fact: f.fact,
+      status: defaultStatus,
+      category: (f.category as ExtractedFact['category']) || 'product',
+      date: f.date,
+    }))
+  } catch {
+    console.warn(`  ⚠ Could not parse extracted facts JSON — skipping`)
+    return []
+  }
+}
+
+async function storeThoughts(
+  projectSlug: string,
+  facts: ExtractedFact[],
+): Promise<{ added: number; skipped: number; inserted: ExtractedFact[] }> {
+  if (!facts.length) return { added: 0, skipped: 0, inserted: [] }
+
+  // Compute hashes for all facts
+  const factsWithHash = facts.map(f => ({
+    ...f,
+    hash: contentHash(projectSlug, f.fact),
+  }))
+
+  // Check which hashes already exist
+  const { data: existing } = await supabase
+    .from('thoughts')
+    .select('content_hash')
+    .in('content_hash', factsWithHash.map(f => f.hash))
+  const existingHashes = new Set((existing ?? []).map(r => r.content_hash))
+
+  const newFacts = factsWithHash.filter(f => !existingHashes.has(f.hash))
+  const inserted: ExtractedFact[] = []
+
+  // Batch insert with embeddings (5 at a time to avoid rate limits)
+  for (let i = 0; i < newFacts.length; i += 5) {
+    const batch = newFacts.slice(i, i + 5)
+    for (const f of batch) {
+      const attributed = `[${projectSlug} | ${f.date ?? 'unknown'} | ${f.category} | ${f.status}] ${f.fact}`
+      const { embedding } = await embed({
+        model: openrouter.embedding('openai/text-embedding-3-small'),
+        value: attributed,
+      })
+      const { error } = await supabase.from('thoughts').insert({
+        content: attributed,
+        embedding,
+        content_hash: f.hash,
+        metadata: {
+          type: 'reference',
+          source: 'enrichment',
+          project: projectSlug,
+          category: f.category,
+          status: f.status,
+          date: f.date,
+          topics: [projectSlug, f.category, f.status],
+        },
+      })
+      if (error) {
+        console.warn(`  ⚠ Failed to insert thought: ${error.message}`)
+      } else {
+        inserted.push(f)
+      }
+    }
+  }
+
+  return { added: inserted.length, skipped: factsWithHash.length - newFacts.length, inserted }
+}
+
+// ── Employment delta proposal ────────────────────────────
+
+async function proposeEmploymentDelta(
+  employment: ProfileRow['employment'],
+  newThoughts: ExtractedFact[],
+  projectSlug: string,
+): Promise<void> {
+  const shippedUx = newThoughts.filter(f => f.status === 'shipped' && f.category === 'ux')
+  if (shippedUx.length === 0) return
+
+  // Find the self-employed entry (or first entry)
+  const selfEmployed = employment?.find(e =>
+    e.company?.toLowerCase().includes('self-employed') ||
+    e.company?.toLowerCase().includes('self employed'),
+  )
+  if (!selfEmployed) return
+
+  const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets : []
+
+  const { text } = await generateText({
+    model: openrouter(MODEL),
+    prompt: `You are reviewing employment bullets for a developer portfolio.
+The candidate is self-employed and has recently shipped new UX work. Review the current bullets and the new achievements, then propose updated bullets that better represent the UX design work.
+
+Current employment bullets:
+${currentBullets.map((b, i) => `${i + 1}. ${b}`).join('\n')}
+
+Newly shipped UX achievements (from ${projectSlug}):
+${shippedUx.map(f => `- ${f.fact}`).join('\n')}
+
+Rules:
+- Keep 4-6 bullets total
+- Lead with UX design decisions, interaction patterns, and information architecture
+- Include specific details: view counts, component counts, accessibility standards
+- Do NOT fabricate — only use facts from the bullets and achievements above
+- Respond ONLY with a JSON array of strings (the new bullets)`,
+    maxTokens: 800,
+  })
+
+  try {
+    const cleaned = text.trim().replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim()
+    const proposed = JSON.parse(cleaned) as string[]
+
+    const content = [
+      `EMPLOYMENT DELTA PROPOSAL (${projectSlug}):`,
+      `Generated: ${new Date().toISOString().slice(0, 10)}`,
+      '',
+      'Proposed self-employment bullets:',
+      ...proposed.map((b, i) => `${i + 1}. ${b}`),
+      '',
+      'Current bullets:',
+      ...currentBullets.map((b, i) => `${i + 1}. ${b}`),
+    ].join('\n')
+
+    const { embedding } = await embed({
+      model: openrouter.embedding('openai/text-embedding-3-small'),
+      value: content,
+    })
+
+    await supabase.from('thoughts').insert({
+      content,
+      embedding,
+      metadata: {
+        type: 'review_needed',
+        source: 'sync',
+        project: 'self-employed',
+        topics: ['employment', 'review_needed', projectSlug],
+      },
+    })
+    console.log(`  ✔ employment delta proposal written (review via MCP)`)
+  } catch {
+    console.warn(`  ⚠ Could not generate employment delta proposal`)
+  }
+}
+
 // ── Profile helpers ───────────────────────────────────────
 
 interface ProjectEntry {
@@ -87,15 +366,23 @@ interface ProjectEntry {
   [key: string]: unknown
 }
 
+interface EmploymentEntry {
+  company?: string
+  title?: string
+  bullets?: string[]
+  [key: string]: unknown
+}
+
 interface ProfileRow {
   projects: ProjectEntry[]
   skills?: Array<{ category?: string; items?: string[] | null }> | null
+  employment?: EmploymentEntry[] | null
 }
 
 async function loadProfile(): Promise<ProfileRow | null> {
   const { data, error } = await supabase
     .from('public_profile')
-    .select('projects, skills')
+    .select('projects, skills, employment')
     .eq('id', PROFILE_ID)
     .single()
   if (error || !data) {
@@ -195,7 +482,7 @@ async function reconcileHighlights(
   const { text } = await generateText({
     model: openrouter(MODEL),
     prompt: `You are maintaining the "highlights" array of a developer portfolio API.
-This is a curated list of the greatest engineering achievements on the project — the kind of things that demonstrate technical depth to a hiring engineer.
+This is a curated list of the greatest achievements on the project — demonstrating both UX design judgment and engineering execution to a hiring engineer.
 
 Current highlights:
 ${currentHighlights.length ? currentHighlights.map((h, i) => `${i + 1}. ${h}`).join('\n') : '(empty)'}
@@ -204,8 +491,9 @@ Full changelog:
 ${log}
 
 Rules:
-- Scan the changelog for significant engineering achievements not already captured in the current highlights
-- Add new entries for anything impressive: novel systems built, hard problems solved, meaningful scale or automation
+- Scan the changelog for significant achievements not already captured in the current highlights
+- Surface UX design decisions (information architecture, interaction patterns, user flows, accessibility), not just infrastructure
+- Add new entries for anything impressive: novel UX patterns designed, systems built, hard problems solved, meaningful scale or automation
 - Remove or update any existing entries that are now outdated or superseded
 - Keep entries specific and technical (mention the thing built, not just that something was "added")
 - Aim for 5–8 total highlights, ordered from most to least impressive
@@ -231,14 +519,20 @@ Project: ${projectName}`,
 
 // ── Project sync ──────────────────────────────────────────
 
+interface SyncResult {
+  projects: ProfileRow['projects']
+  newThoughts: ExtractedFact[]
+}
+
 async function syncProject(
   r: typeof REPOS[number],
   projects: ProfileRow['projects'],
-): Promise<ProfileRow['projects']> {
+): Promise<SyncResult> {
+  const allNewThoughts: ExtractedFact[] = []
   const idx = projects.findIndex(p => p.slug === r.slug)
   if (idx < 0) {
     console.log(`  ⚠ "${r.slug}" not found in profile — skipping`)
-    return projects
+    return { projects, newThoughts: allNewThoughts }
   }
 
   const project = projects[idx]
@@ -257,6 +551,7 @@ async function syncProject(
 
   let updated = false
 
+  // ── Architecture reconciliation (unchanged) ──
   if (archDoc) {
     const arch = await reconcileArchitecture(projectName, currentArchitecture, archDoc)
     if (arch.updated) {
@@ -270,8 +565,11 @@ async function syncProject(
     console.log(`  ⚠ ${archPath} not found — skipping architecture`)
   }
 
+  // ── Highlights reconciliation (now shipped-only) ──
   if (changelog) {
-    const hi = await reconcileHighlights(projectName, currentHighlights, changelog)
+    const sections = splitChangelogSections(changelog)
+    // Highlights only from shipped changelog (no ## [Unreleased])
+    const hi = await reconcileHighlights(projectName, currentHighlights, sections.shipped)
     if (hi.updated) {
       project.highlights = hi.value
       updated = true
@@ -279,12 +577,48 @@ async function syncProject(
     } else {
       console.log(`  — highlights unchanged`)
     }
+
+    // ── Extract thoughts from shipped changelog ──
+    console.log(`  Extracting thoughts from shipped changelog...`)
+    const shippedFacts = await extractFacts(r.slug, sections.shipped, 'shipped')
+    if (shippedFacts.length) {
+      const result = await storeThoughts(r.slug, shippedFacts)
+      console.log(`  ✔ changelog thoughts: ${result.added} added, ${result.skipped} skipped`)
+      allNewThoughts.push(...result.inserted)
+    }
+
+    // ── Extract thoughts from unreleased (as planned) ──
+    if (sections.unreleased) {
+      const plannedFacts = await extractFacts(r.slug, sections.unreleased, 'planned')
+      if (plannedFacts.length) {
+        const result = await storeThoughts(r.slug, plannedFacts)
+        console.log(`  ✔ unreleased thoughts: ${result.added} added, ${result.skipped} skipped`)
+      }
+    }
   } else {
-    console.log(`  ⚠ CHANGELOG.md not found — skipping highlights`)
+    console.log(`  ⚠ CHANGELOG.md not found — skipping highlights + thought extraction`)
+  }
+
+  // ── Extract thoughts from feature docs ──
+  const prefixes = (r as { featureDocsGlobs?: string[] }).featureDocsGlobs
+  if (prefixes?.length) {
+    console.log(`  Fetching feature docs (${prefixes.join(', ')})...`)
+    const docs = await fetchFeatureDocs(r.owner, r.repo, prefixes)
+    console.log(`  Found ${docs.length} doc(s)`)
+    for (const doc of docs) {
+      // Docs under plans/ directories are planned; others are shipped
+      const status = doc.path.includes('/plans/') ? 'planned' as const : 'shipped' as const
+      const facts = await extractFacts(r.slug, doc.content, status)
+      if (facts.length) {
+        const result = await storeThoughts(r.slug, facts)
+        console.log(`    ${doc.path}: ${result.added} added, ${result.skipped} skipped`)
+        if (status === 'shipped') allNewThoughts.push(...result.inserted)
+      }
+    }
   }
 
   if (updated) projects[idx] = { ...project }
-  return projects
+  return { projects, newThoughts: allNewThoughts }
 }
 
 // ── CANDIDATE_STACK ───────────────────────────────────────
@@ -333,14 +667,23 @@ async function sync(): Promise<void> {
   if (!profile) { process.exitCode = 1; return }
 
   let projects = profile.projects
+  const allNewThoughts: ExtractedFact[] = []
 
   for (const r of REPOS) {
     console.log(`Syncing ${r.slug}...`)
-    projects = await syncProject(r, projects)
+    const result = await syncProject(r, projects)
+    projects = result.projects
+    allNewThoughts.push(...result.newThoughts)
   }
 
   await saveProjects(projects)
   console.log('\nProjects saved.')
+
+  // Propose employment bullet updates if new UX work was shipped
+  if (allNewThoughts.length > 0 && profile.employment) {
+    console.log('\nProposing employment delta...')
+    await proposeEmploymentDelta(profile.employment, allNewThoughts, 'all-projects')
+  }
 
   console.log('\nRebuilding CANDIDATE_STACK...')
   const stack = buildCandidateStack({ ...profile, projects })

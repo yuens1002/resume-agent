@@ -6,6 +6,8 @@ import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreResume, PASS_THRESHOLD, type RubricResult } from '../lib/score-resume.js'
+import { stripBannedPhrases } from '../lib/strip-banned.js'
+import { queryRelevantThoughts } from '../lib/thoughts-query.js'
 import type { ResumeResponse } from '../types.js'
 
 const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
@@ -83,11 +85,17 @@ Respond with structured JSON:
   "projects": [...]
 }`
 
-  let userMessage = `Candidate profile:
-${JSON.stringify(profile, null, 2)}
+  // Query OB1 thoughts for JD-relevant shipped work (non-blocking)
+  const relevantThoughts = await queryRelevantThoughts(job_description)
 
-Target job description:
-${job_description}`
+  let userMessage = `Candidate profile:
+${JSON.stringify(profile, null, 2)}`
+
+  if (relevantThoughts.length) {
+    userMessage += `\n\nAdditional context from candidate's shipped work (each entry is attributed — use the project and date to place it correctly in the resume):\n${relevantThoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+  }
+
+  userMessage += `\n\nTarget job description:\n${job_description}`
 
   if (framing_hints?.length) {
     userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h.replace(/\n+/g, ' ')}`).join('\n')}`
@@ -152,6 +160,9 @@ ${job_description}`
     }
   }
 
+  // Strip banned phrases that slipped past both models (safety net for Rule 4)
+  winner.resume = stripBannedPhrases(winner.resume)
+
   // Override contact server-side
   winner.resume.contact = profile.contact
 
@@ -160,6 +171,7 @@ ${job_description}`
     _rubric: {
       total: Math.round(winner.rubric.total * 100) / 100,
       passed: winner.rubric.passed,
+      post_filtered: true, // banned phrases stripped after scoring — Rule 4 score reflects pre-filter state
       winner_model: winner.model,
       models: [RESUME_MODEL, RESUME_MODEL_B],
       rules: winner.rubric.rules.map(r => ({

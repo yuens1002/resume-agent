@@ -30,7 +30,7 @@ export interface RubricResult {
 const PASS_THRESHOLD = 4.0
 
 // Generic phrases that signal "robo resume" — checked case-insensitively
-const BANNED_PHRASES = [
+export const BANNED_PHRASES = [
   'results-driven',
   'proven track record',
   'dynamic team player',
