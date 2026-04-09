@@ -1,6 +1,6 @@
 {
   "name": "resume-agent",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,7 +15,7 @@
     "db:push": "supabase db push",
     "ob1:deploy": "supabase functions deploy open-brain-mcp --no-verify-jwt",
     "ob1:logs": "supabase functions logs open-brain-mcp",
-    "test:unit": "tsx --test tests/resume-framing.test.ts tests/score-resume.test.ts",
+    "test:unit": "tsx --test tests/resume-framing.test.ts tests/score-resume.test.ts tests/strip-banned.test.ts tests/sync-enrichment.test.ts",
     "test:rubric": "tsx --test tests/score-resume.test.ts",
     "test": "echo 'Run npm run test:unit for unit tests, npm run test:integration for live integration tests.'",
     "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts",

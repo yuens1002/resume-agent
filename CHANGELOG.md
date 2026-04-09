@@ -8,6 +8,9 @@
 - 2026-04-08 — feat(prompt): add Rules 7-8 — self-employment bullets reframed to match JD role (UX work for UX roles, not backend architecture); projects section reserved for technical highlights and scale
 - 2026-04-08 — refactor(prompt): remove user-specific examples from system prompt — genericize Rule 3 example and Rule 7 to work for any OB1 profile, not just one candidate
 - 2026-04-09 — feat(prompt): add separate-projects rule — treat each project as a distinct entry by goal and outcome, never merge regardless of shared tech stack
+- 2026-04-09 — fix(resume): add banned-phrases post-filter — strips "proven track record", "leveraging", etc. from winning resume as safety net when both LLM candidates violate Rule 4; 10 new unit tests
+- 2026-04-09 — feat(sync): extend OB1 enrichment pipeline — read feature docs + plan docs via GitHub Trees API, parse changelog into shipped vs unreleased sections, extract facts as attributed OB1 thoughts with content-hash dedup, propose employment bullet updates as review_needed thoughts; UX-aware highlights prompt replaces engineering-only bias; 10 new unit tests
+- 2026-04-09 — feat(resume): thoughts-augmented generation — query OB1 for JD-relevant shipped facts at generation time, inject as attributed context between profile and JD; graceful fallback to [] on Supabase error
 
 ## [0.2.9] — 2026-04-06
 
