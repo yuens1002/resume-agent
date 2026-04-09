@@ -72,6 +72,7 @@ Additional rules:
 - Keep to 2 pages worth of content
 - Do NOT include a "contact" key in your JSON — it will be injected server-side
 - Omit employment history that is irrelevant to the target role
+- Each project in the profile represents a distinct goal and outcome — never merge or combine them regardless of shared tech stack. Treat each as its own entry. As the portfolio grows, include only the projects most relevant to the target JD.
 
 Respond with structured JSON:
 {
