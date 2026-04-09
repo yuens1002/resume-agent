@@ -13,10 +13,11 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
-// Import the exported function — sync.ts exports splitChangelogSections
-// We re-implement the pure helpers here for unit testing since sync.ts
-// is a script entry point, not a module. When these are extracted to
-// src/lib/ in a future refactor, tests import directly.
+// The pure helpers below are currently re-implemented locally for unit
+// testing because sync.ts is a script entry point, not an importable
+// module. These tests do not currently exercise the production
+// implementation directly; once the helpers are extracted to a shared
+// module, this file should import them instead of duplicating them.
 
 // ── splitChangelogSections (re-implemented for test) ─────
 

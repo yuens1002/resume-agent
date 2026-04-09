@@ -171,6 +171,7 @@ ${JSON.stringify(profile, null, 2)}`
     _rubric: {
       total: Math.round(winner.rubric.total * 100) / 100,
       passed: winner.rubric.passed,
+      post_filtered: true, // banned phrases stripped after scoring — Rule 4 score reflects pre-filter state
       winner_model: winner.model,
       models: [RESUME_MODEL, RESUME_MODEL_B],
       rules: winner.rubric.rules.map(r => ({

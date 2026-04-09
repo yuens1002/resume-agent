@@ -226,8 +226,8 @@ ${doc}`,
 async function storeThoughts(
   projectSlug: string,
   facts: ExtractedFact[],
-): Promise<{ added: number; skipped: number }> {
-  if (!facts.length) return { added: 0, skipped: 0 }
+): Promise<{ added: number; skipped: number; inserted: ExtractedFact[] }> {
+  if (!facts.length) return { added: 0, skipped: 0, inserted: [] }
 
   // Compute hashes for all facts
   const factsWithHash = facts.map(f => ({
@@ -243,7 +243,7 @@ async function storeThoughts(
   const existingHashes = new Set((existing ?? []).map(r => r.content_hash))
 
   const newFacts = factsWithHash.filter(f => !existingHashes.has(f.hash))
-  let added = 0
+  const inserted: ExtractedFact[] = []
 
   // Batch insert with embeddings (5 at a time to avoid rate limits)
   for (let i = 0; i < newFacts.length; i += 5) {
@@ -271,12 +271,12 @@ async function storeThoughts(
       if (error) {
         console.warn(`  ⚠ Failed to insert thought: ${error.message}`)
       } else {
-        added++
+        inserted.push(f)
       }
     }
   }
 
-  return { added, skipped: factsWithHash.length - newFacts.length }
+  return { added: inserted.length, skipped: factsWithHash.length - newFacts.length, inserted }
 }
 
 // ── Employment delta proposal ────────────────────────────
@@ -584,7 +584,7 @@ async function syncProject(
     if (shippedFacts.length) {
       const result = await storeThoughts(r.slug, shippedFacts)
       console.log(`  ✔ changelog thoughts: ${result.added} added, ${result.skipped} skipped`)
-      allNewThoughts.push(...shippedFacts)
+      allNewThoughts.push(...result.inserted)
     }
 
     // ── Extract thoughts from unreleased (as planned) ──
@@ -612,7 +612,7 @@ async function syncProject(
       if (facts.length) {
         const result = await storeThoughts(r.slug, facts)
         console.log(`    ${doc.path}: ${result.added} added, ${result.skipped} skipped`)
-        if (status === 'shipped') allNewThoughts.push(...facts)
+        if (status === 'shipped') allNewThoughts.push(...result.inserted)
       }
     }
   }

@@ -59,23 +59,32 @@ function replaceBanned(text: string): string {
     .replace(/^ | $/gm, '')
 }
 
+/** Replace banned phrases in list items and remove any entries that become empty. */
+function replaceBannedList(items: unknown): string[] {
+  if (!Array.isArray(items)) return []
+  return items
+    .map((item: string) => replaceBanned(item).trim())
+    .filter((item: string) => item.length > 0)
+}
+
 /** Deep-scan all text fields in a resume and strip banned phrases. */
 export function stripBannedPhrases(resume: ResumeResponse): ResumeResponse {
   const out: ResumeResponse = structuredClone(resume)
 
   // Summary
   if (out.summary) {
-    out.summary = replaceBanned(out.summary)
+    const summary = replaceBanned(out.summary).trim()
+    if (summary) out.summary = summary
   }
 
-  // Employment bullets
+  // Employment bullets (guard against null/missing from LLM)
   for (const emp of out.employment ?? []) {
-    emp.bullets = emp.bullets.map(replaceBanned)
+    emp.bullets = replaceBannedList(emp.bullets)
   }
 
-  // Project highlights
+  // Project highlights (guard against null/missing from LLM)
   for (const proj of out.projects ?? []) {
-    proj.highlights = proj.highlights.map(replaceBanned)
+    proj.highlights = replaceBannedList(proj.highlights)
   }
 
   return out
