@@ -44,7 +44,7 @@ const openrouter = createOpenAI({
   apiKey: OPENROUTER_API_KEY,
 })
 
-const MODEL = 'anthropic/claude-haiku-4.5'
+const MODEL = 'google/gemini-3-flash-preview'
 // Default singleton profile row ID (UUID with trailing 1)
 const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
