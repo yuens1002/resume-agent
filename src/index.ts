@@ -76,6 +76,7 @@ app.route('/match', matchRoute)
 app.route('/resume', resumeRoute)
 app.route('/.well-known/agent-card.json', agentCardRoute)
 app.get('/.well-known/agent.json', (c) => c.redirect('/.well-known/agent-card.json', 301))
+app.get('/.well-known/agent-card', (c) => c.redirect('/.well-known/agent-card.json', 301))
 app.get('/try', (c) => c.redirect('/query?question=Tell+me+about+yourself&stream=true', 302))
 
 app.get('/robots.txt', (c) =>
