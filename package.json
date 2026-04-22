@@ -1,6 +1,6 @@
 {
   "name": "resume-agent",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": true,
   "type": "module",
   "engines": {
@@ -19,6 +19,7 @@
     "test:rubric": "tsx --test tests/score-resume.test.ts",
     "test": "echo 'Run npm run test:unit for unit tests, npm run test:integration for live integration tests.'",
     "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts",
+    "test:transport": "tsx --env-file=.env.local --test tests/mcp-transport.test.ts",
     "sync": "tsx --env-file=.env.local scripts/sync.ts"
   },
   "dependencies": {
@@ -36,7 +37,7 @@
   "devDependencies": {
     "@hono/node-server": "^1.13.7",
     "@types/node": "^22.13.13",
-"supabase": "^2.84.0",
+    "supabase": "^2.84.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }

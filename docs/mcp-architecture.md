@@ -4,28 +4,24 @@ The MCP endpoint at `/mcp` runs on Railway as part of the main Hono server (`src
 
 ---
 
-## Transport: SSE (target) / JSON response mode (current)
+## Transport: Stateless Streamable HTTP
 
-The server is being migrated from `StreamableHTTPTransport` with `enableJsonResponse: true` (stateless per-request) to full SSE streaming transport. Reasons:
+Each POST to `/mcp` is a self-contained request-response cycle. The server creates a fresh `McpServer` and `StreamableHTTPTransport` per request, handles it, and discards both. No session state is kept in process memory.
 
-**Session drops** — the current mode creates a new `McpServer` and transport on every POST. When Claude's connector sends a `mcp-session-id` from a previous call, the server doesn't recognise it and the client surfaces a disconnect.
+**Why stateless:**
 
-**Railway idle timeout** — Railway's reverse proxy closes idle TCP connections after ~5 minutes. With no persistent stream or heartbeat, any gap between tool calls longer than that hits a closed connection.
+- All 15+ tools are synchronous Supabase round-trips — no tool requires server-side continuity between calls
+- Stateful SSE sessions caused mid-conversation drops on Claude mobile when the OS killed background TCP connections; the 10-minute TTL (later extended to 30 min) was a workaround for a problem the architecture itself created
+- Stateless mode eliminates reconnect friction across all surfaces: claude.ai web, mobile, Claude Desktop, Claude Code, and the job-hunt-agent automation pipeline
+- Removes the single-replica Railway constraint (session affinity no longer required)
 
-**Automation engine dependency** — the job-hunt-agent pipeline makes sustained MCP calls (`log_application`, `list_applications`, `upsert_project`) during automated job discovery and status checks. JSON response mode drops sessions under that load.
-
-SSE fixes all three: persistent connection, server-side heartbeat every 25s, and session state preserved in a server-side Map with 10-minute TTL eviction.
+**Current status:** Stateless Streamable HTTP transport is live as of v0.2.14. The previous stateful SSE implementation (v0.2.13, TTL 30 min, keepalive heartbeat) has been replaced; the refactor plan in [`docs/plans/mcp-stateless-refactor.md`](plans/mcp-stateless-refactor.md) is now implemented.
 
 ---
 
 ## Session management
 
-Once SSE lands, sessions are cached by `mcp-session-id`:
-
-- **POST** — creates a new session on first request; reuses cached session on subsequent ones
-- **GET** — returns the SSE stream for an existing session
-- **DELETE** — tears down the session and closes the stream
-- Sessions evict after 10 minutes of inactivity
+None. Each POST is independent. No `mcp-session-id` is issued. Clients do not need to establish or maintain sessions.
 
 ---
 
@@ -33,31 +29,20 @@ Once SSE lands, sessions are cached by `mcp-session-id`:
 
 Two paths, checked in order:
 
-1. **Static key** — `x-brain-key` header matches `OPEN_BRAIN_KEY` env var (Claude Desktop direct access)
+1. **Static key** — `x-brain-key` header matches `OPEN_BRAIN_KEY` env var (Claude Desktop / direct API access)
 2. **JWT** — `Authorization: Bearer <token>` verified with `jose` against `JWT_SECRET` (claude.ai OAuth connector)
+
+Unauthenticated requests receive `401` with a `WWW-Authenticate` header pointing to `/.well-known/oauth-protected-resource`.
 
 ---
 
-## Supabase Edge Functions (backup / emergency recovery)
+## Supabase Edge Functions
 
-Two Edge Functions are kept in `supabase/functions/` as standby fallbacks — they are **not** the primary servers:
-
-| Function | Primary | Fallback role |
-|---|---|---|
-| `open-brain-mcp` | Railway `/mcp` (SSE) | Read-compatible JSON-mode MCP if Railway goes down |
-| `oauth-token` | Railway `/token` | OAuth token issuance if Railway goes down |
-
-Edge Functions cannot hold long-lived SSE connections (cold-start limits, no heartbeat support), so the MCP fallback operates in degraded mode — stateless, no session persistence. Suitable for read-only tool calls (`search_thoughts`, `list_applications`) but not for sustained automation pipelines.
-
-To reinstate either: re-deploy to Supabase and update the relevant URLs in the claude.ai connector settings or `/.well-known/oauth-authorization-server`.
-
-A dedicated read-only Supabase Edge Function (purpose-built for the degraded fallback role, not a copy of the Railway server) is worth considering once the SSE primary is stable.
+Railway is the primary production deployment for `/mcp`. The `open-brain-mcp` and `oauth-token` Supabase Edge Functions are **not part of normal operations**, but remain in the repo as standby / emergency-recovery and reference artifacts. Any related deploy/log scripts (`ob1:deploy`, `ob1:logs`) should be treated as recovery/maintenance tooling, not the default deployment path.
 
 ---
 
 ## Railway configuration
-
-Single replica required for session affinity (sessions live in process memory):
 
 ```toml
 [deploy]
@@ -67,3 +52,14 @@ healthcheckTimeout = 30
 restartPolicyType = "on_failure"
 numReplicas = 1
 ```
+
+Single replica is fine for current load. With stateless transport, horizontal scaling (numReplicas > 1) is safe — no session affinity required.
+
+---
+
+## A2A autodiscovery
+
+Agent card served at `/.well-known/agent-card.json`. Two redirect aliases:
+
+- `/.well-known/agent.json` → `/.well-known/agent-card.json` (301)
+- `/.well-known/agent-card` → `/.well-known/agent-card.json` (301, added v0.2.13)
