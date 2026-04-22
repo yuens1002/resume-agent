@@ -15,7 +15,7 @@ Each POST to `/mcp` is a self-contained request-response cycle. The server creat
 - Stateless mode eliminates reconnect friction across all surfaces: claude.ai web, mobile, Claude Desktop, Claude Code, and the job-hunt-agent automation pipeline
 - Removes the single-replica Railway constraint (session affinity no longer required)
 
-**Current status:** Stateful SSE is live as of v0.2.13 (TTL 30 min, keepalive heartbeat). Stateless refactor tracked in [`docs/plans/mcp-stateless-refactor.md`](plans/mcp-stateless-refactor.md).
+**Current status:** Stateless Streamable HTTP transport is live as of v0.2.14. The previous stateful SSE implementation (v0.2.13, TTL 30 min, keepalive heartbeat) has been replaced; the refactor plan in [`docs/plans/mcp-stateless-refactor.md`](plans/mcp-stateless-refactor.md) is now implemented.
 
 ---
 
@@ -38,7 +38,7 @@ Unauthenticated requests receive `401` with a `WWW-Authenticate` header pointing
 
 ## Supabase Edge Functions
 
-The `open-brain-mcp` and `oauth-token` Supabase Edge Functions have been **retired**. Railway is the sole deployment. The `supabase/functions/` directory is preserved for reference only.
+Railway is the primary production deployment for `/mcp`. The `open-brain-mcp` and `oauth-token` Supabase Edge Functions are **not part of normal operations**, but remain in the repo as standby / emergency-recovery and reference artifacts. Any related deploy/log scripts (`ob1:deploy`, `ob1:logs`) should be treated as recovery/maintenance tooling, not the default deployment path.
 
 ---
 

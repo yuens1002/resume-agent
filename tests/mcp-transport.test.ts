@@ -22,7 +22,7 @@
  *   OPEN_BRAIN_KEY — the x-brain-key value (from .env.local)
  *
  * Run (requires local server):
- *   npm run test:integration
+ *   npm run test:transport
  */
 
 import { describe, it } from 'node:test'

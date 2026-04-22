@@ -743,8 +743,7 @@ const ALLOWED_ORIGINS = new Set([
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, DELETE',
-  'Access-Control-Expose-Headers': 'mcp-session-id',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 } as const
 
 function checkOrigin(c: Context): Response | null {

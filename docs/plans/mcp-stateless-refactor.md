@@ -1,7 +1,7 @@
 # Plan: MCP Stateless Transport Refactor
 
 **Branch:** `feat/mcp-stateless`
-**Status:** Ready to implement
+**Status:** Implemented — shipped in v0.2.14
 **Motivation:** Real-world usage confirmed that stateful SSE sessions create unavoidable reconnect friction across all Claude surfaces (mobile, web, new conversations). All 15+ MCP tools are stateless round-trips — none require server-side session state or persistent SSE streams.
 
 ---
