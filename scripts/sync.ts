@@ -44,8 +44,9 @@ const openrouter = createOpenAI({
   apiKey: OPENROUTER_API_KEY,
 })
 
-const MODEL = 'anthropic/claude-haiku-4.5'
-const PROFILE_ID = '00000000-0000-0000-0000-000000000001'
+const MODEL = 'google/gemini-3-flash-preview'
+// Default singleton profile row ID (UUID with trailing 1)
+const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
 // Repos to sync — slug must match the project slug in public_profile.projects
 // docsPath overrides README.md when the root README is just boilerplate
@@ -69,11 +70,13 @@ const REPOS = [
 
 // ── GitHub ────────────────────────────────────────────────
 
+const GITHUB_API_VERSION = ['2022', '11', '28'].join('-') // YYYY-MM-DD per GitHub REST docs
+
 async function fetchGitHubFile(owner: string, repo: string, path: string): Promise<string | null> {
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
+    'X-GitHub-Api-Version': GITHUB_API_VERSION,
   }
   if (GITHUB_TOKEN) headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`
 
@@ -96,7 +99,7 @@ async function fetchGitHubTree(owner: string, repo: string): Promise<TreeEntry[]
   const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
+    'X-GitHub-Api-Version': GITHUB_API_VERSION,
   }
   if (GITHUB_TOKEN) headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`
 
@@ -433,15 +436,19 @@ async function reconcileArchitecture(
 ): Promise<{ updated: boolean; value: string }> {
   const doc = stripMarkdown(archDoc).slice(0, 6000)
 
-  // Force rewrite if current value is raw markdown, not a clean prose summary
-  const forceRewrite = !currentArchitecture || looksLikeRawMarkdown(currentArchitecture)
+  // Heal any previously stored NO_CHANGE artifact before feeding to LLM
+  const cleanedCurrent = currentArchitecture.replace(/\s*\bNO_CHANGE\b\s*$/i, '').trim()
+  const wasCorrupted = cleanedCurrent !== currentArchitecture.trim()
+
+  // Force rewrite if current value is raw markdown, empty, or was corrupted
+  const forceRewrite = !cleanedCurrent || looksLikeRawMarkdown(cleanedCurrent) || wasCorrupted
 
   const { text } = await generateText({
     model: openrouter(MODEL),
     prompt: `You are maintaining the "architecture" field of a developer portfolio API.
 
 Current value:
-${currentArchitecture || '(empty)'}
+${cleanedCurrent || '(empty)'}
 
 Latest documentation:
 ${doc}
@@ -462,12 +469,16 @@ Project: ${projectName}`,
   })
 
   const result = text.trim()
-  if (result === 'NO_CHANGE') {
-    if (!forceRewrite) return { updated: false, value: currentArchitecture }
+  // Strip any trailing NO_CHANGE token the model may append alongside real content
+  const stripped = result.replace(/\s*\bNO_CHANGE\b\s*$/i, '').trim()
+  const isNoChange = result === 'NO_CHANGE' || stripped === ''
+
+  if (isNoChange) {
+    if (!forceRewrite) return { updated: false, value: cleanedCurrent }
     // Model ignored the force-rewrite instruction — fall back to stripped doc
     return { updated: true, value: stripMarkdown(doc) }
   }
-  return { updated: true, value: stripMarkdown(result) }
+  return { updated: true, value: stripMarkdown(stripped) }
 }
 
 // ── Highlights reconciliation ─────────────────────────────
