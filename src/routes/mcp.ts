@@ -787,7 +787,8 @@ function unauthorized(c: Context): Response {
 }
 
 // ── Session management ────────────────────────────────────
-// SSE transport — sessions are persistent; cached by mcp-session-id with 10-minute TTL.
+// SSE transport — sessions are persistent; cached by mcp-session-id with a 30-minute TTL.
+// lastUsed is refreshed on every keepalive ping, so sessions with an active stream never expire.
 // Single Railway replica required for session affinity (see railway.toml).
 
 interface McpSession {
@@ -797,7 +798,7 @@ interface McpSession {
 }
 
 const sessions = new Map<string, McpSession>()
-const SESSION_TTL_MS = 10 * 60_000
+const SESSION_TTL_MS = 30 * 60_000
 
 setInterval(() => {
   const now = Date.now()
@@ -847,6 +848,7 @@ mcpRoute.get('*', async (c) => {
   const encoder = new TextEncoder()
 
   const keepalive = setInterval(() => {
+    session.lastUsed = Date.now() // keep session alive while SSE stream is open
     writer.write(encoder.encode(': ping\n\n')).catch(() => clearInterval(keepalive))
   }, 30_000)
 
