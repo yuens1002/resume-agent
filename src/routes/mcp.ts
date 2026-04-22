@@ -787,7 +787,8 @@ function unauthorized(c: Context): Response {
 }
 
 // ── Session management ────────────────────────────────────
-// SSE transport — sessions are persistent; cached by mcp-session-id with 10-minute TTL.
+// SSE transport — sessions are persistent; cached by mcp-session-id with a 30-minute TTL.
+// lastUsed is refreshed on every keepalive ping, so sessions with an active stream never expire.
 // Single Railway replica required for session affinity (see railway.toml).
 
 interface McpSession {
