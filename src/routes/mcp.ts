@@ -786,120 +786,37 @@ function unauthorized(c: Context): Response {
   }) as Response
 }
 
-// ── Session management ────────────────────────────────────
-// SSE transport — sessions are persistent; cached by mcp-session-id with a 30-minute TTL.
-// lastUsed is refreshed on every keepalive ping, so sessions with an active stream never expire.
-// Single Railway replica required for session affinity (see railway.toml).
-
-interface McpSession {
-  server: McpServer
-  transport: StreamableHTTPTransport
-  lastUsed: number
-}
-
-const sessions = new Map<string, McpSession>()
-const SESSION_TTL_MS = 30 * 60_000
-
-setInterval(() => {
-  const now = Date.now()
-  for (const [id, session] of sessions) {
-    if (now - session.lastUsed > SESSION_TTL_MS) {
-      session.transport.close?.()
-      sessions.delete(id)
-    }
-  }
-}, 5 * 60_000)
-
 // ── Routes ────────────────────────────────────────────────
+// Stateless transport: each POST creates a fresh McpServer + transport, handles
+// the request, and discards both. No session state is kept in process memory.
+// GET and DELETE are not registered — clients receive 404 for those methods.
 
 const mcpRoute = new Hono()
 
-// CORS preflight
+// CORS preflight — no auth required
 mcpRoute.options('*', (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
   return c.text('ok', 200, corsHeaders)
 })
 
-// GET — opens the SSE stream for an existing session
-mcpRoute.get('*', async (c) => {
-  const originErr = checkOrigin(c)
-  if (originErr) return originErr
-
-  if (!await authenticate(c)) return unauthorized(c)
-
-  const sessionId = c.req.header('mcp-session-id')
-  const session = sessionId ? sessions.get(sessionId) : undefined
-  if (!session) {
-    return c.json({ error: 'Session not found — initiate with a POST first' }, 404, corsHeaders)
-  }
-
-  session.lastUsed = Date.now()
-  const response = await session.transport.handleRequest(c)
-  if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
-  for (const [key, value] of Object.entries(corsHeaders)) {
-    response.headers.set(key, value)
-  }
-
-  // Inject SSE keepalive pings every 30s to prevent Railway/Fastly idle-timeout
-  // from closing the stream during quiet periods between tool calls.
-  const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
-  const encoder = new TextEncoder()
-
-  const keepalive = setInterval(() => {
-    session.lastUsed = Date.now() // keep session alive while SSE stream is open
-    writer.write(encoder.encode(': ping\n\n')).catch(() => clearInterval(keepalive))
-  }, 30_000)
-
-  response.body!.pipeTo(writable).finally(() => clearInterval(keepalive))
-
-  return new Response(readable, response)
-})
-
-// DELETE — tear down session and close the SSE stream
-mcpRoute.delete('*', async (c) => {
-  const originErr = checkOrigin(c)
-  if (originErr) return originErr
-
-  if (!await authenticate(c)) return unauthorized(c)
-
-  const sessionId = c.req.header('mcp-session-id')
-  if (sessionId) {
-    const session = sessions.get(sessionId)
-    session?.transport.close?.()
-    sessions.delete(sessionId)
-  }
-  return c.body(null, 200, corsHeaders)
-})
-
-// POST — initialize or resume session, then handle the MCP request
+// POST — stateless: fresh server + transport per request
 mcpRoute.post('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
 
   if (!await authenticate(c)) return unauthorized(c)
 
-  const incomingSessionId = c.req.header('mcp-session-id')
-  let session = incomingSessionId ? sessions.get(incomingSessionId) : undefined
+  const server = buildServer()
+  const transport = new StreamableHTTPTransport()
+  await server.connect(transport)
 
-  if (!session) {
-    const server = buildServer()
-    const transport = new StreamableHTTPTransport()
-    await server.connect(transport)
-    session = { server, transport, lastUsed: Date.now() }
-  }
-
-  session.lastUsed = Date.now()
-
-  const response = await session.transport.handleRequest(c)
+  const response = await transport.handleRequest(c)
   if (!response) return c.json({ error: 'No response from MCP transport' }, 500, corsHeaders)
 
-  // Cache by the session ID the transport assigns on initialization; overwrite if ID reused
-  const assignedId = response.headers.get('mcp-session-id')
-  if (assignedId) {
-    sessions.set(assignedId, session)
-  }
+  // Strip any session ID the transport may emit — this server is stateless;
+  // issuing a session ID would mislead clients into expecting session resumption.
+  response.headers.delete('mcp-session-id')
 
   for (const [key, value] of Object.entries(corsHeaders)) {
     response.headers.set(key, value)
