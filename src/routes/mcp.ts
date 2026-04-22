@@ -797,7 +797,7 @@ interface McpSession {
 }
 
 const sessions = new Map<string, McpSession>()
-const SESSION_TTL_MS = 10 * 60_000
+const SESSION_TTL_MS = 30 * 60_000
 
 setInterval(() => {
   const now = Date.now()
@@ -847,6 +847,7 @@ mcpRoute.get('*', async (c) => {
   const encoder = new TextEncoder()
 
   const keepalive = setInterval(() => {
+    session.lastUsed = Date.now() // keep session alive while SSE stream is open
     writer.write(encoder.encode(': ping\n\n')).catch(() => clearInterval(keepalive))
   }, 30_000)
 
