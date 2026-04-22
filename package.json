@@ -1,6 +1,6 @@
 {
   "name": "resume-agent",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "private": true,
   "type": "module",
   "engines": {
@@ -36,6 +36,7 @@
   "devDependencies": {
     "@hono/node-server": "^1.13.7",
     "@types/node": "^22.13.13",
+    "shadcn": "^4.2.0",
     "supabase": "^2.84.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

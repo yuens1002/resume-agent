@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- 2026-04-22 — fix: add 301 redirect from /.well-known/agent-card to /.well-known/agent-card.json — eliminates 404 for clients hitting the extensionless A2A autodiscovery path
+- 2026-04-22 — fix(mcp): bump SESSION_TTL_MS from 10 → 30 min and refresh lastUsed on every keepalive ping — sessions with an active SSE stream now stay alive indefinitely; dead sessions get a 30-minute grace window before eviction, eliminating mid-conversation "tool not found" drops on mobile
+
 - 2026-04-07 — feat(resume): implement dual-gen + rubric scorer pipeline achieving 5.82/6 ATS score — two independent LLM models compete per JD, deterministic 6-rule rubric (title mirroring, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering) picks winner, structured failure logging to OB1 for pattern analysis; 16 new unit tests, 34 total passing
 - 2026-04-08 — fix(scorer): handle LLM returning skills as flat string[] instead of Skill[] objects — prevents runtime TypeError crash on Rules 2 and 6
 - 2026-04-08 — fix(scorer): make Rule 4 (banned phrases) a hard veto scoring 0 — resumes containing "proven track record" or "leveraging" now lose to cleaner candidates instead of shipping with a penalty
