@@ -29,3 +29,7 @@ Adds `/public-mcp` route exposing a single MCP tool — `query_profile` — wrap
 ## Next
 
 Observations from live `/public-mcp` traffic — agent card fields consumed vs ignored, tool naming that AI clients discover reliably, rate-limit thresholds that hold up, errors worth surfacing. Deliverable: `docs/plans/base-layer-observations.md`, committed incrementally as patterns emerge.
+
+## Exploring
+
+A trust layer for agent authenticity — signed agent cards + invocation receipts + a public verify endpoint. Early-stage design, not yet scoped for implementation. See [docs/plans/a2a-trust-layer.md](docs/plans/a2a-trust-layer.md).
