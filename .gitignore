@@ -26,6 +26,9 @@ Thumbs.db
 # claude code
 .claude/
 
+# opencode.ai local config
+opencode.json
+
 # supabase local temp
 supabase/.temp/
 
