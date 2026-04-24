@@ -50,7 +50,7 @@ The **agent layer** is the contribution. The data layer is commodity (any Postgr
 
 ### Public MCP endpoint with `query_profile` tool
 
-**Branch:** `feat/public-mcp-query` · **Plan:** [plans/public-mcp-query-only.md](plans/public-mcp-query-only.md)
+**Branch:** `feat/public-mcp-query` · **Plan:** [docs/plans/public-mcp-query-only.md](docs/plans/public-mcp-query-only.md)
 
 Adds `/public-mcp` route exposing a single MCP tool — `query_profile` — wrapping the existing `/query` handler. Advertised in the agent card's `supportedInterfaces` for A2A-aware client discovery. Unauthenticated, rate-limited per IP.
 
@@ -66,7 +66,7 @@ The agent layer is only half the story. A **consumer-side reference implementati
 
 ### Observed-convention hardening
 
-Once the public MCP ships, a short observations doc (`plans/base-layer-observations.md`) will capture what real-world usage teaches about agent card shape, tool naming, rate-limit thresholds, and client behavior. Those observations inform whether the agent-layer primitives get extracted as a standalone spec or SDK for other forkers.
+Once the public MCP ships, a short observations doc (`docs/plans/base-layer-observations.md`) will capture what real-world usage teaches about agent card shape, tool naming, rate-limit thresholds, and client behavior. Those observations inform whether the agent-layer primitives get extracted as a standalone spec or SDK for other forkers.
 
 ---
 
@@ -81,4 +81,4 @@ Once the public MCP ships, a short observations doc (`plans/base-layer-observati
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/yuens1002/resume-agent](https://github.com/yuens1002/resume-agent). The `plans/` directory holds design docs for work in flight; a plan is merged before implementation begins.
+Issues and PRs welcome at [github.com/yuens1002/resume-agent](https://github.com/yuens1002/resume-agent). The [`docs/plans/`](docs/plans/) directory holds design docs for work in flight; a plan is merged before implementation begins.
