@@ -354,6 +354,8 @@ This card uses `provider.organization` and `provider.url` to satisfy the registr
 
 Live at [agent.yuens.me](https://agent.yuens.me). All public endpoints are operational.
 
+See [ROADMAP.md](ROADMAP.md) for what's shipped and what's in progress. Design docs for in-flight work live in [docs/plans/](docs/plans/).
+
 Contributions welcome — particularly around the job match scoring methodology and MCP tool definitions.
 
 ---
