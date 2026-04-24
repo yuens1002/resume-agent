@@ -13,6 +13,7 @@ import agentCardRoute from './routes/agent-card.js'
 import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
+import publicMcpRoute from './routes/public-mcp.js'
 import oauthRoute from './routes/oauth.js'
 
 
@@ -102,6 +103,7 @@ app.get('/robots.txt', (c) =>
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
 app.route('/mcp', mcpRoute)
+app.route('/public-mcp', publicMcpRoute)
 app.route('/', oauthRoute)
 
 app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))

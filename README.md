@@ -220,6 +220,28 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 ---
 
+## Add as a custom connector in Claude
+
+The public MCP endpoint lets any AI client with custom-connector support (Claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
+
+**Connector URL:** `https://<your-agent-domain>/public-mcp`
+
+No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP `/query` endpoint).
+
+**Setup in claude.ai:** Settings → Connectors → Add custom connector → paste the URL above. Leave auth fields blank.
+
+**What to ask once connected:**
+
+- "Does this candidate have production TypeScript experience?"
+- "Score this candidate against the following JD: [paste]"
+- "What are the candidate's three strongest projects?"
+
+Responses come back grounded in the candidate's canonical published profile — the calling AI cannot fabricate answers "in the candidate's voice" as long as it goes through this connector.
+
+The tool exposed is called `ask_candidate`. It's the only tool on the public MCP; all other structured-data endpoints (`/info`, `/availability`, `/match`, `/projects`) remain available as HTTP for clients that prefer raw JSON.
+
+---
+
 ## Private agentic interface
 
 You interact with your own knowledge base through Claude — no browser, no app, no local config required.

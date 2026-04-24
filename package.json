@@ -18,6 +18,7 @@
     "test": "echo 'Run npm run test:unit for unit tests, npm run test:integration for live integration tests.'",
     "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts",
     "test:transport": "tsx --env-file=.env.local --test tests/mcp-transport.test.ts",
+    "test:public-mcp": "tsx --env-file=.env.local --test tests/public-mcp-transport.test.ts tests/public-mcp-tool.test.ts",
     "sync": "tsx --env-file=.env.local scripts/sync.ts"
   },
   "dependencies": {
