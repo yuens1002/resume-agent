@@ -146,8 +146,8 @@ describe('AC-11: ask_candidate and HTTP /query shape parity', () => {
       'HTTP /query response must match QueryResponse shape',
     )
 
-    const mcpKeys = Object.keys(mcpResult.parsedJson as Record<string, unknown>).sort()
-    const httpKeys = Object.keys(httpBody as Record<string, unknown>).sort()
+    const mcpKeys = Object.keys(mcpResult.parsedJson).sort()
+    const httpKeys = Object.keys(httpBody).sort()
     assert.deepEqual(
       mcpKeys,
       httpKeys,
