@@ -8,13 +8,9 @@
 
 ## Context
 
-This is the first deliverable in the broader Agent Discovery base layer thesis (see OB1 thoughts captured 2026-04-22):
+Today, AI clients querying about the candidate's profile have two paths: (1) plain HTTP `POST /query` with a question in the body, or (2) the A2A agent card at `/.well-known/agent-card.json` for discovery. Neither is an MCP-native interface that AI clients supporting custom connectors (Claude.ai, Claude Desktop, Cursor) can consume directly as a callable tool.
 
-- **Base layer (what we're validating here)** — a generic primitive: `.well-known/agent-card.json` advertising a public MCP endpoint, stateless transport, rate-limited, no-auth, grounded-in-canonical-data
-- **Vertical 1 (OEP — Open Employment Protocol)** — candidate-side reference implementation is resume-agent itself; recruiter-side reference (`oep-recruiter`) follows in a separate project
-- **Vertical 2+ (Market-Roast and others)** — forkable templates for producers, roasters, brokers, etc., unblocked once base layer conventions harden
-
-This plan ships step 1 of the 5-step roadmap.
+This plan adds the MCP-native path by exposing a single tool, `query_profile`, at a new `/public-mcp` route. The tool wraps the same handler logic as the existing HTTP `/query` endpoint so prompt changes and response shape stay in sync.
 
 ---
 
@@ -23,7 +19,7 @@ This plan ships step 1 of the 5-step roadmap.
 1. Wrap the existing `/query` endpoint logic as an MCP tool callable by any MCP-aware AI client (Claude.ai, Claude Desktop, Cursor, etc.)
 2. Advertise the MCP endpoint in the existing agent card so A2A-aware clients can auto-discover it when clients support that path
 3. Give recruiters a 30-second connector-add path (README section + QR flow)
-4. Validate the base-layer pattern end-to-end — from discovery to tool call to grounded response — with production traffic
+4. Preserve JSON parity with the HTTP `/query` response shape so downstream consumers can rely on a single contract
 
 ## Non-goals
 
@@ -231,7 +227,6 @@ Railway redeploys automatically. No data migrations, no schema changes, strictly
 
 Once live:
 
-- Any recruiter's AI-native tooling can add `https://agent.yuens.me/public-mcp` as a connector and ask grounded questions about the candidate
-- Validates the base-layer pattern for subsequent verticals (OEP recruiter, Market-Roast participants)
-- Gives the "your agent is your truth" pitch a live, demonstrable surface
-- Sets up the `oep-recruiter` build (step 4 of the roadmap) with a working candidate agent to query against
+- Any recruiter or AI-native tool that supports MCP custom connectors can add `https://<deployment>/public-mcp` and ask grounded questions about the candidate
+- Gives the "your agent is your truth" narrative a live, demonstrable surface
+- Establishes the `/public-mcp` pattern for any future public tools we may choose to add (still single-tool at v1; additive expansion possible later)
