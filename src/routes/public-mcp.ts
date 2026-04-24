@@ -47,6 +47,12 @@ function buildPublicServer(): McpServer {
       const callerHint = context?.trim() || 'public'
       const start = Date.now()
 
+      // MCP clients that want progress notifications pass a progressToken in
+      // the request's _meta. Echo it back verbatim — clients route progress
+      // events to the calling tool by matching this token. Without it, the
+      // client drops our notifications as unrelated.
+      const progressToken = (extra as { _meta?: { progressToken?: string | number } })._meta?.progressToken
+
       if (stream) {
         const streamResult = await queryProfileStream({ question, callerHint })
         if ('kind' in streamResult && streamResult.kind === 'profile_not_found') {
@@ -64,17 +70,19 @@ function buildPublicServer(): McpServer {
           for await (const chunk of live.textStream) {
             collected += chunk
             chunkIndex += 1
-            try {
-              await extra.sendNotification?.({
-                method: 'notifications/progress',
-                params: {
-                  progressToken: 'ask_candidate',
-                  progress: chunkIndex,
-                  message: chunk,
-                },
-              })
-            } catch {
-              // Client may not support progress notifications — continue accumulating
+            if (progressToken !== undefined) {
+              try {
+                await extra.sendNotification?.({
+                  method: 'notifications/progress',
+                  params: {
+                    progressToken,
+                    progress: chunkIndex,
+                    message: chunk,
+                  },
+                })
+              } catch {
+                // Client may not support progress notifications — continue accumulating
+              }
             }
           }
         }
