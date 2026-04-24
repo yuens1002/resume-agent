@@ -231,7 +231,7 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 ## Add as a custom connector in Claude
 
-The public MCP endpoint lets any AI client with custom-connector support (Claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
+The public MCP endpoint lets any AI client with custom-connector support (claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
 
 **Connector URL:** `https://<your-agent-domain>/public-mcp`
 

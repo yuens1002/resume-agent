@@ -123,7 +123,7 @@ Response:
 
 ### Alternative: MCP connector path
 
-For AI clients that support Model Context Protocol connectors (Claude.ai web + mobile, Claude Desktop, Cursor), the public MCP endpoint lets the calling AI invoke a single tool — `ask_candidate` — as a first-class callable.
+For AI clients that support Model Context Protocol connectors (claude.ai web + mobile, Claude Desktop, Cursor), the public MCP endpoint lets the calling AI invoke a single tool — `ask_candidate` — as a first-class callable.
 
 ```
 POST https://your-agent.example.com/public-mcp
@@ -151,7 +151,7 @@ The MCP interface is advertised in the agent card's `supportedInterfaces` (liste
 
 No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP endpoints). Every call is logged to the `observed_queries` Supabase table for observability.
 
-**Mobile caveat:** claude.ai's custom connector setup is desktop-only — the mobile app can use connectors but cannot add them. Recruiters on mobile should be pointed at claude.ai desktop (or Claude Desktop app) for the initial setup; the tool syncs automatically once saved.
+**Mobile caveat:** claude.ai custom connectors can only be *added* from claude.ai in a desktop browser (or the Claude Desktop app). The claude.ai mobile app can use connectors but cannot add them. Recruiters on mobile should be pointed at the desktop flow for initial setup; the tool syncs automatically once saved.
 
 ---
 
@@ -237,7 +237,7 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 | Scenario | Status | Notes |
 |---|---|---|
 | Claude Desktop with MCP | ✅ Works | Via claude.ai custom connector (OAuth) or direct x-brain-key config |
-| Claude.ai (web + mobile) | ✅ Works | Custom connector with OAuth Client Credentials — one setup, all surfaces |
+| claude.ai (web + mobile) | ✅ Works | Custom connector with OAuth Client Credentials — one setup, all surfaces |
 | Cursor / AI coding assistants | ✅ Works | Via MCP or manual HTTP calls |
 | Custom employer AI agent | ✅ Works | If they're given the agent card URL to target |
 | Consumer phone AI apps (Gemini, ChatGPT) | ❌ No HTTP | These apps have no mechanism to make GET/POST requests |
