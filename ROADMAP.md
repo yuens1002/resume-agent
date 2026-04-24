@@ -1,8 +1,6 @@
 # Roadmap
 
-This repo is a reference implementation of an **agent-discovery pattern** for self-sovereign professional identity: a candidate publishes a queryable agent, AI clients discover it via `.well-known/agent-card.json`, and responses are grounded in data the candidate controls rather than inferred by the calling AI.
-
-The pattern is deliberately generic — the same primitives (agent card + public MCP endpoint + rate-limited read-only tools) apply to any domain where participants expose profiles. Resume-agent happens to populate those primitives with a professional profile; the code is forkable for other domains.
+This repo hosts a queryable AI agent representing a professional profile. A candidate publishes the agent, AI clients discover it via `.well-known/agent-card.json`, and responses are grounded in data the candidate controls rather than inferred by the calling AI.
 
 ---
 
@@ -16,21 +14,24 @@ This project exists to make that grounded path available on real, deployable inf
 
 ---
 
-## Architecture layers
+## Architecture
 
 ```
-Consumer layer   Recruiter tools, hiring-manager prep assistants, AI screening agents
-     ▲
+AI client (recruiter / hiring manager / AI agent)
      │ queries via MCP or HTTP
+     ▼
+resume-agent (this repo, deployed to Railway)
+     ├─ /.well-known/agent-card.json  (A2A discovery)
+     ├─ /public-mcp   (public MCP — in progress)
+     ├─ /mcp          (private MCP — x-brain-key or OAuth)
+     ├─ /query, /match, /info, /availability, /projects, /resume  (public HTTP)
      │
-Agent layer      This repo — agent card + public MCP + private MCP
-     ▲
-     │ Postgres + pgvector
-     │
-Data layer       Supabase (owned by candidate)
+     ▼ Supabase JS client
+Postgres + pgvector (Supabase)
+     ├─ public_profile     (read-only, public-API accessible)
+     ├─ thoughts           (private, MCP-only)
+     └─ job_applications   (private, MCP-only)
 ```
-
-The **agent layer** is the contribution. The data layer is commodity (any Postgres + pgvector works). The consumer layer is whatever AI client the recruiter is using (Claude, Cursor, custom tooling).
 
 ---
 
@@ -60,13 +61,9 @@ Once live, any AI client that supports MCP connectors (Claude.ai, Claude Desktop
 
 ## Next
 
-### A companion consumer-side reference
+### Observations from live public-MCP usage
 
-The agent layer is only half the story. A **consumer-side reference implementation** — a recruiter-facing app that discovers candidate agents via their agent cards, runs structured screening workflows via MCP, and drafts grounded outreach — is planned as a separate OSS project. Details TBD; published here when the repo goes public.
-
-### Observed-convention hardening
-
-Once the public MCP ships, a short observations doc (`docs/plans/base-layer-observations.md`) will capture what real-world usage teaches about agent card shape, tool naming, rate-limit thresholds, and client behavior. Those observations inform whether the agent-layer primitives get extracted as a standalone spec or SDK for other forkers.
+Once `/public-mcp` ships, capture what real-world traffic teaches — agent card fields consumed vs ignored, tool naming that AI clients discover reliably, rate-limit thresholds that hold up, errors worth surfacing. Deliverable: `docs/plans/base-layer-observations.md`, committed incrementally as patterns emerge.
 
 ---
 
