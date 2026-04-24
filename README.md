@@ -16,6 +16,8 @@ AI systems are increasingly the first pass in hiring. ATS tools, qualification a
 
 The public endpoint is not a portfolio site. It is not a chatbot. It is an agent that answers questions about professional history with structured, machine-readable JSON that downstream systems can act on.
 
+**Your agent is your truth.** When a recruiter's AI asks "does this person know Python?" without your agent, it *infers* an answer from training-data patterns — fabricating a plausible-sounding profile from nothing. With your agent, the AI calls your canonical endpoint and responses are grounded in the data *you* publish and control. The individual owns the narrative AI systems tell about them — the interface-less neural link that keeps AI honest about you.
+
 ---
 
 ## What it is not
@@ -46,12 +48,16 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
    │                             │
    │   /mcp (PRIVATE)            │  Your AI tools: Claude Desktop, Cursor, etc.
    │   - Open Brain tools        │  - x-brain-key header or OAuth (claude.ai connector)
-   │   - Job pipeline tools      │  - Stateless Streamable HTTP transport (v0.2.14+)
+   │   - Job pipeline tools      │  - Stateless Streamable HTTP transport
    │                             │
-   │   /query /match /info       │  Employer AI / QR scan (PUBLIC)
+   │   /public-mcp (PUBLIC)      │  Recruiter AI / screening agents
+   │   - ask_candidate tool      │  - No auth, rate-limited per IP
+   │                             │  - Stateless Streamable HTTP + streaming
+   │                             │
+   │   /query /match /info       │  Employer AI / QR scan (PUBLIC HTTP)
    │   /availability /projects   │  - Rate-limited per IP
    │   /resume (owner-only)      │  - /try → /query demo
-   │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery
+   │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery (lists /public-mcp first)
    └─────────────────────────────┘
 ```
 
@@ -76,8 +82,13 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 {
   "name": "<from Supabase public_profile.contact.name>",
   "description": "...",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "supportedInterfaces": [
+    {
+      "url": "<baseUrl>/public-mcp",
+      "protocolBinding": "MCP",
+      "protocolVersion": "2025-03-26"
+    },
     {
       "url": "<PUBLIC_URL env var, falls back to request origin>",
       "protocolBinding": "HTTP+JSON",
@@ -218,6 +229,28 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 ---
 
+## Add as a custom connector in Claude
+
+The public MCP endpoint lets any AI client with custom-connector support (Claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
+
+**Connector URL:** `https://<your-agent-domain>/public-mcp`
+
+No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP `/query` endpoint).
+
+**Setup in claude.ai:** Settings → Connectors → Add custom connector → paste the URL above. Leave auth fields blank.
+
+**What to ask once connected:**
+
+- "Does this candidate have production TypeScript experience?"
+- "Score this candidate against the following JD: [paste]"
+- "What are the candidate's three strongest projects?"
+
+Responses come back grounded in the candidate's canonical published profile — the calling AI cannot fabricate answers "in the candidate's voice" as long as it goes through this connector.
+
+The tool exposed is called `ask_candidate`. It's the only tool on the public MCP; all other structured-data endpoints (`/info`, `/availability`, `/match`, `/projects`) remain available as HTTP for clients that prefer raw JSON.
+
+---
+
 ## Private agentic interface
 
 You interact with your own knowledge base through Claude — no browser, no app, no local config required.
@@ -351,6 +384,8 @@ This card uses `provider.organization` and `provider.url` to satisfy the registr
 ## Project status
 
 Live at [agent.yuens.me](https://agent.yuens.me). All public endpoints are operational.
+
+See [ROADMAP.md](ROADMAP.md) for what's shipped and what's in progress. Design docs for in-flight work live in [docs/plans/](docs/plans/).
 
 Contributions welcome — particularly around the job match scoring methodology and MCP tool definitions.
 

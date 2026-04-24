@@ -1,6 +1,11 @@
 # MCP Server Architecture
 
-The MCP endpoint at `/mcp` runs on Railway as part of the main Hono server (`src/routes/mcp.ts`).
+Two MCP routes ship as part of the main Hono server:
+
+- **`/mcp`** — **private**, authenticated. Exposes the full 15-tool surface (Open Brain + job pipeline). Source: `src/routes/mcp.ts`.
+- **`/public-mcp`** — **public**, no auth, rate-limited. Exposes a single tool, `ask_candidate`, wrapping the same core logic as HTTP `POST /query`. Source: `src/routes/public-mcp.ts`.
+
+Shared infrastructure (CORS headers, origin allowlist) lives in `src/lib/mcp-common.ts`.
 
 ---
 
@@ -27,12 +32,20 @@ None. Each POST is independent. No `mcp-session-id` is issued. Clients do not ne
 
 ## Authentication
 
+### Private `/mcp`
+
 Two paths, checked in order:
 
 1. **Static key** — `x-brain-key` header matches `OPEN_BRAIN_KEY` env var (Claude Desktop / direct API access)
 2. **JWT** — `Authorization: Bearer <token>` verified with `jose` against `JWT_SECRET` (claude.ai OAuth connector)
 
 Unauthenticated requests receive `401` with a `WWW-Authenticate` header pointing to `/.well-known/oauth-protected-resource`.
+
+### Public `/public-mcp`
+
+No authentication. Same trust model as HTTP `POST /query`. Traffic is rate-limited to 30 req/min per IP via the global rate-limit middleware; the bucket is shared with other public routes.
+
+Every call is logged to the `observed_queries` Supabase table (fire-and-forget via `src/lib/log-observed-query.ts`). Raw IPs are never stored; `ip_hash` is a salted SHA-256 digest.
 
 ---
 

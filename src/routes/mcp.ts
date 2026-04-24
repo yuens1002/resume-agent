@@ -10,6 +10,7 @@ import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
+import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import type { Project } from '../types.js'
 
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
@@ -732,30 +733,8 @@ function buildServer(): McpServer {
 }
 
 // ── Hono App ──────────────────────────────────────────────
-
-// Allowed browser origins — prevents DNS rebinding attacks (MCP Streamable HTTP spec MUST)
-// Non-browser clients (curl, Claude Desktop) send no Origin header and are always allowed.
-const ALLOWED_ORIGINS = new Set([
-  'https://claude.ai',
-  ...(process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-])
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-} as const
-
-function checkOrigin(c: Context): Response | null {
-  const origin = c.req.header('origin')
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
-    return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-    })
-  }
-  return null
-}
+// CORS helpers (ALLOWED_ORIGINS, corsHeaders, checkOrigin) live in src/lib/mcp-common.ts
+// so the public-mcp route can reuse them without duplication.
 
 async function authenticate(c: Context): Promise<boolean> {
   const brainKey = c.req.header('x-brain-key')

@@ -15,9 +15,14 @@ app.get('/', async (c) => {
 
   return c.json({
     name: data?.contact?.name ?? 'Resume Agent',
-    description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
-    version: '1.0.0',
+    description: 'Self-sovereign AI agent representing this professional\'s canonical profile. Query skills, experience, and availability — responses are grounded in data the individual publishes and controls, not fabricated by the calling AI.',
+    version: '1.1.0',
     supportedInterfaces: [
+      {
+        url: `${baseUrl}/public-mcp`,
+        protocolBinding: 'MCP',
+        protocolVersion: '2025-03-26',
+      },
       {
         url: baseUrl,
         protocolBinding: 'HTTP+JSON',

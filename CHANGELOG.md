@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-22 — feat(public-mcp): ship `/public-mcp` endpoint exposing a single unauthenticated tool (`ask_candidate`) that any MCP-aware AI client can add as a custom connector — wraps the existing `/query` handler via a shared `queryProfile` core, supports streaming via MCP progress notifications with client-echoed tokens, and logs every call (HTTP + MCP) to a new `observed_queries` Supabase table; advertised first in the agent card's `supportedInterfaces` (bumped to v1.1.0); 27 ACs defined with 24 automated tests passing, manually verified end-to-end via MCP Inspector including a progressToken routing bug surfaced + fixed during verification
+
 - 2026-04-22 — chore: remove retired Supabase Edge Function artifacts and clarify Railway as the runtime tier — deletes `supabase/functions/open-brain-mcp/` and `supabase/functions/oauth-token/` (source preserved in git history), removes dead `ob1:deploy` / `ob1:logs` npm scripts and `SUPABASE_MCP_URL` env var, rewrites README architecture diagram to show Railway as the runtime host with Supabase scoped to data tier only; eliminates the recurring misread that conflates the retired Edge Function runtime with the active Postgres database
 
 - 2026-04-23 — refactor(prompt): drop length + employment-trim rules from `/resume` system prompt — the shared service now generates a faithful resume from the full profile; downstream consumers (JHA, etc.) apply trim and length policy via `framing_hints`. The removed "Omit employment history that is irrelevant" instruction was dropping whole jobs with half a page of whitespace remaining; Rule 5 (PER-ROLE BULLET PRIORITIZATION) already handles relevance at bullet granularity, which is the right layer.
