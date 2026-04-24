@@ -186,6 +186,18 @@ The last two trigger Claude to call `GET /info` and `POST /match` / `POST /resum
 
 ---
 
+## What the agent solves: identity grounding
+
+The single most important property of this architecture is that **it eliminates AI hallucination about the individual**.
+
+Ask any modern AI "does [person] know Python?" without an agent to call, and it fabricates a plausible-sounding answer from training-data patterns — pure inference, no grounding. This fiction then influences real decisions: whether a recruiter reaches out, how a hiring manager frames an interview, whether a candidate gets shortlisted.
+
+With this agent published, a calling AI that supports agent discovery (MCP, HTTP, A2A) answers the same question by querying *your* canonical endpoint. The response is grounded in data you publish and control. You own the narrative AI systems tell about you — **your agent is your truth**.
+
+This property holds regardless of whether the calling AI is a recruiter's screening tool, a hiring manager's prep assistant, or a stranger's curiosity-driven chat. Published data replaces inferred fiction.
+
+---
+
 ## What actually works today
 
 The A2A agent card spec is designed for a world where AI systems auto-discover and query agents. That world isn't fully here yet.
@@ -198,9 +210,9 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 | Custom employer AI agent | ✅ Works | If they're given the agent card URL to target |
 | Consumer phone AI apps (Gemini, ChatGPT) | ❌ No HTTP | These apps have no mechanism to make GET/POST requests |
 | A2A auto-discovery | ❌ Not yet | No mainstream consumer app supports `/.well-known/agent-card.json` discovery |
-| Fabricated responses | ⚠️ Common | Apps that can't call the API often hallucinate a plausible-sounding profile instead |
+| Fabricated responses (no-agent fallback) | ⚠️ Common in AI apps that can't call out | Where the agent-grounding path is unavailable, AI clients invent plausible-sounding profiles — the problem this project exists to solve, one connected client at a time |
 
-**The practical gap:** Most consumer AI apps — the ones a recruiter might open on their phone — cannot make outbound HTTP requests. They'll either fail silently or invent a scenario ("this candidate would be...") rather than querying the real data. The conversational interview experience the agent card enables doesn't work in these contexts.
+**The practical gap:** Most consumer AI apps — the ones a recruiter might open on their phone — cannot make outbound HTTP requests. They'll either fail silently or invent a scenario ("this candidate would be...") rather than querying the real data. The conversational interview experience the agent card enables doesn't work in these contexts — which is exactly why the grounding story matters: every AI client that *can* call the agent is one less surface where fabricated identity leaks into real decisions.
 
 **What actually reaches the agent:** Developer tools (Claude, Cursor), purpose-built ATS platforms, and anyone given the URL and a terminal.
 

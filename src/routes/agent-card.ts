@@ -15,7 +15,7 @@ app.get('/', async (c) => {
 
   return c.json({
     name: data?.contact?.name ?? 'Resume Agent',
-    description: 'AI agent representing a professional profile. Query skills, experience, and availability.',
+    description: 'Self-sovereign AI agent representing this professional\'s canonical profile. Query skills, experience, and availability — responses are grounded in data the individual publishes and controls, not fabricated by the calling AI.',
     version: '1.0.0',
     supportedInterfaces: [
       {

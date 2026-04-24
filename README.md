@@ -16,6 +16,8 @@ AI systems are increasingly the first pass in hiring. ATS tools, qualification a
 
 The public endpoint is not a portfolio site. It is not a chatbot. It is an agent that answers questions about professional history with structured, machine-readable JSON that downstream systems can act on.
 
+**Your agent is your truth.** When a recruiter's AI asks "does this person know Python?" without your agent, it *infers* an answer from training-data patterns — fabricating a plausible-sounding profile from nothing. With your agent, the AI calls your canonical endpoint and responses are grounded in the data *you* publish and control. The individual owns the narrative AI systems tell about them — the interface-less neural link that keeps AI honest about you.
+
 ---
 
 ## What it is not
