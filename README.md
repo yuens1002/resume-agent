@@ -231,13 +231,15 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 ## Add as a custom connector in Claude
 
-The public MCP endpoint lets any AI client with custom-connector support (Claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
+The public MCP endpoint lets any AI client with custom-connector support (claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
 
 **Connector URL:** `https://<your-agent-domain>/public-mcp`
 
 No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP `/query` endpoint).
 
 **Setup in claude.ai:** Settings → Connectors → Add custom connector → paste the URL above. Leave auth fields blank.
+
+> **Mobile note:** Custom connectors must be **added from claude.ai on desktop** (web browser or Claude Desktop app). The mobile app can *use* connectors you've added but cannot *add* new ones. Once saved on desktop, the tool syncs automatically and appears in every new conversation on mobile.
 
 **What to ask once connected:**
 
