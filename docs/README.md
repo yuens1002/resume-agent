@@ -19,4 +19,5 @@ See [ROADMAP.md](../ROADMAP.md) for what's shipped and what's in progress.
 
 ### In progress (plans)
 
-- [plans/public-mcp-query-only.md](plans/public-mcp-query-only.md) — public `/public-mcp` endpoint with `query_profile` tool
+- [plans/public-mcp-query-only.md](plans/public-mcp-query-only.md) — public `/public-mcp` endpoint with `ask_candidate` tool
+- [plans/a2a-trust-layer.md](plans/a2a-trust-layer.md) — exploring: signed agent cards, invocation receipts, `/verify` endpoint

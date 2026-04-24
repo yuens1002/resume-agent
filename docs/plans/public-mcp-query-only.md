@@ -255,8 +255,8 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 - AC-12: `context` parameter influences tone (caller context propagates)
 - AC-13: `ask_candidate` response includes `contact.email` and `contact.calendly` when present on the profile
 - AC-14: `ask_candidate` with `stream: true` emits at least one `notifications/progress` message before the final response
-- AC-15: `observed_queries` row is written with `source='mcp'` after every `ask_candidate` call (verify by Supabase query in test)
-- AC-16: HTTP `/query` path also writes a `observed_queries` row with `source='http'` (parity check)
+- AC-15: `observed_queries` row is written with `source='mcp'` after every `ask_candidate` call, with all payload-derived columns populated: `question`, `answer`, `confidence`, `sources` (jsonb), `model`, `latency_ms` (verify by Supabase query)
+- AC-16: HTTP `/query` path also writes a `observed_queries` row with `source='http'` and full field parity (same populated columns as AC-15)
 
 ### Agent card
 
@@ -271,8 +271,13 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 
 ### Documentation
 
-- AC-22: README section "Add as a custom connector" exists with connector-add instructions and example prompts
-- AC-23: `docs/mcp-architecture.md` updated to document the public MCP route alongside the private one
+- AC-22: README section "Add as a custom connector" exists with connector-add instructions and example prompts (automated grep for section header + URL pattern)
+- AC-23: `docs/mcp-architecture.md` updated to document the public MCP route alongside the private one (automated grep for `/public-mcp` reference)
+
+### Regression safety
+
+- AC-24: Existing private `/mcp` transport tests (`tests/mcp-transport.test.ts` — the current 15-AC suite) still pass after helpers are extracted to `src/lib/mcp-common.ts`. Runs as part of `npm run test:transport`.
+- AC-25: `logObservedQuery` helper must swallow errors — if the `observed_queries` insert fails (unreachable DB, constraint violation, etc.) the tool/HTTP response still returns successfully. Implementer provides a unit test for the helper using a stubbed client that throws; caller must not re-throw.
 
 ---
 

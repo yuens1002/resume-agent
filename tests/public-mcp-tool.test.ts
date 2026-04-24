@@ -217,33 +217,60 @@ describe('AC-14: ask_candidate with stream=true emits progress', () => {
 
 // ── AC-15: MCP call logged to observed_queries with source='mcp' ──
 
-describe('AC-15: ask_candidate call logged to observed_queries', () => {
-  it('row exists with source=mcp matching the question', async () => {
+describe('AC-15: ask_candidate call logged to observed_queries with full payload', () => {
+  it('row has source=mcp and all payload-derived fields populated', async () => {
     const uniqueQuestion = `${TEST_QUESTION_MARKER} AC-15 mcp log verification`
-    const { rawResponse } = await callAskCandidate({ question: uniqueQuestion })
+    const { rawResponse } = await callAskCandidate({
+      question: uniqueQuestion,
+      context: 'recruiter',
+    })
     assert.ok(rawResponse.ok, `ask_candidate must succeed, got ${rawResponse.status}`)
     const row = await waitForLoggedCall(uniqueQuestion, 'mcp')
     assert.ok(row, `Expected observed_queries row for question="${uniqueQuestion}" with source=mcp`)
     assert.equal(row!.source, 'mcp')
     assert.equal(row!.question, uniqueQuestion)
+    assert.equal(row!.caller_hint, 'recruiter', 'caller_hint must match the context arg')
+    assert.ok(row!.answer && row!.answer.length > 0, 'answer must be populated')
+    assert.ok(
+      ['high', 'medium', 'low'].includes(row!.confidence ?? ''),
+      `confidence must be populated with a valid enum value, got ${row!.confidence}`,
+    )
+    assert.ok(Array.isArray(row!.sources), 'sources must be populated as a jsonb array')
+    assert.ok(row!.model && row!.model.length > 0, 'model must be populated')
+    assert.ok(
+      typeof row!.latency_ms === 'number' && row!.latency_ms > 0,
+      `latency_ms must be a positive number, got ${row!.latency_ms}`,
+    )
   })
 })
 
 // ── AC-16: HTTP /query also logs to observed_queries ──
 
-describe('AC-16: HTTP /query call logged to observed_queries (parity)', () => {
-  it('row exists with source=http matching the question', async () => {
+describe('AC-16: HTTP /query call logged to observed_queries (field parity)', () => {
+  it('row has source=http and all payload-derived fields populated', async () => {
     const uniqueQuestion = `${TEST_QUESTION_MARKER} AC-16 http log verification`
     const res = await fetch(QUERY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: uniqueQuestion }),
+      body: JSON.stringify({ question: uniqueQuestion, context: 'ATS' }),
     })
     assert.ok(res.ok, `HTTP /query must succeed, got ${res.status}`)
     const row = await waitForLoggedCall(uniqueQuestion, 'http')
     assert.ok(row, `Expected observed_queries row for question="${uniqueQuestion}" with source=http`)
     assert.equal(row!.source, 'http')
     assert.equal(row!.question, uniqueQuestion)
+    assert.equal(row!.caller_hint, 'ATS')
+    assert.ok(row!.answer && row!.answer.length > 0, 'answer must be populated')
+    assert.ok(
+      ['high', 'medium', 'low'].includes(row!.confidence ?? ''),
+      `confidence must be valid, got ${row!.confidence}`,
+    )
+    assert.ok(Array.isArray(row!.sources), 'sources must be populated')
+    assert.ok(row!.model && row!.model.length > 0, 'model must be populated')
+    assert.ok(
+      typeof row!.latency_ms === 'number' && row!.latency_ms > 0,
+      `latency_ms must be positive, got ${row!.latency_ms}`,
+    )
   })
 })
 
@@ -355,5 +382,42 @@ describe('AC-21: observed_queries schema matches plan', () => {
       .select('id')
       .single()
     assert.ok(error, 'Insert without question must fail due to NOT NULL on question')
+  })
+})
+
+// ── AC-26: README documents connector-add path ──
+
+describe('AC-26: README "Add as a custom connector" section', () => {
+  it('README.md contains connector-add section with public-mcp URL reference', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { resolve } = await import('node:path')
+    const path = resolve(process.cwd(), 'README.md')
+    const content = await readFile(path, 'utf8')
+    assert.match(
+      content,
+      /add as a custom connector/i,
+      'README must contain a section titled "Add as a custom connector"',
+    )
+    assert.match(
+      content,
+      /\/public-mcp/,
+      'README must reference the /public-mcp URL in the connector section',
+    )
+  })
+})
+
+// ── AC-27: mcp-architecture.md documents /public-mcp ──
+
+describe('AC-27: docs/mcp-architecture.md mentions /public-mcp', () => {
+  it('mcp-architecture.md references the public MCP route', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { resolve } = await import('node:path')
+    const path = resolve(process.cwd(), 'docs', 'mcp-architecture.md')
+    const content = await readFile(path, 'utf8')
+    assert.match(
+      content,
+      /\/public-mcp/,
+      'docs/mcp-architecture.md must reference the /public-mcp route',
+    )
   })
 })

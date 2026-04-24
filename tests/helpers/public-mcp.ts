@@ -126,12 +126,23 @@ export function getSupabase(): SupabaseClient {
   return _supabase
 }
 
-interface ObservedQueryRow {
+export interface ObservedQueryRow {
   id: string
-  question: string
   source: string
+  question: string
+  caller_hint: string | null
+  answer: string | null
+  confidence: string | null
+  sources: unknown
+  model: string | null
+  latency_ms: number | null
+  ip_hash: string | null
+  user_agent: string | null
   created_at: string
 }
+
+const OBSERVED_QUERIES_COLUMNS =
+  'id, source, question, caller_hint, answer, confidence, sources, model, latency_ms, ip_hash, user_agent, created_at'
 
 /**
  * Poll observed_queries for a row matching (question, source). Returns null if
@@ -149,12 +160,12 @@ export async function waitForLoggedCall(
   while (Date.now() < deadline) {
     const { data } = await supabase
       .from('observed_queries')
-      .select('id, question, source, created_at')
+      .select(OBSERVED_QUERIES_COLUMNS)
       .eq('source', source)
       .eq('question', question)
       .order('created_at', { ascending: false })
       .limit(1)
-    if (data && data.length > 0) return data[0] as ObservedQueryRow
+    if (data && data.length > 0) return data[0] as unknown as ObservedQueryRow
     await new Promise(r => setTimeout(r, pollIntervalMs))
   }
   return null

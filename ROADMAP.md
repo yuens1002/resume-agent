@@ -18,11 +18,11 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 
 ## In progress
 
-### Public MCP endpoint with `query_profile` tool
+### Public MCP endpoint with `ask_candidate` tool
 
 **Branch:** `feat/public-mcp-query` · **Plan:** [docs/plans/public-mcp-query-only.md](docs/plans/public-mcp-query-only.md)
 
-Adds `/public-mcp` route exposing a single MCP tool — `query_profile` — wrapping the existing `/query` handler. Advertised in the agent card's `supportedInterfaces` for A2A-aware client discovery. Unauthenticated, rate-limited per IP.
+Adds `/public-mcp` route exposing a single MCP tool — `ask_candidate` — wrapping the existing `/query` handler. Advertised in the agent card's `supportedInterfaces` for A2A-aware client discovery. Unauthenticated, rate-limited per IP, and logs every call (plus HTTP `/query` traffic) to a new `observed_queries` table.
 
 ---
 
