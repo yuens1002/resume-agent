@@ -239,6 +239,8 @@ No authentication required. Rate-limited to 30 req/min per IP (shared bucket wit
 
 **Setup in claude.ai:** Settings → Connectors → Add custom connector → paste the URL above. Leave auth fields blank.
 
+> **Mobile note:** Custom connectors must be **added from claude.ai on desktop** (web browser or Claude Desktop app). The mobile app can *use* connectors you've added but cannot *add* new ones. Once saved on desktop, the tool syncs automatically and appears in every new conversation on mobile.
+
 **What to ask once connected:**
 
 - "Does this candidate have production TypeScript experience?"

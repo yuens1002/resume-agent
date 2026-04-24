@@ -151,6 +151,8 @@ The MCP interface is advertised in the agent card's `supportedInterfaces` (liste
 
 No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP endpoints). Every call is logged to the `observed_queries` Supabase table for observability.
 
+**Mobile caveat:** claude.ai's custom connector setup is desktop-only — the mobile app can use connectors but cannot add them. Recruiters on mobile should be pointed at claude.ai desktop (or Claude Desktop app) for the initial setup; the tool syncs automatically once saved.
+
 ---
 
 ## Candidate workflow (private MCP interface)
