@@ -1,101 +1,84 @@
 # Roadmap
 
-This repo is the **candidate-side reference implementation** of a broader agent-discovery pattern. The pattern — `.well-known/agent-card.json` advertising a public MCP endpoint with tools grounded in canonical published data — generalizes across verticals (employment, commerce, any marketplace where participants expose profiles). Resume-agent is the first testbed.
+This repo is a reference implementation of an **agent-discovery pattern** for self-sovereign professional identity: a candidate publishes a queryable agent, AI clients discover it via `.well-known/agent-card.json`, and responses are grounded in data the candidate controls rather than inferred by the calling AI.
 
-> **Thesis:** The agent card + public MCP pattern is a generic *base layer*. Verticals (OEP, Market-Roast) are applications of it. Each individual or organization publishes a self-sovereign agent that AI clients query for grounded responses — eliminating the hallucination-by-inference default.
-
----
-
-## Layer cake
-
-```
-Layer 3: Vertical-specific agents
-         ├─ OEP (Open Employment Protocol)
-         │  ├─ Candidate reference (this repo)
-         │  └─ Recruiter reference (oep-recruiter — not yet built)
-         │
-         ├─ Market-Roast (separate ecosystem — dev/market-roast)
-         │  ├─ Producer agent
-         │  ├─ Roaster agent
-         │  ├─ Broker agent
-         │  └─ Smart-roaster operator agent
-         │
-         └─ [any other marketplace vertical]
-
-Layer 2: Generic base layer           ← what we're validating
-         ├─ /.well-known/agent-card.json (discovery)
-         ├─ Public MCP endpoint (stateless, rate-limited, no-auth)
-         ├─ Tool registry conventions
-         └─ A2A supportedInterfaces for cross-protocol fallback
-
-Layer 1: Server framework (Hono)
-Layer 0: Runtime (Node on Railway)
-```
+The pattern is deliberately generic — the same primitives (agent card + public MCP endpoint + rate-limited read-only tools) apply to any domain where participants expose profiles. Resume-agent happens to populate those primitives with a professional profile; the code is forkable for other domains.
 
 ---
 
-## Execution plan
+## Vision — "your agent is your truth"
 
-### Step 1 — Public MCP on resume-agent `[IN PROGRESS]`
+Without an agent to call, an AI asked "does [person] know Python?" fabricates a plausible-sounding answer from training-data patterns. That fiction then influences real hiring decisions.
 
-**Branch:** `feat/public-mcp-query` · **Plan:** [public-mcp-query-only.md](plans/public-mcp-query-only.md)
+With this agent published, AI clients that can discover and call it get responses grounded in canonical data the individual publishes. The candidate owns the narrative AI systems tell about them.
 
-Ship `/public-mcp` route exposing a single MCP tool, `query_profile`, wrapping the existing `/query` handler. Add MCP URL to agent card `supportedInterfaces`. Recruiter connector-add section in README. Validates the base layer end-to-end on one vertical.
+This project exists to make that grounded path available on real, deployable infrastructure — not as a spec proposal but as running code.
 
-**Scope:** ~100-150 lines of new code, ~2-4 hrs.
+---
 
-### Step 2 — Observe what conventions harden `[BLOCKED ON STEP 1]`
+## Architecture layers
 
-Watch real-world usage of step 1 for ~days-to-weeks. Record: tool naming patterns that work for AI clients, rate-limit thresholds that hold up, which agent card fields get consumed vs ignored, auth behaviors observed from different clients.
+```
+Consumer layer   Recruiter tools, hiring-manager prep assistants, AI screening agents
+     ▲
+     │ queries via MCP or HTTP
+     │
+Agent layer      This repo — agent card + public MCP + private MCP
+     ▲
+     │ Postgres + pgvector
+     │
+Data layer       Supabase (owned by candidate)
+```
 
-Don't spec ahead of shipped code. Deliverable: a short observations doc, committed as `docs/plans/base-layer-observations.md`.
-
-### Step 3 — Extract base-layer docs or SDK `[BLOCKED ON STEP 2]`
-
-Promote the hardened conventions into either (a) a lightweight spec doc (`AGENT-DISCOVERY-PROTOCOL.md`) that other repos reference, or (b) a `@agent-base/server` npm package providing the generic scaffold (card, MCP route, rate limit, CORS). Could live in its own repo or inside `dev/market-roast`.
-
-**Decision point:** Doc-first or SDK-first. Default: doc-first until a second vertical implementation demands the SDK abstraction.
-
-### Step 4 — Build `oep-recruiter` `[BLOCKED ON STEP 1]`
-
-New repo: Next.js + AI SDK web app. Paste a JD + candidate agent URL, app discovers the agent card, connects to its MCP, runs a screening workflow (5-8 structured queries → fit synthesis), drafts grounded outreach. Open source alongside resume-agent as the two-sided OEP reference.
-
-**Scope:** ~3-5 focused days.
-
-### Step 5 — Market-Roast participant templates `[BLOCKED ON STEP 3]`
-
-Fork-to-deploy candidate-style templates for coffee-domain participants. Each mimics the resume-agent pattern with coffee-domain tools (`query_lots`, `query_capacity`, `query_roast_profiles`). Lives in `dev/market-roast` repo as per its existing vision doc.
-
-**Scope:** Separate project. Unblocked by steps 1 + 3.
+The **agent layer** is the contribution. The data layer is commodity (any Postgres + pgvector works). The consumer layer is whatever AI client the recruiter is using (Claude, Cursor, custom tooling).
 
 ---
 
 ## What's shipped
 
 | Version | Feature | PR |
-|---|---|---|
-| v0.2.12 | Dual-gen + rubric scorer pipeline for resume generation | #59 |
-| v0.2.13 | `/.well-known/agent-card` redirect, MCP session TTL bump, keepalive heartbeat | #61 |
-| v0.2.14 | Stateless MCP transport — session map removed, agent reconnect friction eliminated server-side | #62 |
-| v0.2.15 | System prompt refactor — drop length + employment-trim rules | #63 |
-| v0.2.16 | Retire Supabase Edge Function artifacts, clarify Railway as runtime tier | #65 |
-| *next* | Public MCP endpoint with `query_profile` tool | *in progress* |
+| --- | --- | --- |
+| v0.2.12 | Dual-gen + rubric scorer pipeline for resume generation | [#59](https://github.com/yuens1002/resume-agent/pull/59) |
+| v0.2.13 | `/.well-known/agent-card` extensionless redirect, MCP session TTL + keepalive fixes | [#61](https://github.com/yuens1002/resume-agent/pull/61) |
+| v0.2.14 | Stateless MCP transport — session map removed, mid-conversation drops eliminated | [#62](https://github.com/yuens1002/resume-agent/pull/62) |
+| v0.2.15 | System prompt refactor — drop length + employment-trim rules | [#63](https://github.com/yuens1002/resume-agent/pull/63) |
+| v0.2.16 | Retire Supabase Edge Function artifacts, clarify Railway as runtime tier | [#65](https://github.com/yuens1002/resume-agent/pull/65) |
 
 ---
 
-## Captured thinking in OB1
+## In progress
 
-These thoughts hold the strategic context behind the roadmap. Retrievable via `/recall`:
+### Public MCP endpoint with `query_profile` tool
 
-- **Architecture thesis** (observation) — the layer cake, base layer vs vertical, "interfaceless neural link" framing
-- **Execution plan** (task) — 5-step roadmap with action items
-- **Public MCP scope** (task) — immediate deliverable decision lock-ins
-- **Anti-hallucination / self-sovereignty** (idea) — the core property: "your agent is your truth"
+**Branch:** `feat/public-mcp-query` · **Plan:** [plans/public-mcp-query-only.md](plans/public-mcp-query-only.md)
+
+Adds `/public-mcp` route exposing a single MCP tool — `query_profile` — wrapping the existing `/query` handler. Advertised in the agent card's `supportedInterfaces` for A2A-aware client discovery. Unauthenticated, rate-limited per IP.
+
+Once live, any AI client that supports MCP connectors (Claude.ai, Claude Desktop, Cursor) can add `https://<your-agent>/public-mcp` and ask grounded natural-language questions about the candidate.
 
 ---
 
-## Cross-project links
+## Next
 
-- **Market-Roast vision** — `dev/market-roast/VISION.md` (open-source .org foundation for specialty coffee)
-- **Artisan Roast (reference commerce app)** — `dev/ecomm-ai-app`
-- **Omni-Roast (SMS channel layer)** — `dev/omni-roast`
+### A companion consumer-side reference
+
+The agent layer is only half the story. A **consumer-side reference implementation** — a recruiter-facing app that discovers candidate agents via their agent cards, runs structured screening workflows via MCP, and drafts grounded outreach — is planned as a separate OSS project. Details TBD; published here when the repo goes public.
+
+### Observed-convention hardening
+
+Once the public MCP ships, a short observations doc (`plans/base-layer-observations.md`) will capture what real-world usage teaches about agent card shape, tool naming, rate-limit thresholds, and client behavior. Those observations inform whether the agent-layer primitives get extracted as a standalone spec or SDK for other forkers.
+
+---
+
+## Project principles
+
+- **Single-replica, stateless wherever possible.** Low operational overhead, horizontally scalable when needed.
+- **Canonical data over inferred data.** Every response the public endpoints generate is grounded in the candidate's published profile — never fabricated by the LLM.
+- **Forkable by default.** README + `.env.example` + migrations are structured so another engineer can clone, point at their own Supabase + Railway, and have a queryable agent in under 30 minutes.
+- **Additive changes, never breaking.** New endpoints, new agent-card entries, new tools — old consumers keep working.
+
+---
+
+## Contributing
+
+Issues and PRs welcome at [github.com/yuens1002/resume-agent](https://github.com/yuens1002/resume-agent). The `plans/` directory holds design docs for work in flight; a plan is merged before implementation begins.
