@@ -4,7 +4,7 @@
  * Exported surface:
  *   - URL resolvers (PUBLIC_MCP_URL, QUERY_URL, AGENT_CARD_URL)
  *   - TEST_QUESTION / TEST_QUESTION_MARKER — unique-per-run strings that let
- *     the after() hook clean up test rows from public_mcp_calls
+ *     the after() hook clean up test rows from observed_queries
  *   - publicMcpPost() / publicMcpToolsList() — HTTP-level call builders
  *   - parseMcpBody() / parseAllMcpEvents() — response parsers for both JSON
  *     and SSE formats
@@ -126,7 +126,7 @@ export function getSupabase(): SupabaseClient {
   return _supabase
 }
 
-interface PublicMcpCallRow {
+interface ObservedQueryRow {
   id: string
   question: string
   source: string
@@ -134,7 +134,7 @@ interface PublicMcpCallRow {
 }
 
 /**
- * Poll public_mcp_calls for a row matching (question, source). Returns null if
+ * Poll observed_queries for a row matching (question, source). Returns null if
  * nothing appears within timeoutMs. Logging is fire-and-forget from the handler
  * path, so a short polling window is necessary.
  */
@@ -143,28 +143,28 @@ export async function waitForLoggedCall(
   source: 'mcp' | 'http',
   timeoutMs = 5000,
   pollIntervalMs = 200,
-): Promise<PublicMcpCallRow | null> {
+): Promise<ObservedQueryRow | null> {
   const supabase = getSupabase()
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const { data } = await supabase
-      .from('public_mcp_calls')
+      .from('observed_queries')
       .select('id, question, source, created_at')
       .eq('source', source)
       .eq('question', question)
       .order('created_at', { ascending: false })
       .limit(1)
-    if (data && data.length > 0) return data[0] as PublicMcpCallRow
+    if (data && data.length > 0) return data[0] as ObservedQueryRow
     await new Promise(r => setTimeout(r, pollIntervalMs))
   }
   return null
 }
 
-/** Deletes all rows from public_mcp_calls whose question contains marker. Returns count. */
+/** Deletes all rows from observed_queries whose question contains marker. Returns count. */
 export async function cleanupTestRows(marker: string): Promise<number> {
   const supabase = getSupabase()
   const { data, error } = await supabase
-    .from('public_mcp_calls')
+    .from('observed_queries')
     .delete()
     .ilike('question', `%${marker}%`)
     .select('id')

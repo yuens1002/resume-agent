@@ -20,7 +20,7 @@ This plan adds the MCP-native path by exposing a single tool, `ask_candidate`, a
 2. Advertise the MCP endpoint in the existing agent card so A2A-aware clients can auto-discover it when clients support that path
 3. Provide a 30-second connector-add path in the README
 4. Preserve JSON parity with the HTTP `/query` response shape so downstream consumers can rely on a single contract
-5. Capture every public-MCP call to a persistent store (new `public_mcp_calls` table) for observability — same pattern as `job_applications`, enables future analytics without retroactive instrumentation
+5. Capture every public-MCP call to a persistent store (new `observed_queries` table) for observability — same pattern as `job_applications`, enables future analytics without retroactive instrumentation
 6. Support streaming responses for AI clients that prefer progressive rendering
 
 ## Non-goals
@@ -45,13 +45,13 @@ This plan adds the MCP-native path by exposing a single tool, `ask_candidate`, a
 │     └─ buildPublicServer()   ·  1 tool: ask_candidate                │
 │           │                                                           │
 │           ├─ calls queryProfile() core                               │
-│           └─ logs call to public_mcp_calls table                     │
+│           └─ logs call to observed_queries table                     │
 │                                                                       │
 │   /query  (PUBLIC HTTP — unchanged response contract)                │
 │     └─ handleQuery(c, …)                                             │
 │           │                                                           │
 │           ├─ calls queryProfile() core                               │
-│           └─ logs call to public_mcp_calls table                     │
+│           └─ logs call to observed_queries table                     │
 │                                                                       │
 │   /.well-known/agent-card.json                                       │
 │     └─ supportedInterfaces: [MCP, HTTP+JSON]  ← MCP listed first     │
@@ -61,10 +61,10 @@ This plan adds the MCP-native path by exposing a single tool, `ask_candidate`, a
                               ▼
                   Supabase (data tier)
                   ├─ public_profile       (existing, read by queryProfile)
-                  └─ public_mcp_calls     (new, written by both paths)
+                  └─ observed_queries     (new, written by both paths)
 ```
 
-Both the public MCP tool and the HTTP `/query` route call the same `queryProfile` core — prompt changes, profile loading, and response shape stay in one place. Both also log each call to `public_mcp_calls`, enabling observability across both surfaces with one query.
+Both the public MCP tool and the HTTP `/query` route call the same `queryProfile` core — prompt changes, profile loading, and response shape stay in one place. Both also log each call to `observed_queries`, enabling observability across both surfaces with one query.
 
 ---
 
@@ -79,14 +79,14 @@ Split the existing `handleQuery` into two pieces:
 - `queryProfile({ question, context, stream? })` — pure function. Loads profile, calls LLM, returns `QueryResponse` (or a `ReadableStream` for `stream: true`). No Hono Context dependency. Used by both the HTTP route and the MCP tool.
 - `handleQuery(c, question, context, stream)` — thin Hono wrapper that calls `queryProfile` and serializes to `c.json` or text stream response. Retains existing behavior.
 
-### 2. New `public_mcp_calls` table + helper
+### 2. New `observed_queries` table + helper
 
-**File:** `supabase/migrations/<timestamp>_public_mcp_calls.sql` (new)
+**File:** `supabase/migrations/<timestamp>_observed_queries.sql` (new)
 
 Schema:
 
 ```sql
-create table public_mcp_calls (
+create table observed_queries (
   id            uuid primary key default gen_random_uuid(),
   source        text not null check (source in ('http', 'mcp')),
   question      text not null,
@@ -101,15 +101,15 @@ create table public_mcp_calls (
   created_at    timestamptz not null default now()
 );
 
-create index public_mcp_calls_created_at_idx on public_mcp_calls (created_at desc);
-create index public_mcp_calls_source_idx on public_mcp_calls (source);
+create index observed_queries_created_at_idx on observed_queries (created_at desc);
+create index observed_queries_source_idx on observed_queries (source);
 ```
 
 `ip_hash` is SHA-256 of IP + a server-side salt (rotated periodically) — enables per-session-ish abuse detection without storing raw IPs.
 
-**File:** `src/lib/log-public-call.ts` (new)
+**File:** `src/lib/log-observed-query.ts` (new)
 
-Helper function `logPublicCall({ source, question, caller_hint, response, latency_ms, ip_hash?, user_agent? })`. Called by both the HTTP handler and the MCP tool handler. Fire-and-forget with error swallowing — logging must never break the response path.
+Helper function `logObservedQuery({ source, question, caller_hint, response, latency_ms, ip_hash?, user_agent? })`. Called by both the HTTP handler and the MCP tool handler. Fire-and-forget with error swallowing — logging must never break the response path.
 
 ### 3. New public-MCP route
 
@@ -156,12 +156,12 @@ server.registerTool(
           params: { progressToken: 'ask_candidate', message: text },
         })
       }
-      await logPublicCall({ source: 'mcp', question, caller_hint: context, response: { answer: collected }, latency_ms: Date.now() - start })
+      await logObservedQuery({ source: 'mcp', question, caller_hint: context, response: { answer: collected }, latency_ms: Date.now() - start })
       return { content: [{ type: 'text', text: collected }] }
     }
 
     const result = await queryProfile({ question, context })
-    await logPublicCall({ source: 'mcp', question, caller_hint: context, response: result, latency_ms: Date.now() - start })
+    await logObservedQuery({ source: 'mcp', question, caller_hint: context, response: result, latency_ms: Date.now() - start })
     return { content: [{ type: 'text', text: JSON.stringify(result) }] }
   }
 )
@@ -229,7 +229,7 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 4. **Streaming:** Included in v1 via MCP progress notifications (opt-in via `stream: true` parameter)
 5. **Agent card interface order:** MCP first, HTTP second
 6. **Test file organization:** Two files — `tests/public-mcp-transport.test.ts` and `tests/public-mcp-tool.test.ts` — with shared setup in `tests/helpers/public-mcp.ts`
-7. **Logging / observability:** Persistent table `public_mcp_calls`, written from both HTTP and MCP handlers. IP stored as salted hash for abuse detection without PII retention
+7. **Logging / observability:** Persistent table `observed_queries`, written from both HTTP and MCP handlers. IP stored as salted hash for abuse detection without PII retention
 8. **Contact in responses:** Full `contact.email` + `contact.calendly` block included, same as HTTP `/query`
 
 ---
@@ -255,8 +255,8 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 - AC-12: `context` parameter influences tone (caller context propagates)
 - AC-13: `ask_candidate` response includes `contact.email` and `contact.calendly` when present on the profile
 - AC-14: `ask_candidate` with `stream: true` emits at least one `notifications/progress` message before the final response
-- AC-15: `public_mcp_calls` row is written with `source='mcp'` after every `ask_candidate` call (verify by Supabase query in test)
-- AC-16: HTTP `/query` path also writes a `public_mcp_calls` row with `source='http'` (parity check)
+- AC-15: `observed_queries` row is written with `source='mcp'` after every `ask_candidate` call (verify by Supabase query in test)
+- AC-16: HTTP `/query` path also writes a `observed_queries` row with `source='http'` (parity check)
 
 ### Agent card
 
@@ -266,8 +266,8 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 
 ### Database
 
-- AC-20: Migration `public_mcp_calls.sql` applied cleanly via `npm run db:push`
-- AC-21: `public_mcp_calls` schema matches the plan (columns, indexes, check constraint on `source`)
+- AC-20: Migration `observed_queries.sql` applied cleanly via `npm run db:push`
+- AC-21: `observed_queries` schema matches the plan (columns, indexes, check constraint on `source`)
 
 ### Documentation
 
@@ -291,7 +291,7 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 git revert <merge-commit>
 ```
 
-The migration adds a new table only — no destructive schema changes. Railway redeploys automatically. If rollback happens post-migration, the `public_mcp_calls` table can stay (harmless) or be dropped manually if desired.
+The migration adds a new table only — no destructive schema changes. Railway redeploys automatically. If rollback happens post-migration, the `observed_queries` table can stay (harmless) or be dropped manually if desired.
 
 ---
 
@@ -301,5 +301,5 @@ Once live:
 
 - Any recruiter or AI-native tool that supports MCP custom connectors can add `https://<your-agent-domain>/public-mcp` and ask grounded questions about the candidate
 - Streaming support makes progressive rendering possible for clients that prefer it
-- `public_mcp_calls` gives us a single observability surface — every public query lands in one table regardless of transport
+- `observed_queries` gives us a single observability surface — every public query lands in one table regardless of transport
 - Establishes the `/public-mcp` pattern for any future public tools (still single-tool at v1; additive expansion possible later)

@@ -3,7 +3,7 @@
  *
  * Covers AC-9 through AC-18 from docs/plans/public-mcp-query-only.md.
  * Integration style: hits a live dev server, calls the LLM, verifies
- * Supabase public_mcp_calls rows, and inspects the agent card.
+ * Supabase observed_queries rows, and inspects the agent card.
  *
  * Requirements:
  *   PUBLIC_MCP_URL  (defaults to http://localhost:${PORT ?? 3000}/public-mcp)
@@ -26,6 +26,7 @@ import {
   waitForLoggedCall,
   cleanupTestRows,
   isQueryResponseShape,
+  getSupabase,
   TEST_QUESTION,
   TEST_QUESTION_MARKER,
   QUERY_URL,
@@ -43,7 +44,7 @@ if (!process.env.SUPA_PROJECT_URL || !process.env.SUPA_SERVICE_ROLE) {
 
 after(async () => {
   const deleted = await cleanupTestRows(TEST_QUESTION_MARKER)
-  console.log(`Cleaned up ${deleted} test row(s) from public_mcp_calls`)
+  console.log(`Cleaned up ${deleted} test row(s) from observed_queries`)
 })
 
 // ── Internal helper: one call to ask_candidate, parsed three ways ──
@@ -214,23 +215,23 @@ describe('AC-14: ask_candidate with stream=true emits progress', () => {
   })
 })
 
-// ── AC-15: MCP call logged to public_mcp_calls with source='mcp' ──
+// ── AC-15: MCP call logged to observed_queries with source='mcp' ──
 
-describe('AC-15: ask_candidate call logged to public_mcp_calls', () => {
+describe('AC-15: ask_candidate call logged to observed_queries', () => {
   it('row exists with source=mcp matching the question', async () => {
     const uniqueQuestion = `${TEST_QUESTION_MARKER} AC-15 mcp log verification`
     const { rawResponse } = await callAskCandidate({ question: uniqueQuestion })
     assert.ok(rawResponse.ok, `ask_candidate must succeed, got ${rawResponse.status}`)
     const row = await waitForLoggedCall(uniqueQuestion, 'mcp')
-    assert.ok(row, `Expected public_mcp_calls row for question="${uniqueQuestion}" with source=mcp`)
+    assert.ok(row, `Expected observed_queries row for question="${uniqueQuestion}" with source=mcp`)
     assert.equal(row!.source, 'mcp')
     assert.equal(row!.question, uniqueQuestion)
   })
 })
 
-// ── AC-16: HTTP /query also logs to public_mcp_calls ──
+// ── AC-16: HTTP /query also logs to observed_queries ──
 
-describe('AC-16: HTTP /query call logged to public_mcp_calls (parity)', () => {
+describe('AC-16: HTTP /query call logged to observed_queries (parity)', () => {
   it('row exists with source=http matching the question', async () => {
     const uniqueQuestion = `${TEST_QUESTION_MARKER} AC-16 http log verification`
     const res = await fetch(QUERY_URL, {
@@ -240,7 +241,7 @@ describe('AC-16: HTTP /query call logged to public_mcp_calls (parity)', () => {
     })
     assert.ok(res.ok, `HTTP /query must succeed, got ${res.status}`)
     const row = await waitForLoggedCall(uniqueQuestion, 'http')
-    assert.ok(row, `Expected public_mcp_calls row for question="${uniqueQuestion}" with source=http`)
+    assert.ok(row, `Expected observed_queries row for question="${uniqueQuestion}" with source=http`)
     assert.equal(row!.source, 'http')
     assert.equal(row!.question, uniqueQuestion)
   })
@@ -285,5 +286,74 @@ describe('AC-18: MCP interface listed first in agent card', () => {
       'MCP',
       `First interface should be MCP, got '${interfaces[0].protocolBinding}'`,
     )
+  })
+})
+
+// ── AC-20: migration applied cleanly (implicit — table is reachable) ──
+
+describe('AC-20: observed_queries migration applied cleanly', () => {
+  it('table is reachable and accepts a valid row via insert+delete round-trip', async () => {
+    const supabase = getSupabase()
+    const probeQuestion = `${TEST_QUESTION_MARKER} AC-20 probe`
+    const { data, error } = await supabase
+      .from('observed_queries')
+      .insert({
+        source: 'http',
+        question: probeQuestion,
+        caller_hint: 'test',
+        answer: 'probe',
+        confidence: 'high',
+        sources: ['probe.source'],
+        model: 'probe-model',
+        latency_ms: 1,
+        ip_hash: 'probe-hash',
+        user_agent: 'probe-ua',
+      })
+      .select('id')
+      .single()
+    assert.ok(!error, `Insert must succeed, got error: ${error?.message}`)
+    assert.ok(data?.id, 'Row must return an id')
+
+    // Clean up the probe immediately (cleanupTestRows also runs in after() as backup)
+    await supabase.from('observed_queries').delete().eq('id', data.id)
+  })
+})
+
+// ── AC-21: schema constraints match the plan ──
+
+describe('AC-21: observed_queries schema matches plan', () => {
+  it('check constraint on source rejects invalid values', async () => {
+    const supabase = getSupabase()
+    const { error } = await supabase
+      .from('observed_queries')
+      .insert({
+        source: 'invalid-source-xyz',
+        question: `${TEST_QUESTION_MARKER} AC-21 constraint probe`,
+      })
+      .select('id')
+      .single()
+    assert.ok(
+      error,
+      'Insert with source=invalid-source-xyz must fail due to CHECK constraint',
+    )
+    // Postgres check constraint violation — error message typically mentions "check"
+    assert.match(
+      error!.message.toLowerCase(),
+      /check|constraint|violates/,
+      `Error should indicate a constraint violation, got: ${error!.message}`,
+    )
+  })
+
+  it('question column is required (NOT NULL)', async () => {
+    const supabase = getSupabase()
+    // Cast to bypass loose Supabase client typing — we intentionally omit the
+    // required 'question' field to verify the DB-level NOT NULL constraint.
+    const payload = { source: 'mcp' } as unknown as { source: string; question: string }
+    const { error } = await supabase
+      .from('observed_queries')
+      .insert(payload)
+      .select('id')
+      .single()
+    assert.ok(error, 'Insert without question must fail due to NOT NULL on question')
   })
 })
