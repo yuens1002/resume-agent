@@ -48,12 +48,16 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
    │                             │
    │   /mcp (PRIVATE)            │  Your AI tools: Claude Desktop, Cursor, etc.
    │   - Open Brain tools        │  - x-brain-key header or OAuth (claude.ai connector)
-   │   - Job pipeline tools      │  - Stateless Streamable HTTP transport (v0.2.14+)
+   │   - Job pipeline tools      │  - Stateless Streamable HTTP transport
    │                             │
-   │   /query /match /info       │  Employer AI / QR scan (PUBLIC)
+   │   /public-mcp (PUBLIC)      │  Recruiter AI / screening agents
+   │   - ask_candidate tool      │  - No auth, rate-limited per IP
+   │                             │  - Stateless Streamable HTTP + streaming
+   │                             │
+   │   /query /match /info       │  Employer AI / QR scan (PUBLIC HTTP)
    │   /availability /projects   │  - Rate-limited per IP
    │   /resume (owner-only)      │  - /try → /query demo
-   │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery
+   │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery (lists /public-mcp first)
    └─────────────────────────────┘
 ```
 
@@ -78,8 +82,13 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 {
   "name": "<from Supabase public_profile.contact.name>",
   "description": "...",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "supportedInterfaces": [
+    {
+      "url": "<baseUrl>/public-mcp",
+      "protocolBinding": "MCP",
+      "protocolVersion": "2025-03-26"
+    },
     {
       "url": "<PUBLIC_URL env var, falls back to request origin>",
       "protocolBinding": "HTTP+JSON",

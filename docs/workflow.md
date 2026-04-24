@@ -121,6 +121,36 @@ Response:
 - `apply-with-tailoring` — score 0.60–0.79
 - `pass` — score < 0.60
 
+### Alternative: MCP connector path
+
+For AI clients that support Model Context Protocol connectors (Claude.ai web + mobile, Claude Desktop, Cursor), the public MCP endpoint lets the calling AI invoke a single tool — `ask_candidate` — as a first-class callable.
+
+```
+POST https://your-agent.example.com/public-mcp
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "ask_candidate",
+    "arguments": {
+      "question": "...",
+      "context": "recruiter",
+      "stream": false
+    }
+  }
+}
+```
+
+The tool wraps the same handler as `POST /query`, so response shape is identical. Set `"stream": true` to receive progressive content via MCP progress notifications.
+
+The MCP interface is advertised in the agent card's `supportedInterfaces` (listed first). A2A-aware clients that support MCP will prefer this path over HTTP+JSON by default. Discovery, setup, and example prompts are in the [Add as a custom connector](../README.md#add-as-a-custom-connector-in-claude) README section.
+
+No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP endpoints). Every call is logged to the `observed_queries` Supabase table for observability.
+
 ---
 
 ## Candidate workflow (private MCP interface)
