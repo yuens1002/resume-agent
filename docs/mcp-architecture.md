@@ -36,9 +36,11 @@ Unauthenticated requests receive `401` with a `WWW-Authenticate` header pointing
 
 ---
 
-## Supabase Edge Functions
+## Supabase role — data tier only
 
-Railway is the primary production deployment for `/mcp`. The `open-brain-mcp` and `oauth-token` Supabase Edge Functions are **not part of normal operations**, but remain in the repo as standby / emergency-recovery and reference artifacts. Any related deploy/log scripts (`ob1:deploy`, `ob1:logs`) should be treated as recovery/maintenance tooling, not the default deployment path.
+Supabase hosts the Postgres database (with pgvector) — that is its **only** role in this project. Migrations live in `supabase/migrations/` and are applied via `npm run db:push`. All application code runs on Railway.
+
+The `open-brain-mcp` and `oauth-token` Supabase Edge Functions were **retired** as of v0.2.14 when the MCP transport moved fully to Railway. Their source has been removed from the repo; refer to git history if you need to reference the legacy implementation.
 
 ---
 

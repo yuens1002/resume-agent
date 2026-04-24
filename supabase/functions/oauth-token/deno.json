@@ -1,6 +1,0 @@
-{
-  "imports": {
-    "hono": "npm:hono@4.9.2",
-    "jose": "npm:jose@5.9.6"
-  }
-}

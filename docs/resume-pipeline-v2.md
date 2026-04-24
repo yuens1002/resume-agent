@@ -9,7 +9,7 @@ The v1 `/resume` endpoint produced a single LLM-generated resume per JD. Quality
 ```
 POST /resume  { job_description, framing_hints? }
   │
-  ├─ Fetch candidate profile from OB1 (Supabase)
+  ├─ Fetch candidate profile from OB1 Postgres (Supabase DB)
   ├─ Build system prompt (6 ATS rules)
   ├─ Build user message (profile + JD + framing hints)
   │

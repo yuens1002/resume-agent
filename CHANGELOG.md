@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-22 — chore: remove retired Supabase Edge Function artifacts and clarify Railway as the runtime tier — deletes `supabase/functions/open-brain-mcp/` and `supabase/functions/oauth-token/` (source preserved in git history), removes dead `ob1:deploy` / `ob1:logs` npm scripts and `SUPABASE_MCP_URL` env var, rewrites README architecture diagram to show Railway as the runtime host with Supabase scoped to data tier only; eliminates the recurring misread that conflates the retired Edge Function runtime with the active Postgres database
+
 - 2026-04-23 — refactor(prompt): drop length + employment-trim rules from `/resume` system prompt — the shared service now generates a faithful resume from the full profile; downstream consumers (JHA, etc.) apply trim and length policy via `framing_hints`. The removed "Omit employment history that is irrelevant" instruction was dropping whole jobs with half a page of whitespace remaining; Rule 5 (PER-ROLE BULLET PRIORITIZATION) already handles relevance at bullet granularity, which is the right layer.
 - 2026-04-22 — fix: add 301 redirect from /.well-known/agent-card to /.well-known/agent-card.json — eliminates 404 for clients hitting the extensionless A2A autodiscovery path
 - 2026-04-22 — fix(mcp): bump SESSION_TTL_MS from 10 → 30 min and refresh lastUsed on every keepalive ping — sessions with an active SSE stream now stay alive indefinitely; dead sessions get a 30-minute grace window before eviction, eliminating mid-conversation "tool not found" drops on mobile
