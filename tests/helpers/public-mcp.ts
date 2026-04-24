@@ -40,6 +40,8 @@ interface PublicMcpPostOpts {
   context?: string
   stream?: boolean
   origin?: string
+  /** Opt in to progress notifications by passing a token; server echoes it back. */
+  progressToken?: string | number
 }
 
 /** POST ask_candidate to /public-mcp. All fields optional — a bare call with no question is still well-formed JSON-RPC. */
@@ -55,6 +57,11 @@ export async function publicMcpPost(opts: PublicMcpPostOpts = {}): Promise<Respo
   if (opts.context !== undefined) args.context = opts.context
   if (opts.stream !== undefined) args.stream = opts.stream
 
+  const params: Record<string, unknown> = { name: 'ask_candidate', arguments: args }
+  if (opts.progressToken !== undefined) {
+    params._meta = { progressToken: opts.progressToken }
+  }
+
   return fetch(PUBLIC_MCP_URL, {
     method: 'POST',
     headers,
@@ -62,7 +69,7 @@ export async function publicMcpPost(opts: PublicMcpPostOpts = {}): Promise<Respo
       jsonrpc: '2.0',
       id: 1,
       method: 'tools/call',
-      params: { name: 'ask_candidate', arguments: args },
+      params,
     }),
   })
 }

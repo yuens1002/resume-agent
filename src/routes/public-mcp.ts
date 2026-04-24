@@ -9,7 +9,10 @@
  * No session map, no GC, no TTL. Session IDs stripped from responses.
  *
  * Observability: every call writes a row to `observed_queries` via the
- * fire-and-forget logObservedQuery helper.
+ * fire-and-forget logObservedQuery helper. Request IP (salted hash) and
+ * user-agent are captured at the route boundary and closed over by the
+ * tool handler — that way the tool stays pure while still recording the
+ * origin metadata that abuse detection needs.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -20,7 +23,12 @@ import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { queryProfile, queryProfileStream } from './query.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 
-function buildPublicServer(): McpServer {
+interface RequestContext {
+  ip?: string
+  userAgent?: string
+}
+
+function buildPublicServer(reqCtx: RequestContext): McpServer {
   const server = new McpServer({ name: 'resume-agent-public', version: '1.0.0' })
 
   server.registerTool(
@@ -90,9 +98,11 @@ function buildPublicServer(): McpServer {
         void logObservedQuery({
           source: 'mcp',
           question,
-          caller_hint: context?.trim() || undefined,
+          caller_hint: callerHint,
           response: { answer: collected },
           latency_ms: Date.now() - start,
+          ip: reqCtx.ip,
+          user_agent: reqCtx.userAgent,
         })
 
         return { content: [{ type: 'text' as const, text: collected }] }
@@ -109,9 +119,11 @@ function buildPublicServer(): McpServer {
       void logObservedQuery({
         source: 'mcp',
         question,
-        caller_hint: context?.trim() || undefined,
+        caller_hint: callerHint,
         response: result,
         latency_ms: Date.now() - start,
+        ip: reqCtx.ip,
+        user_agent: reqCtx.userAgent,
       })
 
       return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
@@ -137,7 +149,14 @@ publicMcpRoute.post('*', async (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
 
-  const server = buildPublicServer()
+  // Capture request-level metadata so the tool handler can log IP/UA without
+  // needing access to Hono Context. Salted hashing happens in the logger.
+  const reqCtx: RequestContext = {
+    ip: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim(),
+    userAgent: c.req.header('user-agent') ?? undefined,
+  }
+
+  const server = buildPublicServer(reqCtx)
   const transport = new StreamableHTTPTransport()
   await server.connect(transport)
 

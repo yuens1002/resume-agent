@@ -6,14 +6,14 @@
  *   - ask_candidate MCP tool with source='mcp'
  *
  * Contract: this function MUST NEVER throw. Insert failures are swallowed
- * and logged to stderr only. Logging is observability, never the critical
+ * and surfaced to stderr only. Logging is observability, never the critical
  * path — the caller's response must not be affected by DB hiccups.
  *
  * Streaming callers may pass partial payloads (answer only, no structured
  * envelope). For non-streaming callers the full response shape is logged.
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { supabase } from './supabase.js'
 import type { QueryResponse } from '../types.js'
 
@@ -27,8 +27,29 @@ interface LogInput {
   user_agent?: string
 }
 
-/** Salt is rotated by redeploy. Raw IPs never land in the DB. */
-const IP_SALT = process.env.IP_HASH_SALT ?? 'resume-agent-default-salt-rotate-me'
+/**
+ * Salt used to hash raw IPs before storage. Prefer IP_HASH_SALT from env; if
+ * unset, generate a cryptographically random salt at boot and warn. A random
+ * boot-time salt means ip_hash values change across restarts (which is fine
+ * for short-horizon abuse detection); a hard-coded default would be trivially
+ * reversible across IPv4 space and defeats the "no PII" goal.
+ */
+const IP_SALT = (() => {
+  const fromEnv = process.env.IP_HASH_SALT
+  if (fromEnv && fromEnv.length >= 16) return fromEnv
+  const random = randomBytes(32).toString('hex')
+  if (!fromEnv) {
+    console.warn(
+      '[log-observed-query] IP_HASH_SALT is unset — generated a random boot-time salt. ' +
+        'ip_hash values will not be stable across restarts. Set IP_HASH_SALT in env to fix.',
+    )
+  } else {
+    console.warn(
+      '[log-observed-query] IP_HASH_SALT is set but too short (<16 chars) — using a random boot-time salt instead.',
+    )
+  }
+  return random
+})()
 
 function hashIp(ip: string | undefined): string | null {
   if (!ip) return null
@@ -37,7 +58,7 @@ function hashIp(ip: string | undefined): string | null {
 
 export async function logObservedQuery(input: LogInput): Promise<void> {
   try {
-    await supabase.from('observed_queries').insert({
+    const { error } = await supabase.from('observed_queries').insert({
       source: input.source,
       question: input.question,
       caller_hint: input.caller_hint ?? null,
@@ -49,8 +70,12 @@ export async function logObservedQuery(input: LogInput): Promise<void> {
       ip_hash: hashIp(input.ip),
       user_agent: input.user_agent ?? null,
     })
+    if (error) {
+      // Supabase returns { error } without throwing for most failures; capture it.
+      console.warn('[log-observed-query] insert returned error:', error.message)
+    }
   } catch (err) {
-    // Swallow — logging must never break the response path
-    console.warn('[log-observed-query] insert failed, continuing:', (err as Error).message)
+    // Defensive catch for unexpected throws (e.g. client-side validation).
+    console.warn('[log-observed-query] insert threw unexpectedly:', (err as Error).message)
   }
 }

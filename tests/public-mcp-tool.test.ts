@@ -61,6 +61,7 @@ async function callAskCandidate(args: {
   question: string
   context?: string
   stream?: boolean
+  progressToken?: string | number
 }): Promise<AskCandidateResult> {
   const rawResponse = await publicMcpPost(args)
   const rawText = await rawResponse.text()
@@ -191,10 +192,15 @@ describe('AC-13: response includes contact info when profile has it', () => {
 // ── AC-14: stream=true emits progress notifications ──
 
 describe('AC-14: ask_candidate with stream=true emits progress', () => {
-  it('streaming response contains ≥1 notifications/progress event before final', async () => {
+  it('streaming response contains ≥1 notifications/progress event echoing the client token', async () => {
+    // Progress notifications are opt-in: the client must pass a progressToken
+    // in _meta. The server echoes it back on each progress event so the client
+    // can route them to this tool call.
+    const CLIENT_TOKEN = 99
     const { rawText, allEvents } = await callAskCandidate({
       question: TEST_QUESTION,
       stream: true,
+      progressToken: CLIENT_TOKEN,
     })
     assert.ok(
       rawText.includes('data:'),
@@ -204,14 +210,22 @@ describe('AC-14: ask_candidate with stream=true emits progress', () => {
       allEvents.length >= 2,
       `Streaming must emit ≥2 events (≥1 progress + 1 final), got ${allEvents.length}`,
     )
-    const hasProgress = allEvents.some(
-      (e) =>
+    const progressEvents = allEvents.filter(
+      (e): e is { method: string; params: { progressToken: string | number } } =>
         typeof e === 'object' &&
         e !== null &&
         'method' in e &&
         (e as { method?: string }).method === 'notifications/progress',
     )
-    assert.ok(hasProgress, 'At least one event must be a notifications/progress message')
+    assert.ok(progressEvents.length >= 1, 'At least one event must be a notifications/progress message')
+    // Every progress event must echo the client's token
+    for (const ev of progressEvents) {
+      assert.equal(
+        ev.params.progressToken,
+        CLIENT_TOKEN,
+        `Progress event must echo client token (got ${ev.params.progressToken})`,
+      )
+    }
   })
 })
 

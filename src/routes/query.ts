@@ -128,9 +128,9 @@ export async function queryProfileStream(
 
 // ── HTTP wrapper ────────────────────────────────────────────
 
-function deriveCallerHint(c: Context, context: string | undefined): string {
+function deriveCallerHint(c: Context, question: string, context: string | undefined): string {
   const headerCaller = detectCaller(c)
-  const queryCaller = callerContextFromQuery('')
+  const queryCaller = callerContextFromQuery(question)
   const caller = headerCaller.type !== 'unknown'
     ? headerCaller
     : { ...headerCaller, ...queryCaller }
@@ -143,19 +143,50 @@ async function handleQuery(
   context: string | undefined,
   stream: boolean,
 ): Promise<Response> {
-  const callerHint = deriveCallerHint(c, context)
+  const callerHint = deriveCallerHint(c, question, context)
   const requestIp = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
   const userAgent = c.req.header('user-agent')
   const overallStart = Date.now()
 
   if (stream) {
-    // Streaming path does not log to observed_queries — no structured envelope
-    // is available mid-stream. See log-observed-query.ts contract.
     const result = await queryProfileStream({ question, callerHint })
     if ('kind' in result && result.kind === 'profile_not_found') {
       return c.json({ error: 'Profile not found' }, 404)
     }
-    return (result as ReturnType<typeof streamText>).toTextStreamResponse()
+
+    // Tee the stream: forward bytes to the client, collect text for post-hoc logging.
+    const live = result as ReturnType<typeof streamText>
+    const response = live.toTextStreamResponse()
+    const original = response.body
+    if (!original) return response
+
+    const [toClient, forLogging] = original.tee()
+
+    // Collect the logging branch in the background (fire-and-forget)
+    ;(async () => {
+      const reader = forLogging.getReader()
+      const decoder = new TextDecoder()
+      let collected = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        collected += decoder.decode(value, { stream: true })
+      }
+      collected += decoder.decode()
+      await logObservedQuery({
+        source: 'http',
+        question,
+        caller_hint: callerHint,
+        response: { answer: collected },
+        latency_ms: Date.now() - overallStart,
+        ip: requestIp,
+        user_agent: userAgent,
+      })
+    })().catch((err) => {
+      console.warn('[query] background streaming log failed:', (err as Error).message)
+    })
+
+    return new Response(toClient, response)
   }
 
   const result = await queryProfile({ question, callerHint })
@@ -169,7 +200,7 @@ async function handleQuery(
   void logObservedQuery({
     source: 'http',
     question,
-    caller_hint: context?.trim() || undefined,
+    caller_hint: callerHint,
     response: result,
     latency_ms: Date.now() - overallStart,
     ip: requestIp,
