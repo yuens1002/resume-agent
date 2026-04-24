@@ -34,27 +34,25 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
             |
             | nightly sync
             v
-      OB1 (Supabase)
-  Postgres + pgvector
-  thoughts table (private)
-  public_profile table (read-only)
-            |
-     -------+-------
-     |               |
-     v               v
-MCP Server      Resume Agent API
-(PRIVATE)       (PUBLIC)
-
-Your AI tools   Employer AI / QR scan
-Claude Desktop  GET /try  (→ /query demo)
-Cursor, etc.    POST /query
-Key-protected   GET /info
-Full read/write GET /availability
-                GET /.well-known/agent-card.json
-                GET /.well-known/agent.json (→ agent-card.json, 301)
-                POST /match
-                POST /resume (owner-only, key-protected)
-                Rate-limited (public endpoints)
+    Supabase Postgres + pgvector     ← data tier (DB only)
+      thoughts table (private)
+      public_profile table (read-only)
+      job_applications, contacts, stages (private)
+            ▲
+            │ Supabase JS client
+            │
+   ┌────────┴────────────────────┐
+   │   Railway (Hono app)        │  ← runtime tier — single deploy, agent.yuens.me
+   │                             │
+   │   /mcp (PRIVATE)            │  Your AI tools: Claude Desktop, Cursor, etc.
+   │   - Open Brain tools        │  - x-brain-key header or OAuth (claude.ai connector)
+   │   - Job pipeline tools      │  - Stateless Streamable HTTP transport (v0.2.14+)
+   │                             │
+   │   /query /match /info       │  Employer AI / QR scan (PUBLIC)
+   │   /availability /projects   │  - Rate-limited per IP
+   │   /resume (owner-only)      │  - /try → /query demo
+   │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery
+   └─────────────────────────────┘
 ```
 
 ### Data tiers
