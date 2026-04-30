@@ -7,9 +7,38 @@ const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('Missing JWT_SECRET')
 const jwtSecretBytes = new TextEncoder().encode(JWT_SECRET)
 
-const ACCESS_TOKEN_TTL = parseInt(process.env.ACCESS_TOKEN_TTL ?? '3600')
-const REFRESH_TOKEN_TTL = parseInt(process.env.REFRESH_TOKEN_TTL ?? '2592000')
+function parsePositiveIntegerEnv(
+  name: string,
+  defaultValue: number,
+  min: number,
+  max: number
+): number {
+  const raw = process.env[name]
+  const value = raw == null || raw.trim() === '' ? String(defaultValue) : raw.trim()
 
+  if (!/^\d+$/.test(value)) {
+    console.warn(`[oauth] ${name}: invalid non-numeric value, using default ${defaultValue}`)
+    return defaultValue
+  }
+
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    console.warn(`[oauth] ${name}: value ${parsed} out of bounds ${min}-${max}, using default ${defaultValue}`)
+    return defaultValue
+  }
+
+  return parsed
+}
+
+const ACCESS_TOKEN_TTL = parsePositiveIntegerEnv('ACCESS_TOKEN_TTL', 3600, 1, 7 * 24 * 60 * 60)
+const REFRESH_TOKEN_TTL = parsePositiveIntegerEnv('REFRESH_TOKEN_TTL', 2592000, 1, 365 * 24 * 60 * 60)
+
+const DEBUG = process.env.DEBUG === 'true'
+
+// In-memory refresh token store.
+// Note: single-instance Railway deployment — refresh tokens will be lost on restart/deploy and
+// will not work correctly across multiple instances. For multi-instance or durable deployments,
+// migrate to a shared store (Redis/Supabase table) or use self-contained signed refresh tokens.
 const inMemoryRefreshTokens = new Map<string, { client_id: string; expires_at: number }>()
 
 // Allowlist of permitted client IDs — set OAUTH_CLIENT_ID env var (comma-separated for multiple)
@@ -176,7 +205,14 @@ oauth.post('/token', async (c) => {
       return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
     }
 
-    console.log('[oauth] refresh_token grant success', { client_id: stored.client_id })
+    if (client_id && client_id !== stored.client_id) {
+      console.log('[oauth] refresh_token grant: client_id mismatch')
+      return c.json({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400, noCacheHeaders)
+    }
+
+    if (DEBUG) {
+      console.log('[oauth] refresh_token grant success', { client_id: stored.client_id })
+    }
 
     const now = Math.floor(Date.now() / 1000)
     const newAccessToken = await new SignJWT({ sub: stored.client_id })
@@ -232,7 +268,9 @@ oauth.post('/token', async (c) => {
     expires_at: Date.now() + REFRESH_TOKEN_TTL * 1000,
   })
 
-  console.log('[oauth] authorization_code grant', { client_id, has_refresh: true })
+  if (DEBUG) {
+    console.log('[oauth] authorization_code grant', { client_id, has_refresh: true })
+  }
 
   return c.json(
     { access_token, refresh_token: refreshToken, token_type: 'Bearer', expires_in: expiresIn },

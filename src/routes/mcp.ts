@@ -745,7 +745,9 @@ async function authenticate(c: Context): Promise<boolean> {
   if (bearerToken && jwtSecretBytes) {
     try {
       const result = await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ['HS256'] })
-      console.log('[mcp] authenticate success', { sub: result.payload.sub, exp: result.payload.exp })
+      if (process.env.DEBUG === 'true') {
+        console.log('[mcp] authenticate success', { sub: result.payload.sub, exp: result.payload.exp })
+      }
       return true
     } catch (err) {
       console.log('[mcp] authenticate failure', { error: (err as Error).message })
