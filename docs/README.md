@@ -16,6 +16,7 @@ See [ROADMAP.md](../ROADMAP.md) for what's shipped and what's in progress.
 - [mcp-architecture.md](mcp-architecture.md) — MCP transport architecture (stateless Streamable HTTP, auth, Railway runtime)
 - [resume-pipeline-v2.md](resume-pipeline-v2.md) — `/resume` endpoint's dual-gen + rubric scorer pipeline
 - [workflow.md](workflow.md) — how employer AI, recruiters, and the candidate each interact with the agent
+- [plans/private-mcp-summarize-observed-queries.md](plans/private-mcp-summarize-observed-queries.md) — private MCP `summarize_observed_queries` tool for public query traffic analytics
 
 ### In progress (plans)
 

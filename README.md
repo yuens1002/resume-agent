@@ -297,6 +297,36 @@ Then in Claude:
 > "Am I a good fit for this role? [paste JD]"
 > "Log an application to Stripe — staff engineer, applied today"
 
+### Available private MCP tools
+
+The private `/mcp` endpoint exposes these tools for your personal use:
+
+**Open Brain tools:**
+- `search_thoughts` — Semantic search over your captured thoughts
+- `list_thoughts` — List recent thoughts with filters (type, topic, person, time)
+- `thought_stats` — Get summary stats of all thoughts (totals, types, top topics, people)
+- `capture_thought` — Save a new thought with auto-generated embedding + metadata
+- `update_profile` — Update your public profile (summary, skills, employment, projects, education, availability, contact)
+- `upsert_project` — Add or update a portfolio project by slug
+
+**Job pipeline tools:**
+- `score_match` — Score a job description against your profile
+- `log_application` — Log a new job application (auto-scores if JD provided)
+- `update_stage` — Move an application to a new stage (applied → phone_screen → technical → final → offer → rejected → withdrawn)
+- `add_contact` — Add a recruiter or contact to an application
+- `list_applications` — List your applications with filters
+- `get_application` — Get full details of an application (contacts, stage history)
+- `set_follow_up` — Set a follow-up date with notes
+- `search_applications` — Search applications by company, role, JD, or notes
+
+**Observability tools:**
+- `summarize_observed_queries` — Get aggregated stats on public query traffic (MCP + HTTP). Useful for understanding how external AI clients are discovering and querying you.
+
+Example queries:
+> "Summarize the public query traffic for the last week"
+> "Which ATS tools have been hitting me most this month?"
+> "Show me the trend of questions over the past 7 days by day"
+
 ---
 
 ## Stack
