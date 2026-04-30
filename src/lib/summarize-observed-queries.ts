@@ -254,13 +254,18 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
       parsed.since ??
       new Date(new Date(effectiveUntil).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
-    // Validate: since must not be after until (using computed values)
-    if (effectiveSince > effectiveUntil) {
+    // Validate: since must not be after until (using parsed Date values to handle timezone offsets)
+    const effectiveSinceMs = Date.parse(effectiveSince)
+    const effectiveUntilMs = Date.parse(effectiveUntil)
+    if (Number.isNaN(effectiveSinceMs) || Number.isNaN(effectiveUntilMs)) {
+      return { content: [{ type: 'text', text: 'Invalid window: "since" and "until" must be valid datetimes' }], isError: true }
+    }
+    if (effectiveSinceMs > effectiveUntilMs) {
       return { content: [{ type: 'text', text: 'Invalid window: "since" must not be after "until"' }], isError: true }
     }
 
     // Fetch rows from observed_queries (service_role access)
-    // Fetch 10001 to detect truncation; slice to 10000 after checking
+    // Fetch 10001 to detect truncation, then slice to 10000
     let query = supabase
       .from('observed_queries')
       .select('source, question, caller_hint, user_agent, ip_hash, model, latency_ms, created_at')
@@ -283,12 +288,24 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
       return { content: [{ type: 'text', text: `Failed to fetch observed_queries: ${error.message}` }], isError: true }
     }
 
+    // Slice to 10k and track truncation
+    const isTruncated = (rows?.length ?? 0) > 10000
+
     if (!rows || rows.length === 0) {
       return { content: [{ type: 'text', text: 'No queries in this window.' }] }
     }
 
-    // Aggregate
-    const envelope = aggregateObservedQueries(rows as ObservedQuery[], parsed)
+    // Slice rows to 10k before aggregation
+    const rowsToAggregate = isTruncated ? rows.slice(0, 10000) : rows
+
+    // Aggregate - pass effective dates so window in response matches what was queried
+    const effectiveInput = { ...parsed, since: effectiveSince, until: effectiveUntil }
+    const envelope = aggregateObservedQueries(rowsToAggregate as ObservedQuery[], effectiveInput)
+
+    // Override truncated flag if we sliced
+    if (isTruncated && !envelope.truncated) {
+      envelope.truncated = true
+    }
 
     // Check if no rows matched the window after aggregation
     if (envelope.totals.count === 0) {

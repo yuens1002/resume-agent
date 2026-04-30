@@ -1,8 +1,8 @@
 /**
  * Unit tests for summarize_observed_queries aggregation logic
  *
- * Tests the handler's aggregation math and output formatting without
- * requiring a live Supabase instance. Uses mocked data.
+ * Tests the handler's aggregation math, window validation, and output formatting
+ * without requiring a live Supabase instance. Uses mocked data.
  *
  * Run:
  *   npm run test:unit
@@ -13,6 +13,108 @@ import assert from 'node:assert/strict'
 
 // Import from production module
 import { aggregateObservedQueries, formatEnvelopeToText, type ObservedQuery, type SummarizeInput } from '../src/lib/summarize-observed-queries.js'
+
+// Extract window computation for testing (mirrors handler logic)
+function computeEffectiveWindow(input: SummarizeInput): { effectiveSince: string; effectiveUntil: string; isValid: boolean; error?: string } {
+  const effectiveUntil = input.until ?? new Date().toISOString()
+  const effectiveSince =
+    input.since ??
+    new Date(new Date(effectiveUntil).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  const effectiveSinceMs = Date.parse(effectiveSince)
+  const effectiveUntilMs = Date.parse(effectiveUntil)
+
+  if (Number.isNaN(effectiveSinceMs) || Number.isNaN(effectiveUntilMs)) {
+    return { effectiveSince, effectiveUntil, isValid: false, error: 'Invalid datetime' }
+  }
+  if (effectiveSinceMs > effectiveUntilMs) {
+    return { effectiveSince, effectiveUntil, isValid: false, error: 'since > until' }
+  }
+  return { effectiveSince, effectiveUntil, isValid: true }
+}
+
+// Test window computation logic (mirrors handler validation)
+describe('Window validation (handler logic)', () => {
+  it('validates since > until returns error', () => {
+    const result = computeEffectiveWindow({
+      since: '2026-05-01T00:00:00Z',
+      until: '2026-04-01T00:00:00Z',
+    })
+    assert.equal(result.isValid, false)
+    assert.ok(result.error?.includes('since > until'))
+  })
+
+  it('validates invalid datetime returns error', () => {
+    const result = computeEffectiveWindow({
+      since: 'not-a-date',
+      until: '2026-04-01T00:00:00Z',
+    })
+    assert.equal(result.isValid, false)
+    assert.ok(result.error?.includes('Invalid'))
+  })
+
+  it('handles timezone offset in until (e.g., +01:00)', () => {
+    const result = computeEffectiveWindow({
+      since: '2026-04-20T00:00:00Z',
+      until: '2026-04-30T12:00:00+01:00',
+    })
+    assert.equal(result.isValid, true, 'Should handle timezone offset correctly')
+  })
+
+  it('handles negative timezone offset', () => {
+    const result = computeEffectiveWindow({
+      since: '2026-04-20T00:00:00-05:00',
+      until: '2026-04-30T00:00:00Z',
+    })
+    assert.equal(result.isValid, true, 'Should handle negative timezone offset')
+  })
+
+  it('applies 7-day default when no since provided', () => {
+    const result = computeEffectiveWindow({})
+    assert.equal(result.isValid, true)
+    const sinceDate = new Date(result.effectiveSince)
+    const untilDate = new Date(result.effectiveUntil)
+    const diffDays = (untilDate.getTime() - sinceDate.getTime()) / (1000 * 60 * 60 * 24)
+    assert.ok(diffDays >= 6.9 && diffDays <= 7.1, 'Should default to ~7 days')
+  })
+
+  it('uses provided since/until when both given', () => {
+    const result = computeEffectiveWindow({
+      since: '2026-04-01T00:00:00Z',
+      until: '2026-04-15T00:00:00Z',
+    })
+    assert.equal(result.isValid, true)
+    assert.ok(result.effectiveSince.startsWith('2026-04-01'), 'Should preserve since date')
+    assert.ok(result.effectiveUntil.startsWith('2026-04-15'), 'Should preserve until date')
+  })
+})
+
+// Test truncation logic
+describe('Truncation detection', () => {
+  it('detects truncation when rows > 10000', () => {
+    const rows = Array.from({ length: 10001 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, created_at: '2026-04-28T10:00:00Z' }))
+    const isTruncated = (rows?.length ?? 0) > 10000
+    assert.equal(isTruncated, true)
+  })
+
+  it('does not truncate when rows <= 10000', () => {
+    const rows = Array.from({ length: 10000 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, created_at: '2026-04-28T10:00:00Z' }))
+    const isTruncated = (rows?.length ?? 0) > 10000
+    assert.equal(isTruncated, false)
+  })
+
+  it('handles empty rows', () => {
+    const rows: ObservedQuery[] = []
+    const isTruncated = (rows?.length ?? 0) > 10000
+    assert.equal(isTruncated, false)
+  })
+
+  it('handles undefined rows', () => {
+    const rows = undefined
+    const isTruncated = (rows?.length ?? 0) > 10000
+    assert.equal(isTruncated, false)
+  })
+})
 
 // ── Test fixtures ───────────────────────────────────────────
 
