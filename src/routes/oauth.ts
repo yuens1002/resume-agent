@@ -7,6 +7,11 @@ const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('Missing JWT_SECRET')
 const jwtSecretBytes = new TextEncoder().encode(JWT_SECRET)
 
+const ACCESS_TOKEN_TTL = parseInt(process.env.ACCESS_TOKEN_TTL ?? '3600')
+const REFRESH_TOKEN_TTL = parseInt(process.env.REFRESH_TOKEN_TTL ?? '2592000')
+
+const inMemoryRefreshTokens = new Map<string, { client_id: string; expires_at: number }>()
+
 // Allowlist of permitted client IDs — set OAUTH_CLIENT_ID env var (comma-separated for multiple)
 const ALLOWED_CLIENT_IDS = new Set(
   (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
@@ -40,6 +45,9 @@ const cleanupInterval = setInterval(() => {
   for (const [code, data] of authCodes) {
     if (now > data.expires_at) authCodes.delete(code)
   }
+  for (const [token, data] of inMemoryRefreshTokens) {
+    if (now > data.expires_at) inMemoryRefreshTokens.delete(token)
+  }
 }, 60_000)
 cleanupInterval.unref()
 
@@ -52,7 +60,7 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     authorization_endpoint: `${base}/authorize`,
     token_endpoint: `${base}/token`,
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code', 'client_credentials'],
+    grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   })
@@ -110,6 +118,7 @@ oauth.post('/token', async (c) => {
   let client_id: string | undefined
   let client_secret: string | undefined
   let redirect_uri: string | undefined
+  let refresh_token: string | undefined
 
   if (contentType.includes('application/x-www-form-urlencoded')) {
     const body = await c.req.formData()
@@ -119,6 +128,7 @@ oauth.post('/token', async (c) => {
     client_id = body.get('client_id')?.toString()
     client_secret = body.get('client_secret')?.toString()
     redirect_uri = body.get('redirect_uri')?.toString()
+    refresh_token = body.get('refresh_token')?.toString()
   } else {
     const body = await c.req.json().catch(() => ({}))
     grant_type = body.grant_type
@@ -127,6 +137,7 @@ oauth.post('/token', async (c) => {
     client_id = body.client_id
     client_secret = body.client_secret
     redirect_uri = body.redirect_uri
+    refresh_token = body.refresh_token
   }
 
   const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
@@ -140,7 +151,7 @@ oauth.post('/token', async (c) => {
     }
 
     const now = Math.floor(Date.now() / 1000)
-    const expiresIn = 3600
+    const expiresIn = ACCESS_TOKEN_TTL
     const access_token = await new SignJWT({ sub: client_id })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt(now)
@@ -149,6 +160,33 @@ oauth.post('/token', async (c) => {
 
     return c.json(
       { access_token, token_type: 'Bearer', expires_in: expiresIn },
+      200,
+      noCacheHeaders
+    )
+  }
+
+  if (grant_type === 'refresh_token') {
+    if (!refresh_token) {
+      return c.json({ error: 'invalid_request', error_description: 'refresh_token required' }, 400, noCacheHeaders)
+    }
+
+    const stored = inMemoryRefreshTokens.get(refresh_token)
+    if (!stored || Date.now() > stored.expires_at) {
+      console.log('[oauth] refresh_token grant: invalid/expired token')
+      return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
+    }
+
+    console.log('[oauth] refresh_token grant success', { client_id: stored.client_id })
+
+    const now = Math.floor(Date.now() / 1000)
+    const newAccessToken = await new SignJWT({ sub: stored.client_id })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(now)
+      .setExpirationTime(now + ACCESS_TOKEN_TTL)
+      .sign(jwtSecretBytes)
+
+    return c.json(
+      { access_token: newAccessToken, token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL },
       200,
       noCacheHeaders
     )
@@ -180,7 +218,7 @@ oauth.post('/token', async (c) => {
   authCodes.delete(code)
 
   const now = Math.floor(Date.now() / 1000)
-  const expiresIn = 3600
+  const expiresIn = ACCESS_TOKEN_TTL
 
   const access_token = await new SignJWT({ sub: client_id })
     .setProtectedHeader({ alg: 'HS256' })
@@ -188,8 +226,16 @@ oauth.post('/token', async (c) => {
     .setExpirationTime(now + expiresIn)
     .sign(jwtSecretBytes)
 
+  const refreshToken = crypto.randomBytes(32).toString('hex')
+  inMemoryRefreshTokens.set(refreshToken, {
+    client_id,
+    expires_at: Date.now() + REFRESH_TOKEN_TTL * 1000,
+  })
+
+  console.log('[oauth] authorization_code grant', { client_id, has_refresh: true })
+
   return c.json(
-    { access_token, token_type: 'Bearer', expires_in: expiresIn },
+    { access_token, refresh_token: refreshToken, token_type: 'Bearer', expires_in: expiresIn },
     200,
     { 'Cache-Control': 'no-store', Pragma: 'no-cache' }
   )
