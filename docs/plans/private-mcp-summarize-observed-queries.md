@@ -1,7 +1,7 @@
 # Plan: Private MCP — `summarize_observed_queries` Tool
 
 **Branch:** `claude/verify-mcp-usage-logging-0oj2B` (this plan)
-**Status:** Doc-only — implementation deferred
+**Status:** ✅ Shipped
 **Scope:** Add a single read-only aggregation tool to the private (authenticated) MCP server that surfaces stats over the `observed_queries` table, so the candidate can ask the LLM things like "what did people ask this week?" or "which ATSes hit me most?" without leaving chat.
 
 ---
@@ -178,3 +178,30 @@ No new migrations, so no migration test pass needed.
 - Mirror logging onto the private MCP for own-usage stats (different dataset, different table or `source='mcp-private'` enum extension).
 - Embedding-based clustering of question text for "what topics are people asking about?" once exact-string top-N stops being informative.
 - Surface the same summary in an authenticated web admin view (would justify promoting to Option B).
+
+---
+
+## Acceptance Criteria (AC-1 through AC-11)
+
+### Unit tests — `tests/summarize-observed-queries.test.ts`
+
+- **AC-1:** Empty window returns friendly message "No queries in this window."
+- **AC-2:** `since > until` — returns valid envelope (caller should validate)
+- **AC-3:** Window > 10k rows sets `truncated: true` flag
+- **AC-4:** Source filter (`mcp` or `http`) works correctly
+- **AC-5:** `caller_hint` prefix filter works correctly
+- **AC-6:** Time bucket parameter (`hour`, `day`, `week`) groups correctly
+- **AC-7:** `top_n` parameter limits lists to specified count
+- **AC-8:** `format: 'json'` returns full envelope with all fields
+- **AC-9:** `format: 'text'` (default) renders human-readable markdown
+- **AC-10:** Latency stats (avg, p50, p95, max) computed correctly
+- **AC-11:** Question normalization groups "Tell me about yourself" and "tell me about yourself!" together (lowercase + trim + strip trailing punctuation)
+
+### Integration tests (to be added)
+
+- **AC-12:** Tool appears in `tools/list` response from private `/mcp` endpoint
+- **AC-13:** Calling the tool returns aggregated data from `observed_queries` table
+- **AC-14:** Text output contains expected sections (Total queries, by source, Top caller hints, Trend)
+- **AC-15:** JSON envelope round-trips correctly
+- **AC-16:** Empty table returns "No queries in this window."
+- **AC-17:** Invalid input (e.g., malformed datetime) returns clear error message

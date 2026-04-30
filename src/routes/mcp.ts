@@ -10,6 +10,7 @@ import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
+import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import type { Project } from '../types.js'
 
@@ -218,6 +219,30 @@ function buildServer(): McpServer {
       } catch (err: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
       }
+    }
+  )
+
+  server.registerTool(
+    'summarize_observed_queries',
+    {
+      title: 'Summarize Public Query Traffic',
+      description:
+        'Get a summary of public query traffic hitting the /public-mcp and /query endpoints. ' +
+        'Returns aggregated stats: total queries, split by source (MCP vs HTTP), top caller hints, ' +
+        'top user-agents, top questions, top models, latency percentiles, and a time-bucketed trend. ' +
+        'Useful for understanding how external AI clients are discovering and querying the candidate.',
+      inputSchema: {
+        since: z.string().datetime().optional().describe('ISO timestamp lower bound. Defaults to 7 days ago.'),
+        until: z.string().datetime().optional().describe('ISO timestamp upper bound. Defaults to now.'),
+        source: z.enum(['mcp', 'http']).optional().describe('Filter to one surface. Omit for both.'),
+        caller_hint: z.string().optional().describe('Filter by caller_hint prefix (e.g. "ATS", "recruiter").'),
+        bucket: z.enum(['hour', 'day', 'week']).optional().default('day').describe('Time bucket for the trend series.'),
+        top_n: z.number().int().min(1).max(50).optional().default(10).describe('How many rows to include in top-N lists.'),
+        format: z.enum(['text', 'json']).optional().default('text').describe('"text" returns a human summary; "json" returns the raw envelope.'),
+      },
+    },
+    async (input) => {
+      return summarizeObservedQueries(input)
     }
   )
 
