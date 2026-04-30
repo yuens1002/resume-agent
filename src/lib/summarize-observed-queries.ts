@@ -289,7 +289,7 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
     }
 
     // Slice to 10k and track truncation
-    const isTruncated = rows && rows.length > 10000
+    const isTruncated = (rows?.length ?? 0) > 10000
 
     if (!rows || rows.length === 0) {
       return { content: [{ type: 'text', text: 'No queries in this window.' }] }
