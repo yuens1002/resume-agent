@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-30 — fix(mcp): add refresh_token grant to eliminate reconnection prompts — adds `refresh_token` to `grant_types_supported` OAuth metadata, implements RFC 6749 refresh_token grant in `/token`, issues refresh_token alongside access_token in authorization_code flow; tokens use configurable TTLs via `ACCESS_TOKEN_TTL` (default 1h) and `REFRESH_TOKEN_TTL` (default 30d) env vars; verified in production with claude.ai — automatic token refresh works without "reconnect required" prompts
+
 - 2026-04-22 — docs: add mobile-setup caveat to README + workflow connector instructions — claude.ai custom connectors can only be *added* from desktop (web or Claude Desktop app), not the mobile app; once saved they sync automatically. Prevents recruiters from hitting a dead-end trying to add the connector from their phone.
 
 - 2026-04-22 — feat(public-mcp): ship `/public-mcp` endpoint exposing a single unauthenticated tool (`ask_candidate`) that any MCP-aware AI client can add as a custom connector — wraps the existing `/query` handler via a shared `queryProfile` core, supports streaming via MCP progress notifications with client-echoed tokens, and logs every call (HTTP + MCP) to a new `observed_queries` Supabase table; advertised first in the agent card's `supportedInterfaces` (bumped to v1.1.0); 27 ACs defined with 24 automated tests passing, manually verified end-to-end via MCP Inspector including a progressToken routing bug surfaced + fixed during verification
