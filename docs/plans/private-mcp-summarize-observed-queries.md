@@ -186,7 +186,7 @@ No new migrations, so no migration test pass needed.
 ### Unit tests — `tests/summarize-observed-queries.test.ts`
 
 - **AC-1:** Empty window returns friendly message "No queries in this window."
-- **AC-2:** `since > until` — returns valid envelope (caller should validate)
+- **AC-2:** `since > until` — throws a clear "Invalid window" error
 - **AC-3:** Window > 10k rows sets `truncated: true` flag
 - **AC-4:** Source filter (`mcp` or `http`) works correctly
 - **AC-5:** `caller_hint` prefix filter works correctly

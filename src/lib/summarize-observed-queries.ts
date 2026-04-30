@@ -58,7 +58,7 @@ export function aggregateObservedQueries(rows: ObservedQuery[], input: Summarize
   const since = input.since ? new Date(input.since) : new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   // Validate: since must not be after until
-  if (input.since && input.until && new Date(input.since) > new Date(input.until)) {
+  if (since > until) {
     throw new Error('Invalid window: "since" must not be after "until"')
   }
 
@@ -248,20 +248,28 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
     // Parse and validate input
     const parsed = SummarizeInputSchema.parse(input)
 
+    // Compute effective window bounds (for validation and SQL filtering)
+    const effectiveUntil = parsed.until ?? new Date().toISOString()
+    const effectiveSince =
+      parsed.since ??
+      new Date(new Date(effectiveUntil).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+    // Validate: since must not be after until (using computed values)
+    if (effectiveSince > effectiveUntil) {
+      return { content: [{ type: 'text', text: 'Invalid window: "since" must not be after "until"' }], isError: true }
+    }
+
     // Fetch rows from observed_queries (service_role access)
+    // Fetch 10001 to detect truncation; slice to 10000 after checking
     let query = supabase
       .from('observed_queries')
       .select('source, question, caller_hint, user_agent, ip_hash, model, latency_ms, created_at')
+      .gte('created_at', effectiveSince)
+      .lte('created_at', effectiveUntil)
       .order('created_at', { ascending: false })
-      .limit(10000)
+      .limit(10001)
 
-    // Apply filters in SQL for efficiency
-    if (parsed.since) {
-      query = query.gte('created_at', parsed.since)
-    }
-    if (parsed.until) {
-      query = query.lte('created_at', parsed.until)
-    }
+    // Apply additional filters in SQL for efficiency
     if (parsed.source) {
       query = query.eq('source', parsed.source)
     }

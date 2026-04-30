@@ -190,7 +190,7 @@ describe('AC-10: latency statistics', () => {
 
 // ── AC-11: Question normalization (case + trim) ───────────
 
-describe('AC-11: question normalization groups by exact string', () => {
+describe('AC-11: question normalization groups normalized variants together', () => {
   it('groups "Tell me about yourself" and "tell me about yourself!" together', () => {
     const mixedRows: ObservedQuery[] = [
       { source: 'mcp', question: 'Tell me about yourself', caller_hint: null, user_agent: 'x', ip_hash: 'x', model: 'x', latency_ms: 100, created_at: '2026-04-28T10:00:00Z' },
