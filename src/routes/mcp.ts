@@ -744,10 +744,11 @@ async function authenticate(c: Context): Promise<boolean> {
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (bearerToken && jwtSecretBytes) {
     try {
-      await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ['HS256'] })
+      const result = await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ['HS256'] })
+      console.log('[mcp] authenticate success', { sub: result.payload.sub, exp: result.payload.exp })
       return true
-    } catch {
-      // fall through
+    } catch (err) {
+      console.log('[mcp] authenticate failure', { error: (err as Error).message })
     }
   }
   return false
