@@ -53,10 +53,14 @@ export interface SummarizeEnvelope {
 export function aggregateObservedQueries(rows: ObservedQuery[], input: SummarizeInput): SummarizeEnvelope {
   const top_n = input.top_n ?? 10
   const bucket = input.bucket ?? 'day'
-  const format = input.format ?? 'text'
 
   const until = input.until ? new Date(input.until) : new Date()
   const since = input.since ? new Date(input.since) : new Date(until.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+  // Validate: since must not be after until
+  if (input.since && input.until && new Date(input.since) > new Date(input.until)) {
+    throw new Error('Invalid window: "since" must not be after "until"')
+  }
 
   // Filter rows
   let filtered = rows.filter(r => {
@@ -245,11 +249,27 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
     const parsed = SummarizeInputSchema.parse(input)
 
     // Fetch rows from observed_queries (service_role access)
-    const { data: rows, error } = await supabase
+    let query = supabase
       .from('observed_queries')
       .select('source, question, caller_hint, user_agent, ip_hash, model, latency_ms, created_at')
       .order('created_at', { ascending: false })
       .limit(10000)
+
+    // Apply filters in SQL for efficiency
+    if (parsed.since) {
+      query = query.gte('created_at', parsed.since)
+    }
+    if (parsed.until) {
+      query = query.lte('created_at', parsed.until)
+    }
+    if (parsed.source) {
+      query = query.eq('source', parsed.source)
+    }
+    if (parsed.caller_hint) {
+      query = query.like('caller_hint', `${parsed.caller_hint}%`)
+    }
+
+    const { data: rows, error } = await query
 
     if (error) {
       return { content: [{ type: 'text', text: `Failed to fetch observed_queries: ${error.message}` }], isError: true }
@@ -261,6 +281,11 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
 
     // Aggregate
     const envelope = aggregateObservedQueries(rows as ObservedQuery[], parsed)
+
+    // Check if no rows matched the window after aggregation
+    if (envelope.totals.count === 0) {
+      return { content: [{ type: 'text', text: 'No queries in this window.' }] }
+    }
 
     // Return in requested format
     if (parsed.format === 'json') {
