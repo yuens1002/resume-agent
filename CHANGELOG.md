@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-04-30 — feat(mcp): add summarize_observed_queries tool for public query traffic analytics — aggregate stats from observed_queries table showing total queries, source split (MCP/HTTP), latency percentiles, top caller hints, top user-agents, top questions, top models, time-bucketed trend; supports filtering by source, caller_hint prefix, time bucket (hour/day/week), top_n count; output as human-readable text (default) or JSON envelope; hard cap at 10k rows with truncated flag; 11 new unit tests
+
 - 2026-04-22 — docs: add mobile-setup caveat to README + workflow connector instructions — claude.ai custom connectors can only be *added* from desktop (web or Claude Desktop app), not the mobile app; once saved they sync automatically. Prevents recruiters from hitting a dead-end trying to add the connector from their phone.
 
 - 2026-04-22 — feat(public-mcp): ship `/public-mcp` endpoint exposing a single unauthenticated tool (`ask_candidate`) that any MCP-aware AI client can add as a custom connector — wraps the existing `/query` handler via a shared `queryProfile` core, supports streaming via MCP progress notifications with client-echoed tokens, and logs every call (HTTP + MCP) to a new `observed_queries` Supabase table; advertised first in the agent card's `supportedInterfaces` (bumped to v1.1.0); 27 ACs defined with 24 automated tests passing, manually verified end-to-end via MCP Inspector including a progressToken routing bug surfaced + fixed during verification
