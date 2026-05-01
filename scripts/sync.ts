@@ -60,16 +60,13 @@ const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-'
 // Slug is derived from the repo name. Slug must match a project slug in public_profile.projects.
 const REPOS = SYNC_REPOS_RAW!.split(',').map(entry => {
   const trimmed = entry.trim()
-  const slash = trimmed.indexOf('/')
-  if (slash < 1 || slash === trimmed.length - 1) {
+  const match = /^([^/]+)\/([^/]+)$/.exec(trimmed)
+  if (!match) {
     console.error(`Invalid SYNC_REPOS entry "${trimmed}" — expected owner/repo format`)
     process.exit(1)
   }
-  return {
-    slug: trimmed.slice(slash + 1),
-    owner: trimmed.slice(0, slash),
-    repo: trimmed.slice(slash + 1),
-  }
+  const [, owner, repo] = match
+  return { slug: repo, owner, repo }
 })
 
 // ── GitHub ────────────────────────────────────────────────

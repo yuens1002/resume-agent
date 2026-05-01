@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- 2026-05-01 — feat(sync): replace hardcoded REPOS array with SYNC_REPOS env var — forkers now configure repos in .env.local as comma-separated owner/repo pairs; slug is derived from the repo name; exits with a clear error on missing or malformed entries; adds artisan-roast-sdk to the sync roster
+- 2026-05-01 — feat(sync): replace hardcoded REPOS array with SYNC_REPOS env var — forkers now configure repos in .env.local as comma-separated owner/repo pairs; slug is derived from the repo name; exits with a clear error on missing or malformed entries
 
 - 2026-05-01 — fix(agent-card): add Cache-Control: public, max-age=300 to prevent indefinite caching by claude.ai and crawlers — no TTL caused claude.ai to serve a stale agent card after A2A spec fixes were deployed; 5-minute cap ensures changes propagate within one rotation while still allowing short-term caching to reduce Supabase round-trips
 
