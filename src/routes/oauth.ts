@@ -69,8 +69,11 @@ const cleanupInterval = setInterval(() => {
   for (const [code, data] of authCodes) {
     if (now > data.expires_at) authCodes.delete(code)
   }
-  // Prune expired refresh tokens from Supabase (fire-and-forget)
-  supabase.from('oauth_refresh_tokens').delete().lt('expires_at', new Date().toISOString())
+  // Prune rows older than 7 days — keeps consumed tokens live long enough for replay detection
+  supabase.from('oauth_refresh_tokens')
+    .delete()
+    .lt('expires_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+    .then(({ error }) => { if (error) console.error('[oauth] cleanup: failed to prune tokens', error.message) })
 }, 60_000)
 cleanupInterval.unref()
 
@@ -194,59 +197,44 @@ oauth.post('/token', async (c) => {
     }
 
     const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex')
-
-    // Atomically consume the token: DELETE returns the row only if it exists and has not expired.
-    // If two requests race with the same token, only one gets the row back — the other hits reuse detection.
-    const { data: consumed, error: deleteError } = await supabase
-      .from('oauth_refresh_tokens')
-      .delete()
-      .eq('token_hash', tokenHash)
-      .gt('expires_at', new Date().toISOString())
-      .select('client_id')
-      .maybeSingle()
-
-    if (deleteError) {
-      console.error('[oauth] refresh_token grant: db error', deleteError.message)
-      return c.json({ error: 'server_error' }, 500, noCacheHeaders)
-    }
-
-    if (!consumed) {
-      // Token not found or expired — treat as potential reuse attack and revoke all tokens for this client
-      if (client_id) {
-        console.warn('[oauth] refresh_token grant: possible reuse detected, revoking all tokens for', client_id)
-        await supabase.from('oauth_refresh_tokens').delete().eq('client_id', client_id)
-      } else {
-        console.log('[oauth] refresh_token grant: invalid/expired token')
-      }
-      return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
-    }
-
-    if (client_id && client_id !== consumed.client_id) {
-      console.log('[oauth] refresh_token grant: client_id mismatch')
-      return c.json({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400, noCacheHeaders)
-    }
-
-    // Issue rotated refresh token
     const newRefreshToken = crypto.randomBytes(32).toString('hex')
     const newTokenHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex')
 
-    const { error: insertError } = await supabase.from('oauth_refresh_tokens').insert({
-      token_hash: newTokenHash,
-      client_id: consumed.client_id,
-      expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
+    // Single atomic transaction: validates ownership, marks old token consumed, inserts new one.
+    // Returns a status so the application can distinguish replay (definite) from unknown (ambiguous).
+    const { data: result, error: rpcError } = await supabase.rpc('rotate_refresh_token', {
+      p_token_hash: tokenHash,
+      p_client_id: client_id ?? null,
+      p_new_hash: newTokenHash,
+      p_new_expires: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
     })
 
-    if (insertError) {
-      console.error('[oauth] refresh_token grant: failed to issue rotated token', insertError.message)
+    if (rpcError) {
+      console.error('[oauth] refresh_token grant: db error', rpcError.message)
       return c.json({ error: 'server_error' }, 500, noCacheHeaders)
     }
 
+    const { status, client_id: storedClientId } = result as { status: string; client_id?: string }
+
+    if (status === 'replayed') {
+      console.warn('[oauth] refresh_token grant: replay detected, all tokens revoked for', storedClientId)
+      return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
+    }
+    if (status === 'client_mismatch') {
+      console.log('[oauth] refresh_token grant: client_id mismatch')
+      return c.json({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400, noCacheHeaders)
+    }
+    if (status !== 'rotated') {
+      console.log('[oauth] refresh_token grant: invalid/expired token', status)
+      return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
+    }
+
     if (DEBUG) {
-      console.log('[oauth] refresh_token grant success', { client_id: consumed.client_id })
+      console.log('[oauth] refresh_token grant success', { client_id: storedClientId })
     }
 
     const now = Math.floor(Date.now() / 1000)
-    const newAccessToken = await new SignJWT({ sub: consumed.client_id })
+    const newAccessToken = await new SignJWT({ sub: storedClientId })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt(now)
       .setExpirationTime(now + ACCESS_TOKEN_TTL)
@@ -295,11 +283,15 @@ oauth.post('/token', async (c) => {
 
   const refreshToken = crypto.randomBytes(32).toString('hex')
   const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex')
-  await supabase.from('oauth_refresh_tokens').insert({
+  const { error: rtInsertError } = await supabase.from('oauth_refresh_tokens').insert({
     token_hash: refreshTokenHash,
     client_id,
     expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
   })
+  if (rtInsertError) {
+    console.error('[oauth] authorization_code grant: failed to persist refresh token', rtInsertError.message)
+    return c.json({ error: 'server_error' }, 500, { 'Cache-Control': 'no-store', Pragma: 'no-cache' })
+  }
 
   if (DEBUG) {
     console.log('[oauth] authorization_code grant', { client_id, has_refresh: true })
