@@ -17,6 +17,9 @@
  *          SUPA_PROJECT_URL     required
  *          SUPA_SERVICE_ROLE    required
  *          OPENROUTER_API_KEY   required
+ *          SYNC_REPOS           required — comma-separated owner/repo pairs
+ *                               e.g. myuser/my-repo,myorg/other-repo
+ *                               slug is derived from the repo name
  */
 
 import { createHash } from 'node:crypto'
@@ -28,6 +31,7 @@ const SUPA_URL = process.env.SUPA_PROJECT_URL
 const SUPA_KEY = process.env.SUPA_SERVICE_ROLE
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN
+const SYNC_REPOS_RAW = process.env.SYNC_REPOS
 
 if (!SUPA_URL || !SUPA_KEY) {
   console.error('Missing SUPA_PROJECT_URL or SUPA_SERVICE_ROLE')
@@ -35,6 +39,10 @@ if (!SUPA_URL || !SUPA_KEY) {
 }
 if (!OPENROUTER_API_KEY) {
   console.error('Missing OPENROUTER_API_KEY')
+  process.exit(1)
+}
+if (!SYNC_REPOS_RAW) {
+  console.error('Missing SYNC_REPOS — set to comma-separated owner/repo pairs, e.g. myuser/my-repo,myorg/other-repo')
   process.exit(1)
 }
 
@@ -48,25 +56,18 @@ const MODEL = 'google/gemini-3-flash-preview'
 // Default singleton profile row ID (UUID with trailing 1)
 const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
-// Repos to sync — slug must match the project slug in public_profile.projects
-// docsPath overrides README.md when the root README is just boilerplate
-// featureDocsGlobs: additional doc paths to read for OB1 thought enrichment
-const REPOS = [
-  {
-    slug: 'artisan-roast',
-    owner: 'yuens1002',
-    repo: 'artisan-roast',
-    featureDocsGlobs: ['docs/features/', 'docs/plans/'],
-  },
-  {
-    slug: 'artisan-roast-platform',
-    owner: 'dev-yuen-agency',
-    repo: 'artisan-roast-platform',
-    docsPath: 'docs/platform/platform.md',
-    featureDocsGlobs: ['docs/platform/'],
-  },
-  { slug: 'resume-agent', owner: 'yuens1002', repo: 'resume-agent' },
-]
+// Repos to sync — parsed from SYNC_REPOS env var (owner/repo pairs, comma-separated).
+// Slug is derived from the repo name. Slug must match a project slug in public_profile.projects.
+const REPOS = SYNC_REPOS_RAW!.split(',').map(entry => {
+  const trimmed = entry.trim()
+  const match = /^([^/]+)\/([^/]+)$/.exec(trimmed)
+  if (!match) {
+    console.error(`Invalid SYNC_REPOS entry "${trimmed}" — expected owner/repo format`)
+    process.exit(1)
+  }
+  const [, owner, repo] = match
+  return { slug: repo, owner, repo }
+})
 
 // ── GitHub ────────────────────────────────────────────────
 
