@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-01 — fix(agent-card): align agent-card.json with A2A v1.0 spec — adds required top-level fields `protocolVersion: "1.0"`, `url`, `securitySchemes: {}`, and `security: [{}]`; moves non-standard `supportedInterfaces` array from top level into `capabilities.extensions` to eliminate conformance checker failures
+
 - 2026-05-01 — test(oauth): add e2e script proving token expiry, refresh, and rotation live — runs against a server with ACCESS_TOKEN_TTL=60; verifies access token is accepted then rejected after 65s (401 on /mcp + jwtVerify), refresh token exchanges for new access+refresh (rotation confirmed), new access token works immediately, old refresh token dead; all 8 steps passing
 
 - 2026-05-01 — feat(oauth): persist refresh tokens in Supabase with rotation and reuse detection — eliminates reconnection prompts caused by in-memory token store being wiped on Railway restarts/redeploys; tokens are now stored as SHA-256 hashes in a new `oauth_refresh_tokens` table; each redemption atomically deletes the old row and issues a new token (rotation); replaying an already-used token triggers full revocation of all tokens for that client (reuse detection); 8 integration tests covering the full lifecycle including AC-8 reuse detection scenario
