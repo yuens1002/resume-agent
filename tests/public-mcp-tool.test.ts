@@ -330,6 +330,21 @@ describe('AC-18: MCP interface listed first in agent card', () => {
   })
 })
 
+// ── AC-19: agent card sets Cache-Control header ──
+
+describe('AC-19: agent card sets Cache-Control header', () => {
+  it('response includes Cache-Control: public, max-age=300', async () => {
+    const res = await fetch(AGENT_CARD_URL)
+    assert.ok(res.ok, `Agent card must be reachable, got ${res.status}`)
+    const cc = res.headers.get('cache-control')
+    assert.ok(cc, 'Cache-Control header must be present')
+    assert.ok(
+      cc!.includes('public') && cc!.includes('max-age=300'),
+      `Cache-Control must include 'public, max-age=300', got '${cc}'`,
+    )
+  })
+})
+
 // ── AC-20: migration applied cleanly (implicit — table is reachable) ──
 
 describe('AC-20: observed_queries migration applied cleanly', () => {
