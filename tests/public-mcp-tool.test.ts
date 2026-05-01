@@ -294,12 +294,12 @@ describe('AC-17: agent card advertises MCP interface', () => {
   it('supportedInterfaces contains an MCP entry with correct URL + version', async () => {
     const res = await fetch(AGENT_CARD_URL)
     assert.ok(res.ok, `Agent card must be reachable, got ${res.status}`)
-    const card = (await res.json()) as {
-      supportedInterfaces?: { url: string; protocolBinding: string; protocolVersion?: string }[]
-    }
-    const interfaces = card.supportedInterfaces ?? []
+    type Extension = { uri: string; params?: { supportedInterfaces?: { url: string; protocolBinding: string; protocolVersion?: string }[] } }
+    const card = (await res.json()) as { capabilities?: { extensions?: Extension[] } }
+    const ext = card.capabilities?.extensions?.find((e) => e.uri.endsWith('#supported-interfaces'))
+    const interfaces = ext?.params?.supportedInterfaces ?? []
     const mcp = interfaces.find((i) => i.protocolBinding === 'MCP')
-    assert.ok(mcp, 'MCP interface must be present in supportedInterfaces')
+    assert.ok(mcp, 'MCP interface must be present in capabilities.extensions[#supported-interfaces].params.supportedInterfaces')
     assert.ok(
       mcp!.url.endsWith('/public-mcp'),
       `MCP URL should end with /public-mcp, got ${mcp!.url}`,
@@ -317,10 +317,10 @@ describe('AC-17: agent card advertises MCP interface', () => {
 describe('AC-18: MCP interface listed first in agent card', () => {
   it('supportedInterfaces[0] has protocolBinding MCP', async () => {
     const res = await fetch(AGENT_CARD_URL)
-    const card = (await res.json()) as {
-      supportedInterfaces?: { protocolBinding: string }[]
-    }
-    const interfaces = card.supportedInterfaces ?? []
+    type Extension = { uri: string; params?: { supportedInterfaces?: { protocolBinding: string }[] } }
+    const card = (await res.json()) as { capabilities?: { extensions?: Extension[] } }
+    const ext = card.capabilities?.extensions?.find((e) => e.uri.endsWith('#supported-interfaces'))
+    const interfaces = ext?.params?.supportedInterfaces ?? []
     assert.ok(interfaces.length > 0, 'supportedInterfaces must be non-empty')
     assert.equal(
       interfaces[0].protocolBinding,

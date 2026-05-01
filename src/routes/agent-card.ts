@@ -11,24 +11,16 @@ app.get('/', async (c) => {
     .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
-  const baseUrl = process.env.PUBLIC_URL ?? new URL(c.req.url).origin
+  const baseUrl = (process.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, '')
 
   return c.json({
+    protocolVersion: '1.0',
+    url: baseUrl,
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'Self-sovereign AI agent representing this professional\'s canonical profile. Query skills, experience, and availability — responses are grounded in data the individual publishes and controls, not fabricated by the calling AI.',
     version: '1.1.0',
-    supportedInterfaces: [
-      {
-        url: `${baseUrl}/public-mcp`,
-        protocolBinding: 'MCP',
-        protocolVersion: '2025-03-26',
-      },
-      {
-        url: baseUrl,
-        protocolBinding: 'HTTP+JSON',
-        protocolVersion: '1.0',
-      },
-    ],
+    securitySchemes: {},
+    security: [{}],
     provider: {
       organization: data?.contact?.name ?? 'Resume Agent',
       url: process.env.PROVIDER_HOMEPAGE,
@@ -39,6 +31,25 @@ app.get('/', async (c) => {
       pushNotifications: false,
       stateTransitionHistory: false,
       extensions: [
+        {
+          uri: `${baseUrl}/.well-known/agent-card.json#supported-interfaces`,
+          description: 'Protocol bindings supported by this agent (MCP, HTTP+JSON).',
+          required: false,
+          params: {
+            supportedInterfaces: [
+              {
+                url: `${baseUrl}/public-mcp`,
+                protocolBinding: 'MCP',
+                protocolVersion: '2025-03-26',
+              },
+              {
+                url: baseUrl,
+                protocolBinding: 'HTTP+JSON',
+                protocolVersion: '1.0',
+              },
+            ],
+          },
+        },
         {
           uri: `${baseUrl}/.well-known/agent-card.json#api-docs`,
           description: 'Custom API documentation, rate limits, and contact metadata.',
