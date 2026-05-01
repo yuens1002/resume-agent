@@ -11,7 +11,7 @@ app.get('/', async (c) => {
     .eq('id', '00000000-0000-0000-0000-000000000001')
     .single()
 
-  const baseUrl = process.env.PUBLIC_URL ?? new URL(c.req.url).origin
+  const baseUrl = (process.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, '')
 
   return c.json({
     protocolVersion: '1.0',
