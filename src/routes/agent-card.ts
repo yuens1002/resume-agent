@@ -13,6 +13,7 @@ app.get('/', async (c) => {
 
   const baseUrl = (process.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, '')
 
+  c.header('Cache-Control', 'public, max-age=300')
   return c.json({
     protocolVersion: '1.0',
     url: baseUrl,
