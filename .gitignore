@@ -35,3 +35,6 @@ supabase/.temp/
 # logs
 *.log
 npm-debug.log*
+
+# sync repo config (user-local; copy from sync.repos.example.json)
+scripts/sync.repos.json

@@ -1,0 +1,14 @@
+[
+  {
+    "slug": "my-project",
+    "owner": "your-github-username",
+    "repo": "your-repo-name"
+  },
+  {
+    "slug": "my-other-project",
+    "owner": "your-github-username",
+    "repo": "another-repo",
+    "docsPath": "docs/architecture.md",
+    "featureDocsGlobs": ["docs/features/", "docs/plans/"]
+  }
+]

@@ -20,6 +20,9 @@
  */
 
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
@@ -48,25 +51,24 @@ const MODEL = 'google/gemini-3-flash-preview'
 // Default singleton profile row ID (UUID with trailing 1)
 const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
-// Repos to sync — slug must match the project slug in public_profile.projects
-// docsPath overrides README.md when the root README is just boilerplate
-// featureDocsGlobs: additional doc paths to read for OB1 thought enrichment
-const REPOS = [
-  {
-    slug: 'artisan-roast',
-    owner: 'yuens1002',
-    repo: 'artisan-roast',
-    featureDocsGlobs: ['docs/features/', 'docs/plans/'],
-  },
-  {
-    slug: 'artisan-roast-platform',
-    owner: 'dev-yuen-agency',
-    repo: 'artisan-roast-platform',
-    docsPath: 'docs/platform/platform.md',
-    featureDocsGlobs: ['docs/platform/'],
-  },
-  { slug: 'resume-agent', owner: 'yuens1002', repo: 'resume-agent' },
-]
+// Repos to sync — loaded from scripts/sync.repos.json (gitignored, user-local).
+// Copy scripts/sync.repos.example.json to scripts/sync.repos.json and fill in your repos.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const REPOS_PATH = resolve(__dirname, 'sync.repos.json')
+let REPOS: Array<{
+  slug: string
+  owner: string
+  repo: string
+  docsPath?: string
+  featureDocsGlobs?: string[]
+}>
+try {
+  REPOS = JSON.parse(readFileSync(REPOS_PATH, 'utf-8'))
+} catch {
+  console.error(`sync.repos.json not found at ${REPOS_PATH}`)
+  console.error('Copy scripts/sync.repos.example.json to scripts/sync.repos.json and fill in your repos.')
+  process.exit(1)
+}
 
 // ── GitHub ────────────────────────────────────────────────
 
