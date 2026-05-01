@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-01 — fix(agent-card): add Cache-Control: public, max-age=300 to prevent indefinite caching by claude.ai and crawlers — no TTL caused claude.ai to serve a stale agent card after A2A spec fixes were deployed; 5-minute cap ensures changes propagate within one rotation while still allowing short-term caching to reduce Supabase round-trips
+
 - 2026-05-01 — fix(agent-card): align agent-card.json with A2A v1.0 spec — adds required top-level fields `protocolVersion: "1.0"`, `url`, `securitySchemes: {}`, and `security: [{}]`; moves non-standard `supportedInterfaces` array from top level into `capabilities.extensions` to eliminate conformance checker failures
 
 - 2026-05-01 — test(oauth): add e2e script proving token expiry, refresh, and rotation live — runs against a server with ACCESS_TOKEN_TTL=60; verifies access token is accepted then rejected after 65s (401 on /mcp + jwtVerify), refresh token exchanges for new access+refresh (rotation confirmed), new access token works immediately, old refresh token dead; all 8 steps passing
