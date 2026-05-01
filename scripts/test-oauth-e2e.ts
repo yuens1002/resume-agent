@@ -1,7 +1,10 @@
 /**
  * End-to-end OAuth token expiry + rotation test.
  *
- * Requires the server to be running with a short ACCESS_TOKEN_TTL (e.g. 60s):
+ * Required env vars (loaded via --env-file=.env.local):
+ *   JWT_SECRET      — to verify the access token locally in step 5
+ *
+ * Requires the server to be running with ACCESS_TOKEN_TTL ≤ 300 (e.g. 60s):
  *   ACCESS_TOKEN_TTL=60 npm run dev
  *
  * Run:
@@ -52,7 +55,11 @@ async function authorize() {
   url.searchParams.set('code_challenge', challenge)
   url.searchParams.set('code_challenge_method', 'S256')
   const res = await fetch(url.toString(), { redirect: 'manual' })
-  const code = new URL(res.headers.get('location')!).searchParams.get('code')!
+  if (res.status !== 302) throw new Error(`/authorize returned ${res.status}; expected 302 redirect`)
+  const location = res.headers.get('location')
+  if (!location) throw new Error('/authorize redirect missing Location header')
+  const code = new URL(location).searchParams.get('code')
+  if (!code) throw new Error('/authorize redirect missing code query parameter')
   return { code, verifier }
 }
 
@@ -101,6 +108,12 @@ pass(`refresh_token: ${originalRefresh.slice(0, 8)}...`)
 step(2, 'Access token works immediately on /mcp')
 const status2 = await mcpPing(originalAccess)
 status2 === 200 ? pass(`/mcp returned ${status2}`) : fail(`/mcp returned ${status2}, expected 200`)
+
+const MAX_WAIT = 300
+if (expiresIn > MAX_WAIT) {
+  fail(`expires_in=${expiresIn}s is too long to wait (max ${MAX_WAIT}s). Restart the server with ACCESS_TOKEN_TTL=60.`)
+  process.exit(1)
+}
 
 step(3, `Wait ${expiresIn + 5}s for access token to expire`)
 await wait((expiresIn + 5) * 1000)
