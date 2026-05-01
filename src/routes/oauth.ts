@@ -2,6 +2,7 @@ import '../lib/env.js'
 import { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import crypto from 'crypto'
+import { supabase } from '../lib/supabase.js'
 
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('Missing JWT_SECRET')
@@ -34,12 +35,6 @@ const ACCESS_TOKEN_TTL = parsePositiveIntegerEnv('ACCESS_TOKEN_TTL', 3600, 1, 7 
 const REFRESH_TOKEN_TTL = parsePositiveIntegerEnv('REFRESH_TOKEN_TTL', 2592000, 1, 365 * 24 * 60 * 60)
 
 const DEBUG = process.env.DEBUG === 'true'
-
-// In-memory refresh token store.
-// Note: single-instance Railway deployment — refresh tokens will be lost on restart/deploy and
-// will not work correctly across multiple instances. For multi-instance or durable deployments,
-// migrate to a shared store (Redis/Supabase table) or use self-contained signed refresh tokens.
-const inMemoryRefreshTokens = new Map<string, { client_id: string; expires_at: number }>()
 
 // Allowlist of permitted client IDs — set OAUTH_CLIENT_ID env var (comma-separated for multiple)
 const ALLOWED_CLIENT_IDS = new Set(
@@ -74,9 +69,8 @@ const cleanupInterval = setInterval(() => {
   for (const [code, data] of authCodes) {
     if (now > data.expires_at) authCodes.delete(code)
   }
-  for (const [token, data] of inMemoryRefreshTokens) {
-    if (now > data.expires_at) inMemoryRefreshTokens.delete(token)
-  }
+  // Prune expired refresh tokens from Supabase (fire-and-forget)
+  supabase.from('oauth_refresh_tokens').delete().lt('expires_at', new Date().toISOString())
 }, 60_000)
 cleanupInterval.unref()
 
@@ -199,30 +193,67 @@ oauth.post('/token', async (c) => {
       return c.json({ error: 'invalid_request', error_description: 'refresh_token required' }, 400, noCacheHeaders)
     }
 
-    const stored = inMemoryRefreshTokens.get(refresh_token)
-    if (!stored || Date.now() > stored.expires_at) {
-      console.log('[oauth] refresh_token grant: invalid/expired token')
+    const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex')
+
+    // Atomically consume the token: DELETE returns the row only if it exists and has not expired.
+    // If two requests race with the same token, only one gets the row back — the other hits reuse detection.
+    const { data: consumed, error: deleteError } = await supabase
+      .from('oauth_refresh_tokens')
+      .delete()
+      .eq('token_hash', tokenHash)
+      .gt('expires_at', new Date().toISOString())
+      .select('client_id')
+      .maybeSingle()
+
+    if (deleteError) {
+      console.error('[oauth] refresh_token grant: db error', deleteError.message)
+      return c.json({ error: 'server_error' }, 500, noCacheHeaders)
+    }
+
+    if (!consumed) {
+      // Token not found or expired — treat as potential reuse attack and revoke all tokens for this client
+      if (client_id) {
+        console.warn('[oauth] refresh_token grant: possible reuse detected, revoking all tokens for', client_id)
+        await supabase.from('oauth_refresh_tokens').delete().eq('client_id', client_id)
+      } else {
+        console.log('[oauth] refresh_token grant: invalid/expired token')
+      }
       return c.json({ error: 'invalid_grant' }, 400, noCacheHeaders)
     }
 
-    if (client_id && client_id !== stored.client_id) {
+    if (client_id && client_id !== consumed.client_id) {
       console.log('[oauth] refresh_token grant: client_id mismatch')
       return c.json({ error: 'invalid_grant', error_description: 'client_id mismatch' }, 400, noCacheHeaders)
     }
 
+    // Issue rotated refresh token
+    const newRefreshToken = crypto.randomBytes(32).toString('hex')
+    const newTokenHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex')
+
+    const { error: insertError } = await supabase.from('oauth_refresh_tokens').insert({
+      token_hash: newTokenHash,
+      client_id: consumed.client_id,
+      expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
+    })
+
+    if (insertError) {
+      console.error('[oauth] refresh_token grant: failed to issue rotated token', insertError.message)
+      return c.json({ error: 'server_error' }, 500, noCacheHeaders)
+    }
+
     if (DEBUG) {
-      console.log('[oauth] refresh_token grant success', { client_id: stored.client_id })
+      console.log('[oauth] refresh_token grant success', { client_id: consumed.client_id })
     }
 
     const now = Math.floor(Date.now() / 1000)
-    const newAccessToken = await new SignJWT({ sub: stored.client_id })
+    const newAccessToken = await new SignJWT({ sub: consumed.client_id })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt(now)
       .setExpirationTime(now + ACCESS_TOKEN_TTL)
       .sign(jwtSecretBytes)
 
     return c.json(
-      { access_token: newAccessToken, token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL },
+      { access_token: newAccessToken, refresh_token: newRefreshToken, token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL },
       200,
       noCacheHeaders
     )
@@ -263,9 +294,11 @@ oauth.post('/token', async (c) => {
     .sign(jwtSecretBytes)
 
   const refreshToken = crypto.randomBytes(32).toString('hex')
-  inMemoryRefreshTokens.set(refreshToken, {
+  const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex')
+  await supabase.from('oauth_refresh_tokens').insert({
+    token_hash: refreshTokenHash,
     client_id,
-    expires_at: Date.now() + REFRESH_TOKEN_TTL * 1000,
+    expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
   })
 
   if (DEBUG) {

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-01 — feat(oauth): persist refresh tokens in Supabase with rotation and reuse detection — eliminates reconnection prompts caused by in-memory token store being wiped on Railway restarts/redeploys; tokens are now stored as SHA-256 hashes in a new `oauth_refresh_tokens` table; each redemption atomically deletes the old row and issues a new token (rotation); replaying an already-used token triggers full revocation of all tokens for that client (reuse detection); 8 integration tests covering the full lifecycle including AC-8 reuse detection scenario
+
 - 2026-04-30 — fix(mcp): add refresh_token grant to eliminate reconnection prompts — adds `refresh_token` to `grant_types_supported` OAuth metadata, implements RFC 6749 refresh_token grant in `/token`, issues refresh_token alongside access_token in authorization_code flow; tokens use configurable TTLs via `ACCESS_TOKEN_TTL` (default 1h) and `REFRESH_TOKEN_TTL` (default 30d) env vars; verified in production with claude.ai — automatic token refresh works without "reconnect required" prompts
 
 - 2026-04-22 — docs: add mobile-setup caveat to README + workflow connector instructions — claude.ai custom connectors can only be *added* from desktop (web or Claude Desktop app), not the mobile app; once saved they sync automatically. Prevents recruiters from hitting a dead-end trying to add the connector from their phone.
