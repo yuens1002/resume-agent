@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-02 — feat(ci): add nightly GitHub Actions sync workflow — replaces OS-specific task schedulers with a cross-platform cron that runs npm run sync on a configurable schedule (default 2am UTC daily); supports on-demand runs via workflow_dispatch from the GitHub UI or gh workflow run; GITHUB_TOKEN is automatic, only three secrets required (SUPA_PROJECT_URL, SUPA_SERVICE_ROLE, OPENROUTER_API_KEY); documents setup steps and cron examples in README
+
 - 2026-05-02 — feat(sync): derive repos from profile.projects and add HIDE_FROM_PROJECTS filter — eliminates SYNC_REPOS env var (breaking); sync script now reads GitHub owner/repo from each project's repo URL so adding a project to the profile automatically includes it in the next sync; HIDE_FROM_PROJECTS env var (comma-separated slugs) filters projects from the resume output at generation time while keeping OB1 thoughts in play for employment context injection; documents both in a new "Project sync" README section
 
 - 2026-05-02 — fix(resume): guarantee project url/repo in resume output — server-side injection matches generated projects to profile by slug and backfills url and repo fields that LLMs consistently omit; eliminates missing project links in DOCX regardless of model output

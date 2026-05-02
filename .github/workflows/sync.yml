@@ -1,0 +1,27 @@
+name: Nightly project sync
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 2am UTC daily — edit to change cadence
+  workflow_dispatch:       # manual run from GitHub UI or `gh workflow run sync.yml`
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Sync projects to OB1
+        env:
+          SUPA_PROJECT_URL: ${{ secrets.SUPA_PROJECT_URL }}
+          SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run sync
