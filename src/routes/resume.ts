@@ -63,11 +63,50 @@ Rules:
 
 5. PER-ROLE BULLET PRIORITIZATION: For each employment entry, lead with bullets that demonstrate skills matching the JD's core requirements. The first bullet of the most recent role MUST directly address the JD's primary responsibility. Deprioritize or omit bullets about skills the JD doesn't mention.
 
-6. SKILLS ORDERING: List 10-15 skills ordered by relevance to the target role. Skills mentioned in the JD come first. Include both the JD's exact terminology and the candidate's equivalent terms.
+6. EXPERIENCE SECTION — the "bullets" array on each employment entry is your pool. Select from it and lightly adapt — do not invent new bullets. Follow this pattern:
 
-7. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — not just the technical architecture. If the JD emphasizes design, describe design work; if it emphasizes backend, describe backend work. Technical architecture details belong in the Projects section, not Employment bullets.
+  Profile entry:
+  {
+    "company": "Acme Corp",
+    "title": "Senior Engineer",
+    "start_date": "2024-03",
+    "end_date": null,
+    "bullets": [
+      "Led end-to-end delivery across the full product lifecycle, from specification through production",
+      "Automated deployment pipeline, reducing release cycle from days to minutes",
+      "Integrated LLM-based features into production, cutting manual review time by 60%"
+    ]
+  }
 
-8. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Keep it concise with a brief description and 3-4 bullet highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
+  Output for a DevOps-focused JD:
+  {
+    "company": "Acme Corp",
+    "title": "Senior Engineer",
+    "start_date": "2024-03",
+    "end_date": null,
+    "bullets": [
+      "Automated CI/CD pipeline, reducing release cycle from days to minutes",
+      "Led end-to-end delivery across the full product lifecycle, from specification through production"
+    ]
+  }
+
+  Output for an AI/ML-focused JD:
+  {
+    "company": "Acme Corp",
+    "title": "Senior Engineer",
+    "start_date": "2024-03",
+    "end_date": null,
+    "bullets": [
+      "Integrated LLM-based features into production, cutting manual review time by 60%",
+      "Led end-to-end delivery across the full product lifecycle, from specification through production"
+    ]
+  }
+
+7. SKILLS ORDERING: List 10-15 skills ordered by relevance to the target role. Skills mentioned in the JD come first. Include both the JD's exact terminology and the candidate's equivalent terms.
+
+8. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — not just the technical architecture. If the JD emphasizes design, describe design work; if it emphasizes backend, describe backend work. Technical architecture details belong in the Projects section, not Employment bullets.
+
+9. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Keep it concise with a brief description and 3-4 bullet highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
 
 Additional rules:
 - Never fabricate credentials, titles, dates, or skills

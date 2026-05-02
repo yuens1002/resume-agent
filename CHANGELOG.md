@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-02 — feat(resume): anchor experience bullets to OB1 pool — adds Rule 6 to the generation prompt with a show-don't-tell pattern (two JD-context examples) that instructs the model to select and lightly adapt from the candidate's canonical bullet pool rather than synthesizing from context; eliminates fabricated dates and non-canonical bullets; verified via parallel old/new prompt comparison and live pipeline run against a real JD (all 4 OB1 bullets present in output, lightly adapted, no invented metrics); adds scripts/compare-prompts.ts with --model mode for prompt vs model comparison
+
 - 2026-05-02 — fix(scorer): drop Rule 5 (first bullet vs JD responsibility) — lexical keyword overlap is the wrong tool for a semantic question; boilerplate-detection heuristics were brittle and required constant patching; remaining 5 rules (title, keyword coverage, quantified bullets, authenticity, skills order) are fully deterministic and reliable
 
 - 2026-05-01 — feat(resume): SSE keepalive streaming eliminates Railway 503 on long dual-model generations — POST /resume now returns a text/event-stream immediately, sends `: keepalive\n\n` every 10s, and emits the final resume JSON as a single `data:` event; bumps maxTokens to 8192 for Gemini 2.5 Flash thinking-token budget; strips banned phrases before scoring so Rule 4 reflects post-processed output; fixes Rule 1 adjective extraction ("talented Application Engineer" → "Application Engineer"); fixes Rule 5 to skip keyword overlap when JD opening is company boilerplate rather than stated duties

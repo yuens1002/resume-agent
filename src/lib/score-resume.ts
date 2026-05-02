@@ -221,7 +221,7 @@ function scoreRule4(resume: ResumeResponse): RuleResult {
 }
 
 
-/** Rule 6: Top skills in the skills list match JD requirements. */
+/** Rule 7: Top skills in the skills list match JD requirements. */
 function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
   const skills = (resume.skills ?? []) as unknown[]
   const flatSkills = skills.flatMap((s: unknown) =>
@@ -229,7 +229,7 @@ function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
   )
 
   if (flatSkills.length === 0) {
-    return { rule: 6, name: 'Skills ordered by JD relevance', pass: false, score: 0, detail: 'No skills found' }
+    return { rule: 7, name: 'Skills ordered by JD relevance', pass: false, score: 0, detail: 'No skills found' }
   }
 
   const jdLower = jd.toLowerCase()
@@ -246,7 +246,7 @@ function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
 
   const ratio = top5.length > 0 ? top5InJD.length / top5.length : 0
   return {
-    rule: 6,
+    rule: 7,
     name: 'Skills ordered by JD relevance',
     pass: ratio >= 0.4,
     score: ratio,
