@@ -383,6 +383,33 @@ The filter runs server-side before the LLM prompt is built. OB1 thoughts from hi
 
 > **Breaking change (v0.3.0):** `SYNC_REPOS` has been removed. The sync script now derives repos directly from `profile.projects[].repo`. Remove `SYNC_REPOS` from your `.env.local` and Railway env vars — it is no longer read.
 
+### Automated sync via GitHub Actions
+
+The included `.github/workflows/sync.yml` runs `npm run sync` on a nightly schedule so your profile stays current without any manual intervention. It also supports on-demand runs from the GitHub UI or CLI — no local setup or OS-specific scheduler needed.
+
+**To enable:**
+
+1. Add these secrets to your GitHub repository (**Settings → Secrets and variables → Actions**):
+
+   | Secret | Value |
+   |---|---|
+   | `SUPA_PROJECT_URL` | Your Supabase project URL |
+   | `SUPA_SERVICE_ROLE` | Your Supabase service role key |
+   | `OPENROUTER_API_KEY` | Your OpenRouter API key |
+
+   > `GITHUB_TOKEN` is provided automatically by GitHub Actions — no setup needed.
+
+2. The workflow runs at **2am UTC daily**. To change the cadence, edit the `cron` expression in `.github/workflows/sync.yml`:
+
+   ```yaml
+   - cron: '0 2 * * *'   # daily at 2am UTC
+   - cron: '0 2 * * 1'   # weekly on Monday
+   - cron: '0 */6 * * *' # every 6 hours
+   ```
+
+3. To trigger an immediate sync from anywhere: **GitHub → Actions → Nightly project sync → Run workflow**.
+   From the CLI: `gh workflow run sync.yml`
+
 ---
 
 ## Setup
