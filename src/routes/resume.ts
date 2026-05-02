@@ -16,6 +16,16 @@ const HIDE_FROM_PROJECTS = new Set(
   (process.env.HIDE_FROM_PROJECTS ?? '').split(',').map(s => s.trim()).filter(Boolean)
 )
 
+export function filterVisibleProjects(projects: unknown, hidden: Set<string>): unknown {
+  if (!Array.isArray(projects) || hidden.size === 0) return projects
+  return (projects as unknown[]).filter(
+    (p): p is import('../types.js').Project =>
+      p !== null && typeof p === 'object' &&
+      typeof (p as { slug?: unknown }).slug === 'string' &&
+      !hidden.has((p as { slug: string }).slug)
+  )
+}
+
 const app = new Hono()
 
 const schema = z.object({
@@ -173,9 +183,7 @@ Respond with structured JSON:
 
       const visibleProfile = {
         ...profile,
-        projects: Array.isArray(profile.projects) && HIDE_FROM_PROJECTS.size > 0
-          ? (profile.projects as import('../types.js').Project[]).filter(p => !HIDE_FROM_PROJECTS.has(p.slug))
-          : profile.projects,
+        projects: filterVisibleProjects(profile.projects, HIDE_FROM_PROJECTS),
       }
 
       let userMessage = `Candidate profile:\n${JSON.stringify(visibleProfile, null, 2)}`

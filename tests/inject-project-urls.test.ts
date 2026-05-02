@@ -10,7 +10,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { injectProjectUrls } from '../src/routes/resume.js'
+import { injectProjectUrls, filterVisibleProjects } from '../src/routes/resume.js'
 import type { Project } from '../src/types.js'
 
 const base = (slug: string, overrides: Partial<Project> = {}): Project => ({
@@ -84,5 +84,45 @@ describe('injectProjectUrls', () => {
     assert.doesNotThrow(() => injectProjectUrls(gen, profile))
     const result = injectProjectUrls(gen, profile)
     assert.equal(result[0].url, 'https://canonical.com')
+  })
+})
+
+describe('filterVisibleProjects', () => {
+  it('returns input unchanged when hidden set is empty', () => {
+    const projects = [base('a'), base('b')]
+    assert.deepEqual(filterVisibleProjects(projects, new Set()), projects)
+  })
+
+  it('returns input unchanged when projects is not an array', () => {
+    assert.equal(filterVisibleProjects(null, new Set(['a'])), null)
+    assert.equal(filterVisibleProjects('bad', new Set(['a'])), 'bad')
+  })
+
+  it('removes projects whose slug is in the hidden set', () => {
+    const projects = [base('a'), base('b'), base('c')]
+    const result = filterVisibleProjects(projects, new Set(['b'])) as Project[]
+    assert.equal(result.length, 2)
+    assert.ok(result.every(p => p.slug !== 'b'))
+  })
+
+  it('keeps all projects when no slug matches hidden set', () => {
+    const projects = [base('a'), base('b')]
+    const result = filterVisibleProjects(projects, new Set(['z'])) as Project[]
+    assert.equal(result.length, 2)
+  })
+
+  it('skips null entries in JSONB without throwing', () => {
+    const projects = [null, base('a'), undefined, base('b')]
+    assert.doesNotThrow(() => filterVisibleProjects(projects, new Set(['a'])))
+    const result = filterVisibleProjects(projects, new Set(['a'])) as Project[]
+    assert.equal(result.length, 1)
+    assert.equal(result[0].slug, 'b')
+  })
+
+  it('removes multiple hidden slugs at once', () => {
+    const projects = [base('a'), base('b'), base('c')]
+    const result = filterVisibleProjects(projects, new Set(['a', 'c'])) as Project[]
+    assert.equal(result.length, 1)
+    assert.equal(result[0].slug, 'b')
   })
 })

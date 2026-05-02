@@ -375,7 +375,7 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 # .env.local
 HIDE_FROM_PROJECTS=artisan-roast-platform
 
-# comma-separate to hide multiple
+# comma-separated to hide multiple
 HIDE_FROM_PROJECTS=artisan-roast-platform,internal-tool
 ```
 

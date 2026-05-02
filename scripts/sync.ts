@@ -51,7 +51,9 @@ const MODEL = 'google/gemini-3-flash-preview'
 // Default singleton profile row ID (UUID with trailing 1)
 const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
-function reposFromProfile(projects: ProjectEntry[]): Array<{ slug: string; owner: string; repo: string }> {
+type RepoToSync = { slug: string; owner: string; repo: string }
+
+function reposFromProfile(projects: ProjectEntry[]): RepoToSync[] {
   const results = []
   for (const p of projects) {
     const repoUrl = typeof p.repo === 'string' ? p.repo : null
@@ -532,7 +534,7 @@ interface SyncResult {
 }
 
 async function syncProject(
-  r: typeof REPOS[number],
+  r: RepoToSync,
   projects: ProfileRow['projects'],
 ): Promise<SyncResult> {
   const allNewThoughts: ExtractedFact[] = []
@@ -678,8 +680,7 @@ async function sync(): Promise<void> {
   const REPOS = reposFromProfile(projects)
 
   if (REPOS.length === 0) {
-    console.warn('No GitHub repos found in profile.projects — nothing to sync.')
-    return
+    console.warn('No GitHub repos found in profile.projects — skipping per-repo sync.')
   }
 
   for (const r of REPOS) {
