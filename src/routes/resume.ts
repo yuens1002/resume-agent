@@ -96,6 +96,9 @@ Respond with structured JSON:
     try { streamController.enqueue(encoder.encode(data)) } catch {}
   }
 
+  // Flush first byte immediately so Railway's proxy doesn't 503 before the interval fires
+  send(': keepalive\n\n')
+
   // ── Background: thoughts → prompt → dual LLM → score → respond ──
   ;(async () => {
     const keepalive = setInterval(() => send(': keepalive\n\n'), 10_000)

@@ -89,7 +89,7 @@ function extractKeywords(text: string): string[] {
 }
 
 // Descriptive adjectives that precede job titles in JDs but are not part of the title itself
-const JD_LEADING_ADJECTIVES = /^(?:a\s+)?(?:talented|experienced|skilled|passionate|motivated|qualified|exceptional|outstanding|dedicated|enthusiastic|driven|innovative|creative|dynamic|resourceful|entrepreneurial|seasoned|accomplished)\s+/i
+const JD_LEADING_ADJECTIVES = /^(?:an?\s+)?(?:talented|experienced|skilled|passionate|motivated|qualified|exceptional|outstanding|dedicated|enthusiastic|driven|innovative|creative|dynamic|resourceful|entrepreneurial|seasoned|accomplished)\s+/i
 
 /** Extract JD job title from common patterns. */
 export function extractJDTitle(jd: string): string {
@@ -222,7 +222,7 @@ function scoreRule4(resume: ResumeResponse): RuleResult {
 
 // Imperative/action verbs at the start of a sentence signal actual job duties.
 // Company boilerplate is descriptive prose — it won't trigger this pattern.
-const RESPONSIBILITY_SIGNAL = /(?:^|\.\s+|\n\s*)(?:build|design|develop|lead|partner|work|collaborate|own|drive|manage|create|deliver|define|architect|implement|support|troubleshoot|review|mentor|write|maintain|analyze|evaluate|identify|establish|own|shape|scale|ship|deploy|operate)\b/im
+const RESPONSIBILITY_SIGNAL = /(?:^|\.\s+|\n\s*|:\s+)(?:build|design|develop|lead|partner|work|collaborate|own|drive|manage|create|deliver|define|architect|implement|support|troubleshoot|review|mentor|write|maintain|analyze|evaluate|identify|establish|shape|scale|ship|deploy|operate)\b/im
 
 /** Rule 5: First bullet of most recent role addresses JD's primary responsibility. */
 function scoreRule5(resume: ResumeResponse, jd: string): RuleResult {

@@ -102,6 +102,18 @@ describe('extractJDTitle', () => {
     const title = extractJDTitle('This is a vague text with no title.')
     assert.equal(title, '')
   })
+
+  it('strips leading adjective "a talented" from extracted title', () => {
+    const title = extractJDTitle('We are looking for a talented Application Engineer to join our team.')
+    assert.ok(title.toLowerCase().includes('application engineer'), `Expected "Application Engineer", got: "${title}"`)
+    assert.ok(!title.toLowerCase().includes('talented'), `Should not include "talented", got: "${title}"`)
+  })
+
+  it('strips leading adjective "an experienced" from extracted title', () => {
+    const title = extractJDTitle('We are hiring an experienced Software Engineer who will build...')
+    assert.ok(title.toLowerCase().includes('software engineer'), `Expected "Software Engineer", got: "${title}"`)
+    assert.ok(!title.toLowerCase().includes('experienced'), `Should not include "experienced", got: "${title}"`)
+  })
 })
 
 // ── Rule 1: JD title in summary ─────────────────────────
@@ -216,6 +228,22 @@ describe('Rule 5 — First bullet matches JD primary responsibility', () => {
     const result = scoreResume(resume, UX_ENGINEER_JD)
     const r5 = result.rules.find(r => r.rule === 5)!
     assert.ok(!r5.pass, `Rule 5 should fail: ${r5.detail}`)
+  })
+
+  it('auto-passes (skips) when JD opening is company boilerplate with no action-verb signal', () => {
+    const boilerplateJD = `About Us
+We are a fast-growing fintech company passionate about changing the world of payments.
+Our team is composed of talented individuals from top universities and Fortune 500 companies.
+We value diversity, inclusion, and a culture of continuous learning.
+We are headquartered in San Francisco with offices in New York and London.
+Our investors include leading firms in Silicon Valley and globally recognized institutions.
+
+What You Will Do:
+Build and maintain scalable payment infrastructure.`
+    const result = scoreResume(makeResume(), boilerplateJD)
+    const r5 = result.rules.find(r => r.rule === 5)!
+    assert.ok(r5.pass, `Rule 5 should auto-pass on boilerplate JD opening: ${r5.detail}`)
+    assert.ok(r5.detail.includes('company context'), `Expected boilerplate skip message, got: ${r5.detail}`)
   })
 })
 
