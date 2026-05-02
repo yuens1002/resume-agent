@@ -5,9 +5,15 @@ on:
     - cron: '0 2 * * *'  # 2am UTC daily — edit to change cadence
   workflow_dispatch:       # manual run from GitHub UI or `gh workflow run sync.yml`
 
+concurrency:
+  group: sync
+  cancel-in-progress: true
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -24,4 +30,4 @@ jobs:
           SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run sync
+        run: npx tsx scripts/sync.ts
