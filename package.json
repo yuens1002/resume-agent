@@ -13,7 +13,7 @@
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "db:link": "supabase link --project-ref $SUPABASE_PROJECT_REF",
     "db:push": "supabase db push",
-    "test:unit": "tsx --test tests/resume-framing.test.ts tests/score-resume.test.ts tests/strip-banned.test.ts tests/sync-enrichment.test.ts tests/summarize-observed-queries.test.ts",
+    "test:unit": "tsx --test tests/resume-framing.test.ts tests/score-resume.test.ts tests/strip-banned.test.ts tests/sync-enrichment.test.ts tests/summarize-observed-queries.test.ts tests/inject-project-urls.test.ts",
     "test:rubric": "tsx --test tests/score-resume.test.ts",
     "test": "echo 'Run npm run test:unit for unit tests, npm run test:integration for live integration tests.'",
     "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts",
