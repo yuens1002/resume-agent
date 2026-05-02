@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-02 — feat(sync): derive repos from profile.projects and add HIDE_FROM_PROJECTS filter — eliminates SYNC_REPOS env var (breaking); sync script now reads GitHub owner/repo from each project's repo URL so adding a project to the profile automatically includes it in the next sync; HIDE_FROM_PROJECTS env var (comma-separated slugs) filters projects from the resume output at generation time while keeping OB1 thoughts in play for employment context injection; documents both in a new "Project sync" README section
+
 - 2026-05-02 — fix(resume): guarantee project url/repo in resume output — server-side injection matches generated projects to profile by slug and backfills url and repo fields that LLMs consistently omit; eliminates missing project links in DOCX regardless of model output
 
 - 2026-05-02 — feat(resume): anchor experience bullets to OB1 pool — adds Rule 6 to the generation prompt with a show-don't-tell pattern (two JD-context examples) that instructs the model to select and lightly adapt from the candidate's canonical bullet pool rather than synthesizing from context; eliminates fabricated dates and non-canonical bullets; verified via parallel old/new prompt comparison and live pipeline run against a real JD (all 4 OB1 bullets present in output, lightly adapted, no invented metrics); adds scripts/compare-prompts.ts with --model mode for prompt vs model comparison
