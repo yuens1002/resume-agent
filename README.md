@@ -363,6 +363,28 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 
 ---
 
+## Project sync
+
+`npm run sync` keeps every project in your `public_profile.projects` array up-to-date from GitHub — no configuration needed beyond what's already in the profile.
+
+**How it works:** For each project that has a `repo` field pointing to a GitHub URL, the sync script fetches the README and CHANGELOG, reconciles the `architecture` and `highlights` fields via LLM semantic diff, and extracts new OB1 thoughts for downstream context injection. Projects without a GitHub `repo` are skipped silently.
+
+**Controlling what appears on the resume:** Not every synced project belongs in the Projects section of a generated resume. Some projects are better represented as context for the employment section (e.g. a SaaS platform that's already covered by a self-employment entry). Use `HIDE_FROM_PROJECTS` to exclude specific slugs from the resume output at generation time — the project continues to sync and its OB1 thoughts continue to flow into employment bullet context.
+
+```bash
+# .env.local
+HIDE_FROM_PROJECTS=artisan-roast-platform
+
+# comma-separated to hide multiple
+HIDE_FROM_PROJECTS=artisan-roast-platform,internal-tool
+```
+
+The filter runs server-side before the LLM prompt is built. OB1 thoughts from hidden projects are unaffected and continue to be injected as employment context via semantic search.
+
+> **Breaking change (v0.3.0):** `SYNC_REPOS` has been removed. The sync script now derives repos directly from `profile.projects[].repo`. Remove `SYNC_REPOS` from your `.env.local` and Railway env vars — it is no longer read.
+
+---
+
 ## Setup
 
 1. Clone this repo

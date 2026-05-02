@@ -12,6 +12,19 @@ import type { ResumeResponse } from '../types.js'
 
 const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
 const RESUME_MODEL_B = process.env.RESUME_MODEL_B ?? RESUME_MODEL
+const HIDE_FROM_PROJECTS = new Set(
+  (process.env.HIDE_FROM_PROJECTS ?? '').split(',').map(s => s.trim()).filter(Boolean)
+)
+
+export function filterVisibleProjects(projects: unknown, hidden: Set<string>): unknown {
+  if (!Array.isArray(projects) || hidden.size === 0) return projects
+  return (projects as unknown[]).filter(
+    (p): p is import('../types.js').Project =>
+      p !== null && typeof p === 'object' &&
+      typeof (p as { slug?: unknown }).slug === 'string' &&
+      !hidden.has((p as { slug: string }).slug)
+  )
+}
 
 const app = new Hono()
 
@@ -168,7 +181,12 @@ Respond with structured JSON:
     try {
       const relevantThoughts = await queryRelevantThoughts(job_description)
 
-      let userMessage = `Candidate profile:\n${JSON.stringify(profile, null, 2)}`
+      const visibleProfile = {
+        ...profile,
+        projects: filterVisibleProjects(profile.projects, HIDE_FROM_PROJECTS),
+      }
+
+      let userMessage = `Candidate profile:\n${JSON.stringify(visibleProfile, null, 2)}`
 
       if (relevantThoughts.length) {
         userMessage += `\n\nAdditional context from candidate's shipped work (each entry is attributed — use the project and date to place it correctly in the resume):\n${relevantThoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
