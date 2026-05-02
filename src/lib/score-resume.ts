@@ -220,41 +220,6 @@ function scoreRule4(resume: ResumeResponse): RuleResult {
   }
 }
 
-// Imperative/action verbs at the start of a sentence signal actual job duties.
-// Company boilerplate is descriptive prose — it won't trigger this pattern.
-const RESPONSIBILITY_SIGNAL = /(?:^|\.\s+|\n\s*|:\s+)(?:build|design|develop|lead|partner|work|collaborate|own|drive|manage|create|deliver|define|architect|implement|support|troubleshoot|review|mentor|write|maintain|analyze|evaluate|identify|establish|shape|scale|ship|deploy|operate)\b/im
-
-/** Rule 5: First bullet of most recent role addresses JD's primary responsibility. */
-function scoreRule5(resume: ResumeResponse, jd: string): RuleResult {
-  const firstJob = resume.employment?.[0]
-  const firstBullet = firstJob?.bullets?.[0] ?? ''
-
-  if (!firstBullet) {
-    return { rule: 5, name: 'First bullet matches JD primary responsibility', pass: false, score: 0, detail: 'No employment bullets found' }
-  }
-
-  const jdLines = jd.split('\n').filter(l => l.trim().length > 20)
-  const primaryResp = jdLines.slice(0, 5).join(' ')
-
-  // Skip rule if the opening lines are company/team boilerplate rather than duties
-  if (!RESPONSIBILITY_SIGNAL.test(primaryResp)) {
-    return { rule: 5, name: 'First bullet matches JD primary responsibility', pass: true, score: 1, detail: 'JD opening is company context — rule skipped' }
-  }
-
-  const jdWords = [...new Set(extractKeywords(primaryResp.toLowerCase()))].slice(0, 15)
-  const bulletWords = new Set(extractKeywords(firstBullet.toLowerCase()))
-  const overlap = jdWords.filter(w => bulletWords.has(w))
-  const ratio = jdWords.length > 0 ? overlap.length / jdWords.length : 0
-
-  const score = Math.min(ratio / 0.15, 1)
-  return {
-    rule: 5,
-    name: 'First bullet matches JD primary responsibility',
-    pass: ratio >= 0.05,
-    score,
-    detail: `${overlap.length} keyword overlaps with JD opening (${(ratio * 100).toFixed(0)}%)`,
-  }
-}
 
 /** Rule 6: Top skills in the skills list match JD requirements. */
 function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
@@ -297,7 +262,6 @@ export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
     scoreRule2(resume, jd),
     scoreRule3(resume),
     scoreRule4(resume),
-    scoreRule5(resume, jd),
     scoreRule6(resume, jd),
   ]
 

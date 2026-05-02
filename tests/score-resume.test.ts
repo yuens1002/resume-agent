@@ -36,9 +36,9 @@ function makeResume(overrides: Partial<ResumeResponse> = {}): ResumeResponse {
     contact: { name: 'Test User', email: 'test@example.com' },
     summary: 'Senior UX Engineer with 6+ years bridging design and development, specializing in React, TypeScript, and modern design systems.',
     skills: [
-      { category: 'Frontend', items: ['React', 'TypeScript', 'JavaScript', 'HTML/CSS'] },
-      { category: 'Design', items: ['Design Systems', 'Accessibility', 'Responsive Design'] },
-      { category: 'Tools', items: ['AI Tools', 'REST APIs', 'Git'] },
+      { category: 'Frontend', items: ['React', 'Design Systems', 'Accessibility', 'REST APIs'] },
+      { category: 'AI Tools', items: ['Copilot', 'Claude Code'] },
+      { category: 'Languages', items: ['TypeScript', 'JavaScript', 'HTML/CSS'] },
     ],
     employment: [
       {
@@ -206,47 +206,6 @@ describe('Rule 4 — Authenticity (no generic phrases)', () => {
   })
 })
 
-// ── Rule 5: First bullet matches JD ─────────────────────
-
-describe('Rule 5 — First bullet matches JD primary responsibility', () => {
-  it('passes when first bullet addresses JD core requirements', () => {
-    const result = scoreResume(makeResume(), UX_ENGINEER_JD)
-    const r5 = result.rules.find(r => r.rule === 5)!
-    assert.ok(r5.pass, `Rule 5 should pass: ${r5.detail}`)
-  })
-
-  it('fails when first bullet is unrelated to JD', () => {
-    const resume = makeResume({
-      employment: [{
-        company: 'Co', title: 'Dev', start_date: '2023-01', end_date: null,
-        bullets: [
-          'Managed quarterly budget reports and vendor invoices for the finance department.',
-          'Built React components for the admin dashboard.',
-        ],
-      }],
-    })
-    const result = scoreResume(resume, UX_ENGINEER_JD)
-    const r5 = result.rules.find(r => r.rule === 5)!
-    assert.ok(!r5.pass, `Rule 5 should fail: ${r5.detail}`)
-  })
-
-  it('auto-passes (skips) when JD opening is company boilerplate with no action-verb signal', () => {
-    const boilerplateJD = `About Us
-We are a fast-growing fintech company passionate about changing the world of payments.
-Our team is composed of talented individuals from top universities and Fortune 500 companies.
-We value diversity, inclusion, and a culture of continuous learning.
-We are headquartered in San Francisco with offices in New York and London.
-Our investors include leading firms in Silicon Valley and globally recognized institutions.
-
-What You Will Do:
-Build and maintain scalable payment infrastructure.`
-    const result = scoreResume(makeResume(), boilerplateJD)
-    const r5 = result.rules.find(r => r.rule === 5)!
-    assert.ok(r5.pass, `Rule 5 should auto-pass on boilerplate JD opening: ${r5.detail}`)
-    assert.ok(r5.detail.includes('company context'), `Expected boilerplate skip message, got: ${r5.detail}`)
-  })
-})
-
 // ── Rule 6: Skills ordering ─────────────────────────────
 
 describe('Rule 6 — Skills ordered by JD relevance', () => {
@@ -276,9 +235,9 @@ describe('Overall rubric scoring', () => {
     assert.ok(result.passed, `Expected pass (${result.total.toFixed(1)} >= ${PASS_THRESHOLD}), rules: ${result.rules.map(r => `R${r.rule}:${r.score.toFixed(2)}`).join(', ')}`)
   })
 
-  it('returns 6 rule results', () => {
+  it('returns 5 rule results', () => {
     const result = scoreResume(makeResume(), UX_ENGINEER_JD)
-    assert.equal(result.rules.length, 6)
+    assert.equal(result.rules.length, 5)
   })
 
   it('total is sum of individual scores', () => {
