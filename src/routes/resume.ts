@@ -83,103 +83,126 @@ Respond with structured JSON:
   "projects": [...]
 }`
 
-  // Query OB1 thoughts for JD-relevant shipped work (non-blocking)
-  const relevantThoughts = await queryRelevantThoughts(job_description)
+  // ── SSE stream — sends first bytes immediately so Railway's proxy never times out ──
 
-  let userMessage = `Candidate profile:
-${JSON.stringify(profile, null, 2)}`
+  const encoder = new TextEncoder()
+  let streamController!: ReadableStreamDefaultController<Uint8Array>
 
-  if (relevantThoughts.length) {
-    userMessage += `\n\nAdditional context from candidate's shipped work (each entry is attributed — use the project and date to place it correctly in the resume):\n${relevantThoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+  const sseBody = new ReadableStream<Uint8Array>({
+    start(ctrl) { streamController = ctrl },
+  })
+
+  const send = (data: string) => {
+    try { streamController.enqueue(encoder.encode(data)) } catch {}
   }
 
-  userMessage += `\n\nTarget job description:\n${job_description}`
+  // ── Background: thoughts → prompt → dual LLM → score → respond ──
+  ;(async () => {
+    const keepalive = setInterval(() => send(': keepalive\n\n'), 10_000)
 
-  if (framing_hints?.length) {
-    userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h.replace(/\n+/g, ' ')}`).join('\n')}`
-  }
-
-  // ── Dual generation: fire two independent calls in parallel ──
-
-  async function generateOne(modelId: string): Promise<ResumeResponse | null> {
     try {
-      const { text: raw } = await generateText({
-        model: getModel(modelId),
-        maxTokens: 4096,
-        system: systemPrompt,
-        prompt: userMessage,
-      })
-      return parseJSON<ResumeResponse>(raw)
-    } catch (err) {
-      console.error(`[resume] Generation failed for model ${modelId}:`, err instanceof Error ? err.message : err)
-      return null
-    }
-  }
+      const relevantThoughts = await queryRelevantThoughts(job_description)
 
-  const [gen1, gen2] = await Promise.all([generateOne(RESUME_MODEL), generateOne(RESUME_MODEL_B)])
+      let userMessage = `Candidate profile:\n${JSON.stringify(profile, null, 2)}`
 
-  // Score whichever generations succeeded — tag with model for observability
-  type Candidate = { resume: ResumeResponse; rubric: RubricResult; model: string }
-  const candidates: Candidate[] = []
+      if (relevantThoughts.length) {
+        userMessage += `\n\nAdditional context from candidate's shipped work (each entry is attributed — use the project and date to place it correctly in the resume):\n${relevantThoughts.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+      }
 
-  if (gen1) candidates.push({ resume: gen1, rubric: scoreResume(gen1, job_description), model: RESUME_MODEL })
-  if (gen2) candidates.push({ resume: gen2, rubric: scoreResume(gen2, job_description), model: RESUME_MODEL_B })
+      userMessage += `\n\nTarget job description:\n${job_description}`
 
-  if (candidates.length === 0) {
-    return c.json({ error: 'Both resume generations failed to parse' }, 500)
-  }
+      if (framing_hints?.length) {
+        userMessage += `\n\nFraming guidance:\n${framing_hints.map((h) => `- ${h.replace(/\n+/g, ' ')}`).join('\n')}`
+      }
 
-  // Pick the highest-scoring candidate
-  candidates.sort((a, b) => b.rubric.total - a.rubric.total)
-  const winner = candidates[0]
+      async function generateOne(modelId: string): Promise<ResumeResponse | null> {
+        try {
+          const { text: raw } = await generateText({
+            model: getModel(modelId),
+            maxTokens: 8192,
+            system: systemPrompt,
+            prompt: userMessage,
+          })
+          return parseJSON<ResumeResponse>(raw)
+        } catch (err) {
+          console.error(`[resume] Generation failed for model ${modelId}:`, err instanceof Error ? err.message : err)
+          return null
+        }
+      }
 
-  // Log structured failure to OB1 if neither passed the rubric threshold
-  if (!winner.rubric.passed) {
-    const failures = winner.rubric.rules.filter(r => !r.pass)
-    console.warn(
-      `[resume] Neither generation passed rubric (best: ${winner.rubric.total.toFixed(1)}/${PASS_THRESHOLD}). ` +
-      `Failures: ${failures.map(f => `Rule ${f.rule}: ${f.detail}`).join('; ')}`,
-    )
-    try {
-      const failureThought = [
-        `RESUME_RUBRIC_FAILURE: best_score=${winner.rubric.total.toFixed(1)}/${PASS_THRESHOLD}`,
-        ...failures.map(f => `Rule ${f.rule} (${f.name}): ${f.detail}`),
-        `JD: ${job_description.slice(0, 200).replace(/\n/g, ' ')}`,
-      ].join(' | ')
-      await supabase.from('thoughts').insert({
-        content: failureThought,
-        metadata: {
-          type: 'observation',
-          topics: ['resume-failure', 'rubric'],
+      const [gen1, gen2] = await Promise.all([generateOne(RESUME_MODEL), generateOne(RESUME_MODEL_B)])
+
+      type Candidate = { resume: ResumeResponse; rubric: RubricResult; model: string }
+      const candidates: Candidate[] = []
+
+      // Strip banned phrases before scoring so Rule 4 reflects the final output quality,
+      // not the raw generation — ensures the winner is the best post-processed resume.
+      if (gen1) { const r = stripBannedPhrases(gen1); candidates.push({ resume: r, rubric: scoreResume(r, job_description), model: RESUME_MODEL }) }
+      if (gen2) { const r = stripBannedPhrases(gen2); candidates.push({ resume: r, rubric: scoreResume(r, job_description), model: RESUME_MODEL_B }) }
+
+      if (candidates.length === 0) {
+        send(`data: ${JSON.stringify({ error: 'Both resume generations failed to parse' })}\n\n`)
+        return
+      }
+
+      candidates.sort((a, b) => b.rubric.total - a.rubric.total)
+      const winner = candidates[0]
+
+      if (!winner.rubric.passed) {
+        const failures = winner.rubric.rules.filter(r => !r.pass)
+        console.warn(
+          `[resume] Neither generation passed rubric (best: ${winner.rubric.total.toFixed(1)}/${PASS_THRESHOLD}). ` +
+          `Failures: ${failures.map(f => `Rule ${f.rule}: ${f.detail}`).join('; ')}`,
+        )
+        try {
+          const failureThought = [
+            `RESUME_RUBRIC_FAILURE: best_score=${winner.rubric.total.toFixed(1)}/${PASS_THRESHOLD}`,
+            ...failures.map(f => `Rule ${f.rule} (${f.name}): ${f.detail}`),
+            `JD: ${job_description.slice(0, 200).replace(/\n/g, ' ')}`,
+          ].join(' | ')
+          await supabase.from('thoughts').insert({
+            content: failureThought,
+            metadata: { type: 'observation', topics: ['resume-failure', 'rubric'] },
+          })
+        } catch (err) {
+          console.error('[resume] Failed to log rubric failure to OB1:', err instanceof Error ? err.message : err)
+        }
+      }
+
+      winner.resume.contact = profile.contact
+
+      send(`data: ${JSON.stringify({
+        ...winner.resume,
+        _rubric: {
+          total: Math.round(winner.rubric.total * 100) / 100,
+          passed: winner.rubric.passed,
+          post_filtered: true,
+          winner_model: winner.model,
+          models: [RESUME_MODEL, RESUME_MODEL_B],
+          rules: winner.rubric.rules.map(r => ({
+            rule: r.rule,
+            name: r.name,
+            pass: r.pass,
+            score: Math.round(r.score * 100) / 100,
+            detail: r.detail,
+          })),
+          candidates_scored: candidates.length,
         },
-      })
+      })}\n\n`)
     } catch (err) {
-      console.error('[resume] Failed to log rubric failure to OB1:', err instanceof Error ? err.message : err)
+      console.error('[resume] Unexpected error:', err instanceof Error ? err.message : err)
+      send(`data: ${JSON.stringify({ error: 'Internal server error' })}\n\n`)
+    } finally {
+      clearInterval(keepalive)
+      try { streamController.close() } catch {}
     }
-  }
+  })()
 
-  // Strip banned phrases that slipped past both models (safety net for Rule 4)
-  winner.resume = stripBannedPhrases(winner.resume)
-
-  // Override contact server-side
-  winner.resume.contact = profile.contact
-
-  return c.json({
-    ...winner.resume,
-    _rubric: {
-      total: Math.round(winner.rubric.total * 100) / 100,
-      passed: winner.rubric.passed,
-      post_filtered: true, // banned phrases stripped after scoring — Rule 4 score reflects pre-filter state
-      winner_model: winner.model,
-      models: [RESUME_MODEL, RESUME_MODEL_B],
-      rules: winner.rubric.rules.map(r => ({
-        rule: r.rule,
-        name: r.name,
-        pass: r.pass,
-        score: Math.round(r.score * 100) / 100,
-        detail: r.detail,
-      })),
-      candidates_scored: candidates.length,
+  return new Response(sseBody, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
     },
   })
 })

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-01 — feat(resume): SSE keepalive streaming eliminates Railway 503 on long dual-model generations — POST /resume now returns a text/event-stream immediately, sends `: keepalive\n\n` every 10s, and emits the final resume JSON as a single `data:` event; bumps maxTokens to 8192 for Gemini 2.5 Flash thinking-token budget; strips banned phrases before scoring so Rule 4 reflects post-processed output; fixes Rule 1 adjective extraction ("talented Application Engineer" → "Application Engineer"); fixes Rule 5 to skip keyword overlap when JD opening is company boilerplate rather than stated duties
+
 - 2026-05-01 — feat(sync): replace hardcoded REPOS array with SYNC_REPOS env var — forkers now configure repos in .env.local as comma-separated owner/repo pairs; slug is derived from the repo name; exits with a clear error on missing or malformed entries
 
 - 2026-05-01 — fix(agent-card): add Cache-Control: public, max-age=300 to prevent indefinite caching by claude.ai and crawlers — no TTL caused claude.ai to serve a stale agent card after A2A spec fixes were deployed; 5-minute cap ensures changes propagate within one rotation while still allowing short-term caching to reduce Supabase round-trips
