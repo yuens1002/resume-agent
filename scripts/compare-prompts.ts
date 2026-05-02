@@ -99,6 +99,7 @@ Rules:
   Profile entry:
   {
     "company": "Acme Corp",
+    "title": "Senior Engineer",
     "start_date": "2024-03",
     "end_date": null,
     "bullets": [
@@ -111,6 +112,7 @@ Rules:
   Output for a DevOps-focused JD:
   {
     "company": "Acme Corp",
+    "title": "Senior Engineer",
     "start_date": "2024-03",
     "end_date": null,
     "bullets": [
@@ -122,6 +124,7 @@ Rules:
   Output for an AI/ML-focused JD:
   {
     "company": "Acme Corp",
+    "title": "Senior Engineer",
     "start_date": "2024-03",
     "end_date": null,
     "bullets": [
@@ -152,14 +155,19 @@ Respond with structured JSON:
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function printEmployment(label: string, entries: Employment[]) {
+function printEmployment(label: string, result: ResumeResponse) {
   console.log(`\n${'─'.repeat(60)}`)
   console.log(`  ${label}`)
   console.log('─'.repeat(60))
-  for (const e of entries) {
+  if (!Array.isArray(result.employment)) {
+    console.log(`  [no employment array — raw output: ${JSON.stringify(result).slice(0, 200)}]`)
+    return
+  }
+  for (const e of result.employment) {
     console.log(`\n  ${e.company} — ${e.title}`)
     console.log(`  ${e.start_date} → ${e.end_date ?? 'present'}`)
-    for (const b of e.bullets) {
+    const bullets = Array.isArray(e.bullets) ? e.bullets : []
+    for (const b of bullets) {
       console.log(`    • ${b}`)
     }
   }
@@ -167,7 +175,7 @@ function printEmployment(label: string, entries: Employment[]) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-const jd = process.argv.find((a, i) => i >= 2 && !a.startsWith('--')) ?? SAMPLE_JD
+const jd = process.argv.find((a, i) => i >= 2 && !a.startsWith('--') && !a.endsWith('.ts') && !a.endsWith('.js')) ?? SAMPLE_JD
 
 const { data: profile, error } = await supabase
   .from('public_profile')
@@ -210,8 +218,8 @@ if (MODE === 'model') {
   ])
   if (!resultA) { console.error(`${MODEL_A} generation failed`); process.exit(1) }
   if (!resultB) { console.error(`${MODEL_B} generation failed`); process.exit(1) }
-  printEmployment(MODEL_A, resultA.employment)
-  printEmployment(MODEL_B, resultB.employment)
+  printEmployment(MODEL_A, resultA)
+  printEmployment(MODEL_B, resultB)
 } else {
   const [oldResult, newResult] = await Promise.all([
     generate(OLD_SYSTEM_PROMPT, MODEL_A),
@@ -219,8 +227,8 @@ if (MODE === 'model') {
   ])
   if (!oldResult) { console.error('OLD prompt generation failed'); process.exit(1) }
   if (!newResult) { console.error('NEW prompt generation failed'); process.exit(1) }
-  printEmployment('OLD PROMPT', oldResult.employment)
-  printEmployment('NEW PROMPT', newResult.employment)
+  printEmployment('OLD PROMPT', oldResult)
+  printEmployment('NEW PROMPT', newResult)
 }
 
 console.log('\n')
