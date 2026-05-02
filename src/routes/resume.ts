@@ -213,6 +213,16 @@ Respond with structured JSON:
 
       winner.resume.contact = profile.contact
 
+      // Inject url/repo from profile projects — LLMs reliably omit optional URL fields
+      if (winner.resume.projects?.length && profile.projects?.length) {
+        const bySlug = new Map((profile.projects as Array<{ slug: string; url?: string; repo?: string }>).map(p => [p.slug, p]))
+        winner.resume.projects = winner.resume.projects.map(p => {
+          const src = bySlug.get(p.slug)
+          if (!src) return p
+          return { ...p, url: p.url || src.url || undefined, repo: p.repo || src.repo || undefined }
+        })
+      }
+
       send(`data: ${JSON.stringify({
         ...winner.resume,
         _rubric: {
