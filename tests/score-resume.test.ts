@@ -208,11 +208,11 @@ describe('Rule 4 — Authenticity (no generic phrases)', () => {
 
 // ── Rule 6: Skills ordering ─────────────────────────────
 
-describe('Rule 6 — Skills ordered by JD relevance', () => {
+describe('Rule 7 — Skills ordered by JD relevance', () => {
   it('passes when top skills match JD requirements', () => {
     const result = scoreResume(makeResume(), UX_ENGINEER_JD)
-    const r6 = result.rules.find(r => r.rule === 6)!
-    assert.ok(r6.pass, `Rule 6 should pass: ${r6.detail}`)
+    const r7 = result.rules.find(r => r.rule === 7)!
+    assert.ok(r7.pass, `Rule 7 should pass: ${r7.detail}`)
   })
 
   it('fails when top skills are irrelevant to JD', () => {
@@ -222,8 +222,8 @@ describe('Rule 6 — Skills ordered by JD relevance', () => {
       ],
     })
     const result = scoreResume(resume, UX_ENGINEER_JD)
-    const r6 = result.rules.find(r => r.rule === 6)!
-    assert.ok(!r6.pass, `Rule 6 should fail: ${r6.detail}`)
+    const r7 = result.rules.find(r => r.rule === 7)!
+    assert.ok(!r7.pass, `Rule 7 should fail: ${r7.detail}`)
   })
 })
 

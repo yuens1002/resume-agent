@@ -33,6 +33,29 @@ app.use('/', async (c, next) => {
   await next()
 })
 
+type ProfileProject = { slug: string; url?: string | null; repo?: string | null }
+
+export function injectProjectUrls(
+  generated: import('../types.js').Project[] | undefined,
+  profileProjects: unknown,
+): import('../types.js').Project[] {
+  if (!generated?.length || !Array.isArray(profileProjects) || !profileProjects.length) {
+    return generated ?? []
+  }
+  const bySlug = new Map(
+    (profileProjects as unknown[])
+      .filter((p): p is ProfileProject =>
+        p !== null && typeof p === 'object' && typeof (p as ProfileProject).slug === 'string'
+      )
+      .map(p => [p.slug, p])
+  )
+  return generated.map(p => {
+    const src = bySlug.get(p.slug)
+    if (!src) return p
+    return { ...p, url: src.url || undefined, repo: src.repo || undefined }
+  })
+}
+
 app.post('/', zValidator('json', schema), async (c) => {
   const { job_description, framing_hints } = c.req.valid('json')
 
@@ -212,6 +235,10 @@ Respond with structured JSON:
       }
 
       winner.resume.contact = profile.contact
+
+      // Inject url/repo from profile projects — LLMs reliably omit optional URL fields.
+      // Profile is authoritative: always prefer profile values over whatever the model returned.
+      winner.resume.projects = injectProjectUrls(winner.resume.projects, profile.projects)
 
       send(`data: ${JSON.stringify({
         ...winner.resume,
