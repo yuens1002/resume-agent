@@ -63,10 +63,15 @@ export function injectProjectUrls(
       p !== null && typeof p === 'object' && typeof (p as ProfileProject).slug === 'string'
   )
   const bySlug = new Map(valid.map(p => [p.slug, p]))
-  const byName = new Map(valid.filter(p => p.name).map(p => [normalizeName(p.name!), p]))
+  const byName = new Map(
+    valid
+      .filter(p => typeof p.name === 'string' && p.name.trim().length > 0)
+      .map(p => [normalizeName(p.name!), p])
+  )
 
   return generated.map(p => {
-    const src = bySlug.get(p.slug) ?? byName.get(normalizeName(p.name ?? ''))
+    const nameKey = typeof p.name === 'string' && p.name.trim() ? normalizeName(p.name) : undefined
+    const src = bySlug.get(p.slug) ?? (nameKey ? byName.get(nameKey) : undefined)
     if (!src) return p
     return { ...p, url: src.url || undefined, repo: src.repo || undefined }
   })

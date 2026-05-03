@@ -85,6 +85,29 @@ describe('injectProjectUrls', () => {
     const result = injectProjectUrls(gen, profile)
     assert.equal(result[0].url, 'https://canonical.com')
   })
+
+  it('falls back to name match when generated slug does not match profile', () => {
+    const gen = [base('wrong-slug', { name: 'Artisan Roast' })]
+    const profile = [{ slug: 'artisan-roast', name: 'Artisan Roast', url: 'https://artisanroast.com', repo: 'https://github.com/u/ar' }]
+    const result = injectProjectUrls(gen, profile)
+    assert.equal(result[0].url, 'https://artisanroast.com')
+    assert.equal(result[0].repo, 'https://github.com/u/ar')
+  })
+
+  it('name matching normalizes punctuation and whitespace', () => {
+    const gen = [base('wrong', { name: 'artisan-roast: the store' })]
+    const profile = [{ slug: 'artisan-roast', name: 'artisan roast  the store', url: 'https://artisanroast.com' }]
+    const result = injectProjectUrls(gen, profile)
+    assert.equal(result[0].url, 'https://artisanroast.com')
+  })
+
+  it('does not throw on non-string name in profile JSONB', () => {
+    const gen = [base('a')]
+    const profile = [{ slug: 'b', name: 123 }, { slug: 'a', url: 'https://canonical.com' }]
+    assert.doesNotThrow(() => injectProjectUrls(gen, profile))
+    const result = injectProjectUrls(gen, profile)
+    assert.equal(result[0].url, 'https://canonical.com')
+  })
 })
 
 describe('filterVisibleProjects', () => {
