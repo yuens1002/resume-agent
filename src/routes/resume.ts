@@ -46,7 +46,10 @@ app.use('/', async (c, next) => {
   await next()
 })
 
-type ProfileProject = { slug: string; url?: string | null; repo?: string | null }
+type ProfileProject = { slug: string; name?: string; url?: string | null; repo?: string | null }
+
+const normalizeName = (s: string) =>
+  s.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
 
 export function injectProjectUrls(
   generated: import('../types.js').Project[] | undefined,
@@ -55,15 +58,20 @@ export function injectProjectUrls(
   if (!generated?.length || !Array.isArray(profileProjects) || !profileProjects.length) {
     return generated ?? []
   }
-  const bySlug = new Map(
-    (profileProjects as unknown[])
-      .filter((p): p is ProfileProject =>
-        p !== null && typeof p === 'object' && typeof (p as ProfileProject).slug === 'string'
-      )
-      .map(p => [p.slug, p])
+  const valid = (profileProjects as unknown[]).filter(
+    (p): p is ProfileProject =>
+      p !== null && typeof p === 'object' && typeof (p as ProfileProject).slug === 'string'
   )
+  const bySlug = new Map(valid.map(p => [p.slug, p]))
+  const byName = new Map(
+    valid
+      .filter(p => typeof p.name === 'string' && p.name.trim().length > 0)
+      .map(p => [normalizeName(p.name!), p])
+  )
+
   return generated.map(p => {
-    const src = bySlug.get(p.slug)
+    const nameKey = typeof p.name === 'string' && p.name.trim() ? normalizeName(p.name) : undefined
+    const src = bySlug.get(p.slug) ?? (nameKey ? byName.get(nameKey) : undefined)
     if (!src) return p
     return { ...p, url: src.url || undefined, repo: src.repo || undefined }
   })
@@ -155,7 +163,7 @@ Respond with structured JSON:
   "skills": [...],
   "employment": [...],
   "education": [...],
-  "projects": [...]
+  "projects": [{ "slug": "<from profile, verbatim>", "name": "...", "highlights": [...], ... }]
 }`
 
   // ── SSE stream — sends first bytes immediately so Railway's proxy never times out ──
