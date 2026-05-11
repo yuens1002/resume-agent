@@ -91,11 +91,11 @@ Served from the Hono app with `Cache-Control: public, max-age=300`. No auth.
 
 1. **`scripts/generate-oep-keypair.ts`** — one-shot generator. Uses `crypto.generateKeyPairSync('ed25519')`, prints the base64url private key (to copy into Railway as `OEP_PRIVATE_KEY`), the base64url public key (as `OEP_PUBLIC_KEY`), and the TXT-record value to paste into the DNS provider. Never writes to disk — operator copy/paste is the safety boundary.
 
-2. **`src/lib/oep-key.ts`** — pure helpers: `loadPublicKeyFromEnv()`, `fingerprint(rawKey: Uint8Array): string`. Throws a startup-failing error if `OEP_PUBLIC_KEY` env is missing in production and graceful skip in dev.
+2. **`src/lib/oep-key.ts`** — pure helpers: `loadPublicKeyFromEnv()` returns `null` when `OEP_PUBLIC_KEY` is unset (no throw); `fingerprint(rawKey: Uint8Array): string`; `decodePublicKey()` validates 32-byte length and throws on malformed input. The route layer (not this lib) decides what to do with `null`.
 
-3. **`src/routes/oep.ts`** — `GET /.well-known/oep-public-key.json` handler. Reads `OEP_PUBLIC_KEY` from env, computes fingerprint, returns the JSON shape above. Mounted in `src/index.ts`.
+3. **`src/routes/oep.ts`** — `GET /.well-known/oep-public-key.json` handler. Reads `OEP_PUBLIC_KEY` via `loadPublicKeyFromEnv()`. Returns `503` with a JSON error when the env is unset or malformed — the app continues running. Bad config never crashes the agent; it just makes this one endpoint unavailable until configured. Mounted in `src/index.ts`.
 
-4. **`scripts/verify-oep-domain.ts`** — CLI verifier. Uses Node's `dns/promises` for TXT lookup, native `fetch` for the well-known endpoint. Argument is a bare domain (`yuens.me`); the script discovers the agent host via the agent card's `url` field or falls back to `agent.<domain>`. Prints one line: `OEP verification: PASS / FAIL — <reason>`. Exit codes 0/1.
+4. **`scripts/verify-oep-domain.ts`** — CLI verifier, invoked via `npx tsx scripts/verify-oep-domain.ts <domain>` (consistent with the other repo scripts). Uses Node's `dns/promises` for TXT lookup, native `fetch` for the well-known endpoint. Argument is a bare domain (`yuens.me`); the script discovers the agent host via the agent card's `url` field or falls back to `agent.<domain>`. Prints one line: `OEP verification: PASS / FAIL — <reason>`. Exit codes 0/1.
 
 5. **`tests/oep-domain.test.ts`** — covers: fingerprint stability (same key → same fingerprint), endpoint contract (returns the expected JSON shape from a stubbed env), verifier success path (against a local Hono instance with a mocked DNS resolver), verifier failure paths (TXT missing, fingerprint mismatch, well-known 404, malformed JSON).
 
@@ -124,7 +124,7 @@ Served from the Hono app with `Cache-Control: public, max-age=300`. No auth.
 - AC-3: Response carries `Cache-Control: public, max-age=300`.
 
 **Key handling**
-- AC-4: When `OEP_PUBLIC_KEY` is unset in production (`NODE_ENV=production`), the route returns `503` with a JSON error body and the app logs a startup warning. In dev, the route returns `503` quietly.
+- AC-4: When `OEP_PUBLIC_KEY` is unset or malformed, the route returns `503` with a JSON `{ error: "..." }` body. Same behavior in dev and production — the agent keeps running, only the OEP endpoint is unavailable until configured.
 - AC-5: `fingerprint()` is deterministic — same input bytes produce identical output across runs.
 
 **Verifier**
