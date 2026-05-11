@@ -357,6 +357,43 @@ Example queries:
 
 ---
 
+## OEP domain verification
+
+The first step toward the [Open Employment Protocol](docs/plans/oep-phase-1-domain-verification.md): prove that whoever runs the agent also controls the domain it claims to represent. The agent publishes an Ed25519 public key; the domain's DNS publishes that key's fingerprint. Anyone can confirm the two match.
+
+This is the "self-signed cert" moment — no third-party certificate authority, no signing yet, just a one-shot domain-ownership proof that future OEP work (signed agent cards, invocation receipts, employment co-signatures) builds on top of.
+
+### Set it up once
+
+1. Generate a keypair:
+   ```bash
+   npx tsx scripts/generate-oep-keypair.ts
+   ```
+   The script prints three things: the env vars to paste into Railway (`OEP_PUBLIC_KEY`, `OEP_PRIVATE_KEY`, `OEP_KEY_ISSUED_AT`) and a TXT record value.
+
+2. Paste the env vars into Railway. The private key never leaves Railway; the public key powers `/.well-known/oep-public-key.json`.
+
+3. Publish the printed TXT record at `_oep.<your-root-domain>` in your DNS provider. Example:
+   ```
+   _oep.yuens.me.  300  IN  TXT  "v=oep1; alg=ed25519; fp=<base64url-fingerprint>"
+   ```
+
+4. Once Railway has redeployed with the env vars and DNS has propagated, verify:
+   ```bash
+   npx tsx scripts/verify-oep-domain.ts yuens.me
+   ```
+   The script does a DNS lookup, fetches `https://agent.<domain>/.well-known/oep-public-key.json`, recomputes the fingerprint from the raw key bytes, and confirms all three values agree. Exit 0 on PASS, exit 1 on FAIL with a one-line reason.
+
+### What anyone else can do with it
+
+A third party — recruiter agent, employer system, curious peer — runs the same `verify-oep-domain.ts` script (or its equivalent) against your domain. A PASS proves the agent at `agent.<domain>` is operated by whoever controls `<domain>` at the DNS level. That's the foundation OEP builds on.
+
+The agent card's `provider.identity.fingerprint` field surfaces the same value so card-aware clients have it without a separate DNS lookup.
+
+> **Phase 1 scope.** No signing of responses or cards yet. No `/verify?receipt=…` endpoint. No key rotation. Those are subsequent plans — see [docs/plans/a2a-trust-layer.md](docs/plans/a2a-trust-layer.md) for the broader picture.
+
+---
+
 ## Workflow
 
 See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI systems, recruiters, and the candidate each interact with the agent — including an honest account of what works today vs. what's still aspirational.

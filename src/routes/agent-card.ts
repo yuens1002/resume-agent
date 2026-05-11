@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { supabase } from '../lib/supabase.js'
+import { loadPublicKeyFromEnv } from '../lib/oep-key.js'
 
 const app = new Hono()
 
@@ -13,19 +14,33 @@ app.get('/', async (c) => {
 
   const baseUrl = (process.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, '')
 
+  let oepIdentity: { fingerprint: string; key_url: string } | undefined
+  try {
+    const loaded = loadPublicKeyFromEnv()
+    if (loaded) {
+      oepIdentity = {
+        fingerprint: loaded.fingerprint,
+        key_url: `${baseUrl}/.well-known/oep-public-key.json`,
+      }
+    }
+  } catch {
+    // malformed env — omit identity rather than fail the card
+  }
+
   c.header('Cache-Control', 'public, max-age=300')
   return c.json({
     protocolVersion: '1.0',
     url: baseUrl,
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'Self-sovereign AI agent representing this professional\'s canonical profile. Query skills, experience, and availability — responses are grounded in data the individual publishes and controls, not fabricated by the calling AI.',
-    version: '1.1.0',
+    version: '1.2.0',
     securitySchemes: {},
     security: [{}],
     provider: {
       organization: data?.contact?.name ?? 'Resume Agent',
       url: process.env.PROVIDER_HOMEPAGE,
       contact: data?.contact?.email,
+      ...(oepIdentity ? { identity: oepIdentity } : {}),
     },
     capabilities: {
       streaming: true,
