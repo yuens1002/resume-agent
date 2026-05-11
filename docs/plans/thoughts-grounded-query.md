@@ -90,7 +90,7 @@ The vision line this implements, from Sunny's 5/6/2026 OB1 entry: *"Surface OB1 
 |---|---|
 | Capture | `capture_thought` accepts optional `private: boolean`; persists `metadata.private = true` when set |
 | Storage | `thoughts.metadata` is JSONB; existing GIN index covers the filter |
-| Retrieval | `match_thoughts_public` RPC adds `coalesce((metadata->>'private')::boolean, false) = false` to the WHERE clause |
+| Retrieval | `match_thoughts_public` RPC adds `not (metadata @> '{"private": true}'::jsonb)` to the WHERE clause — index-friendly under the existing GIN index on `metadata` |
 | Application | `/query` and `/public-mcp` only ever call `match_thoughts_public`; the existing `match_thoughts` stays in place for `/resume` (which already filters by `status: shipped`) |
 
 A thought flagged `private` is invisible to the public surface end-to-end. The private MCP (Claude Desktop / claude.ai connector) still sees everything — it's the candidate's own brain, after all.
@@ -117,12 +117,14 @@ A thought flagged `private` is invisible to the public surface end-to-end. The p
      from thoughts t
      where 1 - (t.embedding <=> query_embedding) > match_threshold
        and (filter = '{}'::jsonb or t.metadata @> filter)
-       and coalesce((t.metadata->>'private')::boolean, false) = false
+       and not (t.metadata @> '{"private": true}'::jsonb)
      order by t.embedding <=> query_embedding
      limit match_count;
    end;
    $$;
    ```
+
+   The privacy predicate uses the JSONB containment operator `@>` so it is index-friendly under the existing GIN index on `metadata`. A thought is excluded only when `metadata.private` is the JSON boolean `true`; absent, `false`, or `null` values are all treated as public.
 
 2. **`src/lib/thoughts-query.ts`** — add `queryRelevantThoughtsForQuestion(question, limit = 8)`. Mirror the existing JD function: embed via `openai/text-embedding-3-small`, call `match_thoughts_public` RPC, return `string[]` of contents. On any error, return `[]` so `/query` never breaks because of thoughts unavailability.
 
