@@ -40,7 +40,7 @@ app.get('/', async (c) => {
       organization: data?.contact?.name ?? 'Resume Agent',
       url: process.env.PROVIDER_HOMEPAGE,
       contact: data?.contact?.email,
-      ...(oepIdentity && { identity: oepIdentity }),
+      ...(oepIdentity ? { identity: oepIdentity } : {}),
     },
     capabilities: {
       streaming: true,

@@ -15,7 +15,11 @@ export async function verifyOepDomain(domain: string, opts: {
 } = {}): Promise<VerifyResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const resolveTxtImpl = opts.resolveTxtImpl ?? resolveTxt
-  const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim()
+  const cleanDomain = domain
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, '')
+    .trim()
   if (!cleanDomain) {
     return { ok: false, reason: 'empty domain', domain }
   }
@@ -24,13 +28,12 @@ export async function verifyOepDomain(domain: string, opts: {
   let dnsFingerprint: string
   try {
     const records = await resolveTxtImpl(`_oep.${cleanDomain}`)
-    const joined = records.map((parts) => parts.join('')).find((v) => v.startsWith('v=oep1'))
-    if (!joined) {
-      return { ok: false, reason: `no _oep.${cleanDomain} TXT record with v=oep1`, domain: cleanDomain }
-    }
-    const parsed = parseTxtRecord(joined)
+    const candidates = records
+      .map((parts) => parseTxtRecord(parts.join('')))
+      .filter((p): p is { version: string; alg: string; fp: string } => p !== null && p.version === 'oep1')
+    const parsed = candidates[0]
     if (!parsed) {
-      return { ok: false, reason: 'malformed TXT record value', domain: cleanDomain }
+      return { ok: false, reason: `no _oep.${cleanDomain} TXT record with v=oep1`, domain: cleanDomain }
     }
     if (parsed.alg !== 'ed25519') {
       return { ok: false, reason: `unsupported alg in TXT: ${parsed.alg}`, domain: cleanDomain }
