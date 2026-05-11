@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- 2026-05-11 — docs: align repo docs with the shipped public MCP stance
+  - README — three access tiers (public HTTP, public MCP, private MCP) instead of two
+  - ROADMAP — moves `/public-mcp` + `ask_candidate` from "In progress" to "Shipped" (v0.3.0, PR #66); "In progress" parked pending live traffic observations
+  - docs/README — promotes the public-MCP plan to Shipped (reference); the plan stays in `plans/` as historical record per CONTRIBUTING convention
+  - docs/plans/public-mcp-query-only.md — re-headered "Shipped" with pointers to live behavior in `workflow.md` and the README connector section
+
 - 2026-05-02 — fix(resume): make injectProjectUrls reliable with slug requirement + name-normalized fallback — system prompt now explicitly requires `slug` verbatim from profile in project entries; `injectProjectUrls` falls back to normalized-name match when slug is absent, eliminating the no-op injection that caused missing project links
 
 - 2026-05-02 — feat(ci): add nightly GitHub Actions sync workflow — replaces OS-specific task schedulers with a cross-platform cron that runs npm run sync on a configurable schedule (default 2am UTC daily); supports on-demand runs via workflow_dispatch from the GitHub UI or gh workflow run; GITHUB_TOKEN is automatic, only three secrets required (SUPA_PROJECT_URL, SUPA_SERVICE_ROLE, OPENROUTER_API_KEY); documents setup steps and cron examples in README
