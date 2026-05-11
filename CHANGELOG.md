@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-- 2026-05-11 — docs: align README, ROADMAP, and plan docs with the shipped public MCP stance — README now states three access tiers (public HTTP, public MCP, private MCP) instead of two; ROADMAP moves the `/public-mcp` + `ask_candidate` work from "In progress" to "Shipped" (v0.3.0, PR #66) and parks "In progress" with no active work pending live traffic observations; docs/README promotes the public-MCP plan to Shipped (reference) with a note that the plan stays as historical record; the plan doc itself is re-headered "Shipped" and points readers to the live behavior in workflow.md and the README connector section
+- 2026-05-11 — docs: align repo docs with the shipped public MCP stance
+  - README — three access tiers (public HTTP, public MCP, private MCP) instead of two
+  - ROADMAP — moves `/public-mcp` + `ask_candidate` from "In progress" to "Shipped" (v0.3.0, PR #66); "In progress" parked pending live traffic observations
+  - docs/README — promotes the public-MCP plan to Shipped (reference); the plan stays in `plans/` as historical record per CONTRIBUTING convention
+  - docs/plans/public-mcp-query-only.md — re-headered "Shipped" with pointers to live behavior in `workflow.md` and the README connector section
 
 - 2026-05-02 — fix(resume): make injectProjectUrls reliable with slug requirement + name-normalized fallback — system prompt now explicitly requires `slug` verbatim from profile in project entries; `injectProjectUrls` falls back to normalized-name match when slug is absent, eliminating the no-op injection that caused missing project links
 

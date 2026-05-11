@@ -13,7 +13,7 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | v0.2.14 | Stateless MCP transport — session map removed, mid-conversation drops eliminated | [#62](https://github.com/yuens1002/resume-agent/pull/62) |
 | v0.2.15 | System prompt refactor — drop length + employment-trim rules | [#63](https://github.com/yuens1002/resume-agent/pull/63) |
 | v0.2.16 | Retire Supabase Edge Function artifacts, clarify Railway as runtime tier | [#65](https://github.com/yuens1002/resume-agent/pull/65) |
-| v0.3.0  | Public MCP endpoint with `ask_candidate` tool — single unauthenticated MCP tool wrapping `/query`, advertised first in agent card `supportedInterfaces`, every call logged to `observed_queries` | [#66](https://github.com/yuens1002/resume-agent/pull/66) |
+| v0.3.0 | Public MCP endpoint with `ask_candidate` tool — single unauthenticated MCP tool wrapping `/query`, advertised first in agent card `supportedInterfaces`, every call logged to `observed_queries` | [#66](https://github.com/yuens1002/resume-agent/pull/66) |
 
 ---
 
