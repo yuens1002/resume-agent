@@ -1,7 +1,7 @@
 # Plan: Public MCP — `ask_candidate` Tool
 
-**Branch:** `feat/public-mcp-query`
-**Status:** Planning complete — ready to implement
+**Branch:** `feat/public-mcp-query` (merged)
+**Status:** Shipped in [PR #66](https://github.com/yuens1002/resume-agent/pull/66) — this doc remains as the historical record of the design. Live behavior is documented in [`docs/workflow.md`](../workflow.md) and the [README](../../README.md#add-as-a-custom-connector-in-claude).
 **Scope:** Public MCP endpoint exposing a single tool, `ask_candidate`, for AI clients to ask natural-language questions about the candidate's profile. Includes streaming support and persistent call logging.
 
 ---
