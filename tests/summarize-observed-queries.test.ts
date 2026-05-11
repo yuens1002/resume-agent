@@ -8,11 +8,22 @@
  *   npm run test:unit
  */
 
-import { describe, it } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
 // Import from production module
 import { aggregateObservedQueries, formatEnvelopeToText, type ObservedQuery, type SummarizeInput } from '../src/lib/summarize-observed-queries.js'
+
+// Pin the system clock so the SAMPLE_ROWS fixtures (dated 2026-04-25..28) stay
+// inside the default 7-day window forever. Without this, the tests silently
+// degrade once real wall-clock time moves past `fixture_date + 7 days`.
+const PINNED_NOW = new Date('2026-04-29T00:00:00Z').getTime()
+before(() => {
+  mock.timers.enable({ apis: ['Date'], now: PINNED_NOW })
+})
+after(() => {
+  mock.timers.reset()
+})
 
 // Extract window computation for testing (mirrors handler logic)
 function computeEffectiveWindow(input: SummarizeInput): { effectiveSince: string; effectiveUntil: string; isValid: boolean; error?: string } {
