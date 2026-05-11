@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-11 — docs(plans): add OEP Phase 1 plan for DNS-TXT domain verification — narrow first-step plan toward the Open Employment Protocol; defines an Ed25519 key published at `/.well-known/oep-public-key.json` with its fingerprint mirrored in a DNS TXT record at `_oep.<root>`, plus a CLI verifier; ROADMAP "Next" promoted to lead with this plan, `a2a-trust-layer.md` repositioned as the broader exploration this unlocks
+
 - 2026-05-11 — docs: align repo docs with the shipped public MCP stance
   - README — three access tiers (public HTTP, public MCP, private MCP) instead of two
   - ROADMAP — moves `/public-mcp` + `ask_candidate` from "In progress" to "Shipped" (v0.3.0, PR #66); "In progress" parked pending live traffic observations

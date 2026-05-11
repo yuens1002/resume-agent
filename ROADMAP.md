@@ -25,8 +25,16 @@ _None right now — public MCP shipped; awaiting live traffic before the next st
 
 ## Next
 
+### OEP Phase 1 — domain verification (DNS TXT)
+
+**Plan:** [docs/plans/oep-phase-1-domain-verification.md](docs/plans/oep-phase-1-domain-verification.md)
+
+The "self-signed cert moment" for the Open Employment Protocol. Publish an Ed25519 public key at `/.well-known/oep-public-key.json` and its fingerprint as a DNS TXT record at `_oep.<root>`; ship a CLI verifier that proves the two match. Smallest possible step that establishes domain ownership as the OEP root of trust — foundation for signed cards, invocation receipts, and employment co-signatures down the line.
+
+### Public MCP traffic observations
+
 Observations from live `/public-mcp` traffic — agent card fields consumed vs ignored, tool naming that AI clients discover reliably, rate-limit thresholds that hold up, errors worth surfacing. Deliverable: `docs/plans/base-layer-observations.md`, committed incrementally as patterns emerge.
 
 ## Exploring
 
-A trust layer for agent authenticity — signed agent cards + invocation receipts + a public verify endpoint. Early-stage design, not yet scoped for implementation. See [docs/plans/a2a-trust-layer.md](docs/plans/a2a-trust-layer.md).
+A broader trust layer for agent authenticity — signed agent cards + invocation receipts + a public `/verify` endpoint. Early-stage design that builds on the Phase 1 domain-verification plan above. See [docs/plans/a2a-trust-layer.md](docs/plans/a2a-trust-layer.md).
