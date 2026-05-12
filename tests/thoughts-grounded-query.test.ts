@@ -1,0 +1,108 @@
+/**
+ * Unit tests — thoughts-grounded /query.
+ *
+ * Covers the unit-testable slice of docs/plans/thoughts-grounded-query.md:
+ *   - AC-6 / AC-7: prompt shape with and without injected thoughts
+ *   - AC-9 (unit-level): the prompt builder is a pure function of its inputs —
+ *     it never filters, so privacy must be (and is) enforced upstream in SQL
+ *   - AC-1 / AC-2: the match_thoughts_public migration exists and carries the
+ *     index-friendly privacy guard
+ *
+ * The DB- and LLM-dependent ACs (AC-3 truncation/large-window, AC-4/AC-5 helper
+ * behavior against a live RPC, AC-8 public-MCP parity, AC-9 end-to-end privacy,
+ * AC-10 /resume regression, AC-11 agent-card surface) are exercised by the
+ * integration and public-MCP suites and a live smoke run.
+ *
+ * Run: npm run test:unit
+ */
+
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { buildQueryPrompt } from '../src/routes/query.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const repoRoot = join(__dirname, '..')
+
+const SAMPLE_PROFILE = {
+  contact: { name: 'Test Candidate', email: 'test@example.com' },
+  skills: [{ category: 'Languages', items: ['TypeScript'] }],
+}
+
+describe('buildQueryPrompt — with injected thoughts (AC-6)', () => {
+  const thoughts = [
+    'Chose Prisma over raw SQL because the team velocity gain outweighed the query-control loss for this app size.',
+    'Stopped iterating on the search ranker once the eval suite plateaued — diminishing returns vs. shipping.',
+  ]
+  const prompt = buildQueryPrompt(SAMPLE_PROFILE, thoughts, 'How do you decide what to build?')
+
+  it('includes the labeled observations heading', () => {
+    assert.match(prompt, /# Project observations and lived experience/)
+  })
+
+  it('renders each thought as a bullet', () => {
+    for (const t of thoughts) {
+      assert.ok(prompt.includes(`- ${t}`), `expected bullet for: ${t.slice(0, 40)}…`)
+    }
+  })
+
+  it('places the observations block above the profile data', () => {
+    const obsIdx = prompt.indexOf('# Project observations and lived experience')
+    const profileIdx = prompt.indexOf('# Profile data')
+    assert.ok(obsIdx >= 0 && profileIdx >= 0)
+    assert.ok(obsIdx < profileIdx, 'observations must come before profile data')
+  })
+
+  it('still includes the profile JSON and the question last', () => {
+    assert.ok(prompt.includes('"Test Candidate"'))
+    assert.ok(prompt.trimEnd().endsWith('How do you decide what to build?'))
+    const questionIdx = prompt.indexOf('# Question')
+    assert.ok(questionIdx > prompt.indexOf('# Profile data'), 'question section comes last')
+  })
+})
+
+describe('buildQueryPrompt — without thoughts (AC-7)', () => {
+  const prompt = buildQueryPrompt(SAMPLE_PROFILE, [], 'What is your experience with TypeScript?')
+
+  it('omits the observations heading entirely', () => {
+    assert.ok(!prompt.includes('# Project observations and lived experience'))
+  })
+
+  it('keeps the profile-then-question structure', () => {
+    const profileIdx = prompt.indexOf('# Profile data')
+    const questionIdx = prompt.indexOf('# Question')
+    assert.ok(profileIdx >= 0 && questionIdx > profileIdx)
+  })
+})
+
+describe('buildQueryPrompt — pure function of inputs (AC-9, unit level)', () => {
+  it('renders whatever thoughts it is handed — it does not filter', () => {
+    // The prompt builder has no notion of "private". If a private thought ever
+    // reaches this function it WOULD be rendered — which is exactly why the
+    // privacy filter lives in match_thoughts_public (SQL), not here.
+    const sneaky = 'PRIVATE: this should never have reached the prompt builder'
+    const prompt = buildQueryPrompt(SAMPLE_PROFILE, [sneaky], 'anything')
+    assert.ok(prompt.includes(`- ${sneaky}`))
+  })
+})
+
+describe('match_thoughts_public migration (AC-1, AC-2)', () => {
+  const migration = readFileSync(
+    join(repoRoot, 'supabase', 'migrations', '20260512000000_match_thoughts_public.sql'),
+    'utf8',
+  )
+
+  it('defines the match_thoughts_public function', () => {
+    assert.match(migration, /create or replace function match_thoughts_public/i)
+  })
+
+  it('carries the index-friendly privacy guard (JSONB containment, not a cast)', () => {
+    assert.ok(
+      migration.includes(`not (t.metadata @> '{"private": true}'::jsonb)`),
+      'expected the `@>` containment exclusion for private thoughts',
+    )
+    assert.ok(!/->>\s*'private'/.test(migration), 'should not use a ->> text cast for the privacy check')
+  })
+})

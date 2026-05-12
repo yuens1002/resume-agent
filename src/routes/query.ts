@@ -7,6 +7,7 @@ import { generateText, streamText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
+import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -16,7 +17,11 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
+const OBSERVATIONS_GUIDANCE = `When "Project observations and lived experience" is provided below, prefer it for behavioral, decision-making, or judgment questions — those notes are the candidate's own lived experience and are higher-signal than inference over resume bullets.`
+
 const SYSTEM_PROMPT_JSON = (callerHint: string): string => `You are an AI agent representing a professional candidate. Answer questions about their profile accurately and honestly using the structured data provided. Never fabricate credentials or inflate qualifications.
+
+${OBSERVATIONS_GUIDANCE}
 
 Caller context: ${callerHint}
 Tailor your response accordingly — adjust tone, verbosity, and framing to suit the caller type.
@@ -25,20 +30,43 @@ Always respond in this exact JSON format:
 {
   "answer": "...",
   "confidence": "high" | "medium" | "low",
-  "sources": ["experience.company_name", "skills.languages"],
+  "sources": ["experience.company_name", "skills.languages", "observations"],
   "follow_up_suggestions": ["...", "..."]
 }
 
 Confidence levels:
-- high: directly supported by profile data
+- high: directly supported by profile data or project observations
 - medium: inferred from adjacent data
 - low: not well-supported, answering with caveats`
 
 const SYSTEM_PROMPT_STREAM = (callerHint: string): string => `You are an AI agent representing a professional candidate. Answer questions about their profile accurately and honestly. Never fabricate credentials or inflate qualifications.
 
+${OBSERVATIONS_GUIDANCE}
+
 Caller context: ${callerHint}
 Tailor your response accordingly — adjust tone, verbosity, and framing to suit the caller type.
 Respond in clear, direct prose.`
+
+/**
+ * Build the user prompt for a profile query. When project observations are
+ * available they are placed above the structured profile under a labeled
+ * heading so the model treats them as primary context for judgment questions.
+ * Exported for testing the prompt shape.
+ */
+export function buildQueryPrompt(profile: unknown, thoughts: string[], question: string): string {
+  const parts: string[] = []
+  if (thoughts.length > 0) {
+    parts.push('# Project observations and lived experience')
+    parts.push(thoughts.map((t) => `- ${t}`).join('\n'))
+    parts.push('')
+  }
+  parts.push('# Profile data')
+  parts.push(JSON.stringify(profile, null, 2))
+  parts.push('')
+  parts.push('# Question')
+  parts.push(question)
+  return parts.join('\n')
+}
 
 // ── Shared core ─────────────────────────────────────────────
 //
@@ -64,17 +92,20 @@ export interface ParseError {
 export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
-  const { data: profile, error } = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const [{ data: profile, error }, thoughts] = await Promise.all([
+    supabase
+      .from('public_profile')
+      .select('*')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single(),
+    queryRelevantThoughtsForQuestion(args.question),
+  ])
 
   if (error || !profile) {
     return { kind: 'profile_not_found' }
   }
 
-  const prompt = `Profile data:\n${JSON.stringify(profile, null, 2)}\n\nQuestion: ${args.question}`
+  const prompt = buildQueryPrompt(profile, thoughts, args.question)
 
   const start = Date.now()
   const { text: raw } = await generateText({
@@ -106,17 +137,20 @@ export async function queryProfile(
 export async function queryProfileStream(
   args: QueryProfileArgs,
 ): Promise<ReturnType<typeof streamText> | ProfileNotFoundError> {
-  const { data: profile, error } = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const [{ data: profile, error }, thoughts] = await Promise.all([
+    supabase
+      .from('public_profile')
+      .select('*')
+      .eq('id', '00000000-0000-0000-0000-000000000001')
+      .single(),
+    queryRelevantThoughtsForQuestion(args.question),
+  ])
 
   if (error || !profile) {
     return { kind: 'profile_not_found' }
   }
 
-  const prompt = `Profile data:\n${JSON.stringify(profile, null, 2)}\n\nQuestion: ${args.question}`
+  const prompt = buildQueryPrompt(profile, thoughts, args.question)
 
   return streamText({
     model: getModel(),

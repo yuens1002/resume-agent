@@ -150,6 +150,10 @@ Demo shortcut — redirects to `/query?question=Tell+me+about+yourself&stream=tr
 ### `POST /query` · `GET /query?question=`
 Natural language question → structured JSON answer, or streaming plain text.
 
+Answers are grounded in **two layers**: the structured `public_profile` (skills, employment bullets, projects — the snapshot) and a semantic search over the candidate's OB1 thoughts (project observations, tradeoffs, "why I built it this way", "when I stopped" — the lived experience). Behavioral and decision-making questions draw primarily on the second layer; when relevant thoughts are found, the top matches are injected into the prompt above the profile data. This is the same OB1 pattern `/resume` already uses, applied to the public query surface.
+
+> **Privacy:** thoughts are public-eligible by default. A thought flagged `metadata.private: true` is excluded from this surface at the database layer (`match_thoughts_public` RPC) — it stays visible only in the candidate's private MCP. Set the flag at capture time (`capture_thought` with `private: true`) or retroactively via SQL.
+
 Request:
 ```json
 {
@@ -166,7 +170,7 @@ Response (default, `stream: false`):
 {
   "answer": "...",
   "confidence": "high" | "medium" | "low",
-  "sources": ["experience.company_name", "skills.languages"],
+  "sources": ["experience.company_name", "skills.languages", "observations"],
   "follow_up_suggestions": ["..."],
   "contact": { "email": "...", "calendly": "..." },
   "meta": { "model": "anthropic/claude-haiku-4.5", "latency_ms": 740 }
