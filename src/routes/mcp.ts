@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
+import { buildThoughtMetadata } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import type { Project } from '../types.js'
 
@@ -388,10 +389,12 @@ function buildServer(): McpServer {
         const { error } = await supabase.from('thoughts').insert({
           content,
           embedding,
-          // `private` is set last so an explicit flag always wins over anything
-          // extractMetadata might have produced. Only written when true — absent
-          // means public, matching match_thoughts_public's `@> {private:true}` guard.
-          metadata: { ...metadata, source: 'mcp', ...(isPrivate ? { private: true } : {}) },
+          // buildThoughtMetadata strips any `source`/`private` keys the model
+          // emitted and sets them solely from the explicit args — so `private` is
+          // controlled by the caller, never by model drift or an injected string.
+          // Only written when true; absent = public, matching match_thoughts_public's
+          // `@> {private:true}` guard.
+          metadata: buildThoughtMetadata(metadata, { source: 'mcp', private: isPrivate }),
         })
 
         if (error) return { content: [{ type: 'text' as const, text: `Failed to capture: ${error.message}` }], isError: true }
