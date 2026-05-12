@@ -33,7 +33,7 @@ app.get('/', async (c) => {
     url: baseUrl,
     name: data?.contact?.name ?? 'Resume Agent',
     description: 'Self-sovereign AI agent representing this professional\'s canonical profile. Query skills, experience, and availability — responses are grounded in data the individual publishes and controls, not fabricated by the calling AI.',
-    version: '1.2.0',
+    version: '1.3.0',
     securitySchemes: {},
     security: [{}],
     provider: {
@@ -93,9 +93,9 @@ app.get('/', async (c) => {
       {
         id: 'query',
         name: 'Query Profile',
-        description: 'Ask natural language questions about this candidate\'s skills, experience, and background.',
-        tags: ['resume', 'profile', 'skills', 'experience'],
-        examples: ['What is your experience with TypeScript?', 'How many years of frontend experience do you have?'],
+        description: 'Ask natural language questions about this candidate\'s skills, experience, and background. Answers are grounded in project observations and lived experience, not just resume bullets — behavioral and decision-making questions draw on the candidate\'s own captured notes about how and why they built things.',
+        tags: ['resume', 'profile', 'skills', 'experience', 'behavioral'],
+        examples: ['What is your experience with TypeScript?', 'How do you decide what features to build?', 'Walk me through a hard engineering tradeoff you made.'],
         inputModes: ['application/json', 'text/plain'],
         outputModes: ['application/json', 'text/plain'],
       },

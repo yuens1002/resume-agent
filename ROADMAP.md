@@ -15,6 +15,7 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | v0.2.16 | Retire Supabase Edge Function artifacts, clarify Railway as runtime tier | [#65](https://github.com/yuens1002/resume-agent/pull/65) |
 | v0.3.0 | Public MCP endpoint with `ask_candidate` tool — single unauthenticated MCP tool wrapping `/query`, advertised first in agent card `supportedInterfaces`, every call logged to `observed_queries` | [#66](https://github.com/yuens1002/resume-agent/pull/66) |
 | v0.4.4 | OEP Phase 1 — domain verification (DNS TXT). Ed25519 public key at `/.well-known/oep-public-key.json`, fingerprint mirrored in `_oep.<root>` TXT record, CLI verifier, fingerprint surfaced on agent card. Plan: [`docs/plans/oep-phase-1-domain-verification.md`](docs/plans/oep-phase-1-domain-verification.md) | [#90](https://github.com/yuens1002/resume-agent/pull/90) |
+| v0.4.7 | Thoughts-grounded `/query` and `/public-mcp` — semantic search over OB1 thoughts layered above `public_profile`; `match_thoughts_public` RPC excludes `metadata.private` thoughts; behavioral/judgment questions answered from lived experience; agent card `skills.query` updated, card → 1.3.0. Plan: [`docs/plans/thoughts-grounded-query.md`](docs/plans/thoughts-grounded-query.md) | _this PR_ |
 
 ---
 
@@ -25,12 +26,6 @@ _None right now._
 ---
 
 ## Next
-
-### Thoughts-grounded `/query` and `/public-mcp`
-
-**Plan:** [docs/plans/thoughts-grounded-query.md](docs/plans/thoughts-grounded-query.md)
-
-The "soul of the agent" move. Today the public surface answers only from `public_profile` (skills, employment bullets, projects) — judgment, tradeoffs, and "aha" moments live in OB1 thoughts but are invisible to public callers. This plan ports the existing `/resume` thoughts-injection pattern (semantic search via `match_thoughts`) to `/query` and `/public-mcp`, with a sibling `match_thoughts_public` RPC that respects a default-public-with-`private`-opt-out policy. Audit on 2026-05-11 confirmed 100% of 1,913 captured thoughts are public-eligible; the asymmetry matches reality.
 
 ### Public MCP traffic observations
 
