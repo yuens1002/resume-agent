@@ -309,7 +309,7 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 - `search_thoughts` — Semantic search over your captured thoughts
 - `list_thoughts` — List recent thoughts with filters (type, topic, person, time)
 - `thought_stats` — Get summary stats of all thoughts (totals, types, top topics, people)
-- `capture_thought` — Save a new thought with auto-generated embedding + metadata
+- `capture_thought` — Save a new thought with auto-generated embedding + metadata. Pass `private: true` to keep it out of the public `/query` and `/public-mcp` surfaces (default: public-eligible)
 - `update_profile` — Update your public profile (summary, skills, employment, projects, education, availability, contact)
 - `upsert_project` — Add or update a portfolio project by slug
 

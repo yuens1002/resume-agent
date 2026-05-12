@@ -130,7 +130,7 @@ A thought flagged `private` is invisible to the public surface end-to-end. The p
 
 3. **`src/routes/query.ts`** — call the new helper in both `queryProfile` and `queryProfileStream`. Inject the top-N as a labeled markdown block above the existing profile data in the prompt. One new line in both system prompts: *"When 'Project observations and lived experience' is provided below, prefer it for behavioral, decision-making, or judgment questions — those reflect the candidate's lived experience and are higher-signal than inference over resume bullets."*
 
-4. **Open Brain `capture_thought` tool** (in OB1 — out of this repo). Add optional `private: boolean` parameter; when true, set `metadata.private = true` on the row. Document in the README's private MCP section. *This is the one change that lives outside resume-agent.* If OB1 isn't updated in the same window, captures default-public continues to work; only the future `-private` flag is unavailable until OB1 ships it.
+4. **`src/routes/mcp.ts` — `capture_thought` tool.** Add optional `private: boolean` parameter; when true, set `metadata.private = true` on the row. Document in the README's private MCP section. _(Correction, 2026-05-12: the original plan said this "lives in the OB1 repo, out of this repo." That was wrong — resume-agent has its own implementation of the Open Brain tools in `src/routes/mcp.ts`, its own `thoughts` migration, and its own `match_thoughts` RPC. "OB1" in the README refers to Nate B. Jones's upstream project as the pattern; the code is local. The `private` param was added here.)_
 
 5. **`src/routes/agent-card.ts`** — update `skills.query.description` to add the "grounded in project observations and lived experience" phrasing. Bump card version.
 
@@ -162,7 +162,7 @@ A thought flagged `private` is invisible to the public surface end-to-end. The p
 
 7. **Graceful degradation.** Any failure in the thoughts retrieval path (embedding error, RPC error, empty result) returns `[]` — `/query` continues with profile-only context. No new failure modes added to the response surface.
 
-8. **Capture-time `private` parameter lives in OB1, not resume-agent.** The MCP tool definition is in the OB1 repo. This plan describes the contract; OB1 ships the implementation. The two PRs can land independently — resume-agent's `match_thoughts_public` already honors any thought with `metadata.private = true` regardless of how it got set.
+8. **Capture-time `private` parameter is set on `metadata.private`.** _(Correction, 2026-05-12: the original decision read "lives in OB1, not resume-agent — the MCP tool definition is in the OB1 repo." That was a mistaken assumption. `capture_thought` is registered in this repo's `src/routes/mcp.ts`; the `private` param was added there. The point that still holds: `match_thoughts_public` honors any thought with `metadata.private = true` regardless of how the flag got set — direct SQL, the MCP tool, or an enrichment pipeline.)_
 
 ---
 

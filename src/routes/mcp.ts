@@ -375,25 +375,30 @@ function buildServer(): McpServer {
     {
       title: 'Capture Thought',
       description:
-        'Save a new thought to the Open Brain. Generates an embedding and extracts metadata automatically. Use this when the user wants to save something to their brain — notes, insights, decisions, or observations.',
+        'Save a new thought to the Open Brain. Generates an embedding and extracts metadata automatically. Use this when the user wants to save something to their brain — notes, insights, decisions, or observations. Pass private:true to keep a thought out of the public /query and /public-mcp surfaces (it stays visible only here, in the private MCP).',
       inputSchema: {
         content: z.string().describe('The thought to capture — a clear, standalone statement that will make sense when retrieved later'),
+        private: z.boolean().optional().describe('When true, this thought is excluded from the public /query and /public-mcp surfaces. Default false — thoughts are public-eligible.'),
       },
     },
-    async ({ content }) => {
+    async ({ content, private: isPrivate }) => {
       try {
         const [embedding, metadata] = await Promise.all([getEmbedding(content), extractMetadata(content)])
 
         const { error } = await supabase.from('thoughts').insert({
           content,
           embedding,
-          metadata: { ...metadata, source: 'mcp' },
+          // `private` is set last so an explicit flag always wins over anything
+          // extractMetadata might have produced. Only written when true — absent
+          // means public, matching match_thoughts_public's `@> {private:true}` guard.
+          metadata: { ...metadata, source: 'mcp', ...(isPrivate ? { private: true } : {}) },
         })
 
         if (error) return { content: [{ type: 'text' as const, text: `Failed to capture: ${error.message}` }], isError: true }
 
         const meta = metadata as Record<string, unknown>
         let confirmation = `Captured as ${meta.type || 'thought'}`
+        if (isPrivate) confirmation += ' (private — not on the public surface)'
         if (Array.isArray(meta.topics) && meta.topics.length) confirmation += ` — ${(meta.topics as string[]).join(', ')}`
         if (Array.isArray(meta.people) && meta.people.length) confirmation += ` | People: ${(meta.people as string[]).join(', ')}`
         if (Array.isArray(meta.action_items) && meta.action_items.length) confirmation += ` | Actions: ${(meta.action_items as string[]).join('; ')}`
