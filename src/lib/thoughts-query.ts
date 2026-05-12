@@ -64,7 +64,11 @@ export async function queryRelevantThoughtsForQuestion(
 
     const { data, error } = await supabase.rpc('match_thoughts_public', {
       query_embedding: embedding,
-      match_threshold: 0.55,
+      // Lower than the JD path's 0.55: a short question embeds less richly than
+      // a full job description, so on-topic thoughts land around 0.40–0.55
+      // while clearly off-topic questions sit at ~0.18–0.24. 0.35 catches the
+      // former with margin and rejects the latter.
+      match_threshold: 0.35,
       match_count: limit,
     })
 
