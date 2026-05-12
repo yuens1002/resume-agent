@@ -17,6 +17,8 @@ See [ROADMAP.md](../ROADMAP.md) for what's shipped and what's in progress.
 - [resume-pipeline-v2.md](resume-pipeline-v2.md) — `/resume` endpoint's dual-gen + rubric scorer pipeline
 - [workflow.md](workflow.md) — how employer AI, recruiters, and the candidate each interact with the agent
 - [plans/public-mcp-query-only.md](plans/public-mcp-query-only.md) — public `/public-mcp` endpoint with `ask_candidate` tool (shipped — historical record of the design decision)
+- [plans/oep-phase-1-domain-verification.md](plans/oep-phase-1-domain-verification.md) — OEP Phase 1: DNS-TXT domain verification, `/.well-known/oep-public-key.json`, CLI verifier (shipped — historical record)
+- [plans/thoughts-grounded-query.md](plans/thoughts-grounded-query.md) — thoughts-grounded `/query` and `/public-mcp`: `match_thoughts_public` RPC, default-public-with-`private`-opt-out policy (shipped — see correction notes in the plan for what changed during implementation)
 - [plans/private-mcp-summarize-observed-queries.md](plans/private-mcp-summarize-observed-queries.md) — private MCP `summarize_observed_queries` tool for public query traffic analytics
 
 ### Exploring (plans)

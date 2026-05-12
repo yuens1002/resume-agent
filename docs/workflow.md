@@ -185,7 +185,7 @@ Once connected, 11 tools are available across two groups:
 
 | Tool | What it does |
 |---|---|
-| `capture_thought` | Save a note — plain text, metadata (type, topics, people, action items) extracted automatically |
+| `capture_thought` | Save a note — plain text, metadata (type, topics, people, action items) extracted automatically. Pass `private: true` to keep it out of the public `/query` and `/public-mcp` surfaces (default: public-eligible) |
 | `search_thoughts` | Semantic search by meaning — "find thoughts about accessibility work" |
 | `list_thoughts` | Chronological list with filters by type, topic, person, or date range |
 | `thought_stats` | Aggregate view — total count, distribution by type/topic/people |
