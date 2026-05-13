@@ -147,6 +147,8 @@ Accept: application/json, text/event-stream
 
 The tool wraps the same handler as `POST /query`, so response shape is identical. Set `"stream": true` to receive progressive content via MCP progress notifications.
 
+Response behavior on both paths follows the [engagement-rules spec](query-engagement-rules.md): first-person voice, off-topic redirect, direct gap handling, adversarial-input refusal. The system prompt does fine-grained relevance judgment on injected OB1 observations; the cosine similarity threshold is a coarse pre-filter, overridable via the `QUERY_THOUGHTS_THRESHOLD` env var. Run `npm run eval:query` to gauge how the live agent honors the rules (see the README's "`/query` engagement rules & eval" section for examples).
+
 The MCP interface is advertised in the agent card's `supportedInterfaces` (listed first). A2A-aware clients that support MCP will prefer this path over HTTP+JSON by default. Discovery, setup, and example prompts are in the [Add as a custom connector](../README.md#add-as-a-custom-connector-in-claude) README section.
 
 No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP endpoints). Every call is logged to the `observed_queries` Supabase table for observability.

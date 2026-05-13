@@ -16,6 +16,7 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | v0.3.0 | Public MCP endpoint with `ask_candidate` tool — single unauthenticated MCP tool wrapping `/query`, advertised first in agent card `supportedInterfaces`, every call logged to `observed_queries` | [#66](https://github.com/yuens1002/resume-agent/pull/66) |
 | v0.4.4 | OEP Phase 1 — domain verification (DNS TXT). Ed25519 public key at `/.well-known/oep-public-key.json`, fingerprint mirrored in `_oep.<root>` TXT record, CLI verifier, fingerprint surfaced on agent card. Plan: [`docs/plans/oep-phase-1-domain-verification.md`](docs/plans/oep-phase-1-domain-verification.md) | [#90](https://github.com/yuens1002/resume-agent/pull/90) |
 | v0.4.7 | Thoughts-grounded `/query` and `/public-mcp` — semantic search over OB1 thoughts layered above `public_profile`; `match_thoughts_public` RPC excludes `metadata.private` thoughts; behavioral/judgment questions answered from lived experience; agent card `skills.query` updated, card → 1.3.0. Plan: [`docs/plans/thoughts-grounded-query.md`](docs/plans/thoughts-grounded-query.md) | [#93](https://github.com/yuens1002/resume-agent/pull/93) |
+| v0.4.13 | `/query` engagement rules + prompt-does-relevance + eval harness — named rule constants in `src/lib/query-prompt.ts` (voice / honesty / observations-relevance / off-topic / gaps / adversarial / output-json) composed by `buildSystemPrompt`; `QUERY_THOUGHTS_THRESHOLD` env-overridable; on-demand `npm run eval:query` runs ~14 fixture cases against a deterministic rubric with optional `--judge`. Spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md). Plan: [`docs/plans/query-engagement-rules.md`](docs/plans/query-engagement-rules.md) | _this PR_ |
 
 ---
 
@@ -26,12 +27,6 @@ _None right now._
 ---
 
 ## Next
-
-### `/query` engagement rules + eval-backed threshold
-
-**Plan:** [docs/plans/query-engagement-rules.md](docs/plans/query-engagement-rules.md)
-
-Turn the implicit response behavior of `/query` and `/public-mcp ask_candidate` into an owned engagement-rules spec (voice, off-topic, gaps, adversarial), move fine-grained relevance judgment from the cosine threshold into the system prompt itself, and add a small on-demand eval harness so prompt/threshold changes are evidence-based. Builds on the threshold concern raised after #94 — the fix is the *reframe* (prompt does relevance, threshold is just a coarse pre-filter), not just a number tweak.
 
 ### Public MCP traffic observations
 

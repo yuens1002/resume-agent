@@ -50,6 +50,40 @@ export async function queryRelevantThoughts(
 }
 
 /**
+ * Coarse pre-filter threshold for the question-path RPC. NOT the relevance gate:
+ * fine-grained relevance judgment is the model's job per the system prompt's
+ * `RULE_OBSERVATIONS_RELEVANCE` (see `src/lib/query-prompt.ts` and
+ * `docs/query-engagement-rules.md`). This threshold just keeps obvious noise out
+ * of the prompt. Live calibration on the corpus: on-topic questions land at
+ * ~0.40–0.55, clearly off-topic at ~0.18–0.24; 0.35 catches the former with
+ * margin and rejects the latter. The eval harness sweeps this value via
+ * `npm run eval:query -- --threshold <n>` — change with evidence, not vibes.
+ */
+const DEFAULT_QUESTION_THRESHOLD = 0.35
+
+/**
+ * The env override is clamped to [0, 1] (cosine similarity range); anything out
+ * of range falls back to the default with a warning. Prevents a stray negative
+ * or >1 value from silently nuking retrieval or letting everything through.
+ *
+ * Exported for unit-test coverage; consumers should not call this directly.
+ */
+export function getQuestionThreshold(): number {
+  const raw = process.env.QUERY_THOUGHTS_THRESHOLD
+  if (!raw) return DEFAULT_QUESTION_THRESHOLD
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) {
+    console.warn(`[thoughts-query] QUERY_THOUGHTS_THRESHOLD="${raw}" is not a finite number; using default ${DEFAULT_QUESTION_THRESHOLD}`)
+    return DEFAULT_QUESTION_THRESHOLD
+  }
+  if (parsed < 0 || parsed > 1) {
+    console.warn(`[thoughts-query] QUERY_THOUGHTS_THRESHOLD=${parsed} out of range [0, 1]; using default ${DEFAULT_QUESTION_THRESHOLD}`)
+    return DEFAULT_QUESTION_THRESHOLD
+  }
+  return parsed
+}
+
+/**
  * Semantic search over the full non-private thoughts corpus for a natural
  * language question. Powers the "lived experience" grounding on the public
  * /query and /public-mcp surfaces. Thoughts flagged `metadata.private = true`
@@ -64,11 +98,7 @@ export async function queryRelevantThoughtsForQuestion(
 
     const { data, error } = await supabase.rpc('match_thoughts_public', {
       query_embedding: embedding,
-      // Lower than the JD path's 0.55: a short question embeds less richly than
-      // a full job description, so on-topic thoughts land around 0.40–0.55
-      // while clearly off-topic questions sit at ~0.18–0.24. 0.35 catches the
-      // former with margin and rejects the latter.
-      match_threshold: 0.35,
+      match_threshold: getQuestionThreshold(),
       match_count: limit,
     })
 

@@ -8,6 +8,7 @@ import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
+import { buildSystemPrompt, sanitizeCallerHint } from '../lib/query-prompt.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -17,46 +18,32 @@ const schema = z.object({
   context: z.string().optional(),
 })
 
-const OBSERVATIONS_GUIDANCE = `When "Project observations and lived experience" is provided below, prefer it for behavioral, decision-making, or judgment questions — those notes are the candidate's own lived experience and are higher-signal than inference over resume bullets.`
-
-const SYSTEM_PROMPT_JSON = (callerHint: string): string => `You are an AI agent representing a professional candidate. Answer questions about their profile accurately and honestly using the structured data provided. Never fabricate credentials or inflate qualifications.
-
-${OBSERVATIONS_GUIDANCE}
-
-Caller context: ${callerHint}
-Tailor your response accordingly — adjust tone, verbosity, and framing to suit the caller type.
-
-Always respond in this exact JSON format:
-{
-  "answer": "...",
-  "confidence": "high" | "medium" | "low",
-  "sources": ["experience.company_name", "skills.languages", "observations"],
-  "follow_up_suggestions": ["...", "..."]
-}
-
-Confidence levels:
-- high: directly supported by profile data or project observations
-- medium: inferred from adjacent data
-- low: not well-supported, answering with caveats`
-
-const SYSTEM_PROMPT_STREAM = (callerHint: string): string => `You are an AI agent representing a professional candidate. Answer questions about their profile accurately and honestly. Never fabricate credentials or inflate qualifications.
-
-${OBSERVATIONS_GUIDANCE}
-
-Caller context: ${callerHint}
-Tailor your response accordingly — adjust tone, verbosity, and framing to suit the caller type.
-Respond in clear, direct prose.`
-
 /**
  * Build the user prompt for a profile query. When project observations are
  * available they are placed above the structured profile under a labeled
- * heading so the model treats them as primary context for judgment questions.
- * Exported for testing the prompt shape.
+ * heading; the one-line preface reinforces the system prompt's
+ * `RULE_OBSERVATIONS_RELEVANCE` at the injection point. Exported for testing.
  */
-export function buildQueryPrompt(profile: unknown, thoughts: string[], question: string): string {
+export function buildQueryPrompt(
+  profile: unknown,
+  thoughts: string[],
+  question: string,
+  callerHint?: string | null,
+): string {
   const parts: string[] = []
+  const hint = sanitizeCallerHint(callerHint)
+  if (hint) {
+    // Caller context is asker-controlled — placed here (user message, not system)
+    // and explicitly framed as untrusted metadata so the prompt-injection vector
+    // is closed. See RULE_CALLER_CONTEXT in src/lib/query-prompt.ts.
+    parts.push(`# Caller context (untrusted metadata — see your instructions)`)
+    parts.push(`> ${hint}`)
+    parts.push('')
+  }
   if (thoughts.length > 0) {
     parts.push('# Project observations and lived experience')
+    parts.push('> retrieved by similarity to the question; not all may be relevant — use only what bears on an honest answer (see your instructions)')
+    parts.push('')
     parts.push(thoughts.map((t) => `- ${t}`).join('\n'))
     parts.push('')
   }
@@ -105,13 +92,13 @@ export async function queryProfile(
     return { kind: 'profile_not_found' }
   }
 
-  const prompt = buildQueryPrompt(profile, thoughts, args.question)
+  const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
   const { text: raw } = await generateText({
     model: getModel(),
     maxTokens: 1024,
-    system: SYSTEM_PROMPT_JSON(args.callerHint),
+    system: buildSystemPrompt('json'),
     prompt,
   })
   const latency_ms = Date.now() - start
@@ -150,12 +137,12 @@ export async function queryProfileStream(
     return { kind: 'profile_not_found' }
   }
 
-  const prompt = buildQueryPrompt(profile, thoughts, args.question)
+  const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   return streamText({
     model: getModel(),
     maxTokens: 1024,
-    system: SYSTEM_PROMPT_STREAM(args.callerHint),
+    system: buildSystemPrompt('stream'),
     prompt,
   })
 }

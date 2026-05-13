@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { buildQueryPrompt } from '../src/routes/query.js'
+import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..')
@@ -104,5 +105,51 @@ describe('match_thoughts_public migration (AC-1, AC-2)', () => {
       'expected the `@>` containment exclusion for private thoughts',
     )
     assert.ok(!/->>\s*'private'/.test(migration), 'should not use a ->> text cast for the privacy check')
+  })
+})
+
+describe('getQuestionThreshold — env override is clamped to [0, 1]', () => {
+  const orig = process.env.QUERY_THOUGHTS_THRESHOLD
+  const restore = () => {
+    if (orig === undefined) delete process.env.QUERY_THOUGHTS_THRESHOLD
+    else process.env.QUERY_THOUGHTS_THRESHOLD = orig
+  }
+
+  it('returns the default (0.35) when the env var is unset', () => {
+    delete process.env.QUERY_THOUGHTS_THRESHOLD
+    assert.equal(getQuestionThreshold(), 0.35)
+    restore()
+  })
+
+  it('honors a valid in-range value', () => {
+    process.env.QUERY_THOUGHTS_THRESHOLD = '0.5'
+    assert.equal(getQuestionThreshold(), 0.5)
+    restore()
+  })
+
+  it('falls back to default on non-numeric input', () => {
+    process.env.QUERY_THOUGHTS_THRESHOLD = 'banana'
+    assert.equal(getQuestionThreshold(), 0.35)
+    restore()
+  })
+
+  it('falls back to default on negative values', () => {
+    process.env.QUERY_THOUGHTS_THRESHOLD = '-0.5'
+    assert.equal(getQuestionThreshold(), 0.35)
+    restore()
+  })
+
+  it('falls back to default on values > 1', () => {
+    process.env.QUERY_THOUGHTS_THRESHOLD = '1.5'
+    assert.equal(getQuestionThreshold(), 0.35)
+    restore()
+  })
+
+  it('accepts 0 and 1 (boundary values)', () => {
+    process.env.QUERY_THOUGHTS_THRESHOLD = '0'
+    assert.equal(getQuestionThreshold(), 0)
+    process.env.QUERY_THOUGHTS_THRESHOLD = '1'
+    assert.equal(getQuestionThreshold(), 1)
+    restore()
   })
 })

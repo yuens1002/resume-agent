@@ -152,6 +152,8 @@ Natural language question → structured JSON answer, or streaming plain text.
 
 Answers are grounded in **two layers**: the structured `public_profile` (skills, employment bullets, projects — the snapshot) and a semantic search over the candidate's OB1 thoughts (project observations, tradeoffs, "why I built it this way", "when I stopped" — the lived experience). Behavioral and decision-making questions draw primarily on the second layer; when relevant thoughts are found, the top matches are injected into the prompt above the profile data. This is the same OB1 pattern `/resume` already uses, applied to the public query surface.
 
+Response behavior follows an explicit [engagement-rules spec](docs/query-engagement-rules.md): first-person voice, off-topic redirect, direct gap handling (binary experience → yes/no; capability → name the gap and the adjacent layer, never overclaim), adversarial-input refusal, no "on record" / database-y phrasing. The cosine similarity threshold for thoughts retrieval is a coarse pre-filter — the system prompt's relevance rule is what decides which retrieved observations actually inform the answer.
+
 > **Privacy:** thoughts are public-eligible by default. A thought flagged `metadata.private: true` is excluded from this surface at the database layer (`match_thoughts_public` RPC) — it stays visible only in the candidate's private MCP. Set the flag at capture time (`capture_thought` with `private: true`) or retroactively via SQL.
 
 Request:
@@ -395,6 +397,37 @@ A third party — recruiter agent, employer system, curious peer — runs the sa
 The agent card's `provider.identity.fingerprint` field surfaces the same value so card-aware clients have it without a separate DNS lookup.
 
 > **Phase 1 scope.** No signing of responses or cards yet. No `/verify?receipt=…` endpoint. No key rotation. Those are subsequent plans — see [docs/plans/a2a-trust-layer.md](docs/plans/a2a-trust-layer.md) for the broader picture.
+
+---
+
+## `/query` engagement rules & eval
+
+`/query` and `/public-mcp ask_candidate` answer per an explicit spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md). First-person voice; off-topic questions get a one-sentence redirect; capability gaps are named precisely with adjacent layers (never overclaiming); adversarial input is refused; `on record` / `in the database` phrasing is forbidden. The cosine similarity threshold for thoughts retrieval (default `0.35`, overridable via `QUERY_THOUGHTS_THRESHOLD`) is just a coarse pre-filter — the system prompt's `RULE_OBSERVATIONS_RELEVANCE` decides which retrieved thoughts actually inform the answer.
+
+On-demand eval harness in [`scripts/eval/run-eval.ts`](scripts/eval/run-eval.ts) — runs ~14 fixture cases across six categories (binary, capability, behavioral, off_topic, adversarial, no_data), scores each with a deterministic rubric (with an optional `--judge` LLM-as-judge pass), and prints a per-category report. **Not** in `test:unit` (it calls the LLM); same posture as `compare-prompts.ts`. Run with `.env.local` populated.
+
+```bash
+# Run the whole suite — deterministic rubric only, no extra LLM cost beyond /query calls
+npm run eval:query
+
+# Try a single case (see scripts/eval/query-eval-cases.ts for ids)
+npm run eval:query -- --case behavioral-decide-features
+npm run eval:query -- --case capability-aws
+npm run eval:query -- --case adversarial-ignore-instructions
+
+# Run one category
+npm run eval:query -- --category off_topic
+
+# Sweep the threshold — does the new prompt absorb a looser pre-filter?
+npm run eval:query -- --threshold 0.5
+npm run eval:query -- --threshold 0.35
+
+# Add the LLM-as-judge rule (one Haiku call per case) — spot-checks the
+# semantic stuff the deterministic rules can't read (overclaim, real redirect)
+npm run eval:query -- --judge
+```
+
+Read the per-case `PASS/FAIL — <rule>: <detail>` lines, then the category summary, then the overall score. A glance tells you whether off-topic cases are redirecting, capability cases are honest about gaps, behavioral cases are grounding in observations, and so on.
 
 ---
 
