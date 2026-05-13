@@ -173,6 +173,35 @@ describe('capability rule — names gap, no overclaim', () => {
     ).rules.find((r) => r.rule === 'capability-no-overclaim')!
     assert.equal(overclaimRule.pass, false)
   })
+
+  it('requires at least one adjacent capability when allowsAdjacent is non-empty', () => {
+    const gapOnly = scoreAnswer(
+      caseDef,
+      makeResponse(`I haven't worked with AWS.`),
+    ).rules.find((r) => r.rule === 'capability-names-adjacent')!
+    assert.equal(gapOnly.pass, false, 'gap-only answer should fail the adjacent rule')
+    const withAdjacent = scoreAnswer(
+      caseDef,
+      makeResponse(`I haven't worked with AWS directly — my hosting has been Supabase and Railway.`),
+    ).rules.find((r) => r.rule === 'capability-names-adjacent')!
+    assert.equal(withAdjacent.pass, true, 'answer mentioning any adjacent capability passes')
+  })
+
+  it('skips the adjacent rule when allowsAdjacent is empty', () => {
+    const noAdjacentCase: EvalCase = {
+      id: 'fixture-cap-no-adjacent',
+      category: 'capability',
+      question: 'Do you do palmistry?',
+      expect: {
+        category: 'capability',
+        namesGap: 'palmistry',
+        allowsAdjacent: [],
+        mustNotClaim: ['I am a palmist'],
+      },
+    }
+    const score = scoreAnswer(noAdjacentCase, makeResponse(`I don't do palmistry.`))
+    assert.equal(score.rules.find((r) => r.rule === 'capability-names-adjacent'), undefined)
+  })
 })
 
 describe('behavioral rule — confidence band + observations grounding', () => {

@@ -61,11 +61,25 @@ export async function queryRelevantThoughts(
  */
 const DEFAULT_QUESTION_THRESHOLD = 0.35
 
-function getQuestionThreshold(): number {
+/**
+ * The env override is clamped to [0, 1] (cosine similarity range); anything out
+ * of range falls back to the default with a warning. Prevents a stray negative
+ * or >1 value from silently nuking retrieval or letting everything through.
+ *
+ * Exported for unit-test coverage; consumers should not call this directly.
+ */
+export function getQuestionThreshold(): number {
   const raw = process.env.QUERY_THOUGHTS_THRESHOLD
   if (!raw) return DEFAULT_QUESTION_THRESHOLD
   const parsed = Number(raw)
-  if (!Number.isFinite(parsed)) return DEFAULT_QUESTION_THRESHOLD
+  if (!Number.isFinite(parsed)) {
+    console.warn(`[thoughts-query] QUERY_THOUGHTS_THRESHOLD="${raw}" is not a finite number; using default ${DEFAULT_QUESTION_THRESHOLD}`)
+    return DEFAULT_QUESTION_THRESHOLD
+  }
+  if (parsed < 0 || parsed > 1) {
+    console.warn(`[thoughts-query] QUERY_THOUGHTS_THRESHOLD=${parsed} out of range [0, 1]; using default ${DEFAULT_QUESTION_THRESHOLD}`)
+    return DEFAULT_QUESTION_THRESHOLD
+  }
   return parsed
 }
 

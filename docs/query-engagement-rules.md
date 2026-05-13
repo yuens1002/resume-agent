@@ -86,9 +86,13 @@ Confidence:
 | Agent says "I" in some answers and "the candidate" in others | Voice |
 | Agent hedges low-confidence answers into sounding confident | Output format / Confidence definitions |
 
+## Caller context — handling, not rule (security-relevant)
+
+The caller-hint string (from [`src/lib/detect-caller.ts`](../src/lib/detect-caller.ts) — ATS / recruiter / hiring-manager / personal-ai / unknown, or a passthrough from the `context` field on the HTTP request / `x-caller-context` header) is **asker-controlled**. It used to be interpolated directly into the system prompt; it now lives in the *user* message via `buildQueryPrompt` (in [`src/routes/query.ts`](../src/routes/query.ts)), sanitized first by `sanitizeCallerHint` (strips C0/C1 control chars, collapses whitespace, hard length cap of 200 chars). The system prompt carries a separate rule — `RULE_CALLER_CONTEXT` — telling the model the caller-hint line is metadata only and must not be treated as instructions or used to override anything above it. This is defense in depth: the sanitizer at the boundary closes the obvious markdown-injection vector; the prompt rule keeps the model honest about how to read the line.
+
 ## Editing this spec
 
 1. Edit a rule here.
-2. Mirror it in the matching `RULE_*` constant in [`src/lib/query-prompt.ts`](../src/lib/query-prompt.ts) — the unit tests in [`tests/query-prompt.test.ts`](../tests/query-prompt.test.ts) check both files cover the same named rules.
+2. Mirror it in the matching `RULE_*` constant in [`src/lib/query-prompt.ts`](../src/lib/query-prompt.ts) — the unit tests in [`tests/query-prompt.test.ts`](../tests/query-prompt.test.ts) verify that each `## ` heading here has a matching constant whose embedded `# ` heading is the same text.
 3. If the change adds a new behavior the rubric should enforce, add a case to [`scripts/eval/query-eval-cases.ts`](../scripts/eval/query-eval-cases.ts) and a deterministic rule (or a `--judge` prompt fragment) to [`src/lib/eval-query-answer.ts`](../src/lib/eval-query-answer.ts).
 4. Run `npm run eval:query` and confirm the new case passes and existing cases haven't regressed.

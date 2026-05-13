@@ -99,7 +99,7 @@ function ruleCapability(answer: string, expect: CapabilityExpect): RuleResult[] 
   const lower = answer.toLowerCase()
   const mentionsGap = lower.includes(expect.namesGap.toLowerCase())
   const inflated = expect.mustNotClaim.find((c) => lower.includes(c.toLowerCase()))
-  return [
+  const rules: RuleResult[] = [
     {
       rule: 'capability-names-gap',
       pass: mentionsGap,
@@ -117,6 +117,20 @@ function ruleCapability(answer: string, expect: CapabilityExpect): RuleResult[] 
         : 'no overclaim phrases detected',
     },
   ]
+  // The engagement-rules spec says "name the precise gap AND the adjacent layer."
+  // If the case provides candidate adjacent terms, require at least one to appear.
+  if (expect.allowsAdjacent.length > 0) {
+    const matchedAdjacent = expect.allowsAdjacent.find((a) => lower.includes(a.toLowerCase()))
+    rules.push({
+      rule: 'capability-names-adjacent',
+      pass: Boolean(matchedAdjacent),
+      score: matchedAdjacent ? 1 : 0,
+      detail: matchedAdjacent
+        ? `names adjacent capability "${matchedAdjacent}"`
+        : `did not name any adjacent capability from [${expect.allowsAdjacent.join(', ')}] — gap-only answers leave the asker without what the candidate does have`,
+    })
+  }
+  return rules
 }
 
 function ruleBehavioral(parsed: ParsedAnswer, expect: BehavioralExpect): RuleResult[] {
