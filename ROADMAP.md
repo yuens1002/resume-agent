@@ -27,6 +27,12 @@ _None right now._
 
 ## Next
 
+### `/query` engagement rules + eval-backed threshold
+
+**Plan:** [docs/plans/query-engagement-rules.md](docs/plans/query-engagement-rules.md)
+
+Turn the implicit response behavior of `/query` and `/public-mcp ask_candidate` into an owned engagement-rules spec (voice, off-topic, gaps, adversarial), move fine-grained relevance judgment from the cosine threshold into the system prompt itself, and add a small on-demand eval harness so prompt/threshold changes are evidence-based. Builds on the threshold concern raised after #94 — the fix is the *reframe* (prompt does relevance, threshold is just a coarse pre-filter), not just a number tweak.
+
 ### Public MCP traffic observations
 
 Observations from live `/public-mcp` traffic — agent card fields consumed vs ignored, tool naming that AI clients discover reliably, rate-limit thresholds that hold up, errors worth surfacing. Deliverable: `docs/plans/base-layer-observations.md`, committed incrementally as patterns emerge.
