@@ -76,7 +76,9 @@ export const RULE_CITATION = `# Citation — every factual claim is sourced
 
 Every factual claim about a project, capability, accomplishment, employer, or specific dated event in the answer carries a footnote-style marker placed immediately after the claim. Use bracketed positive integers: \`[1]\`, \`[2]\`, \`[3]\`, etc. Markers start at \`[1]\`, do not skip integers, and never repeat the same number for different sources.
 
-End every claim-bearing answer with a \`Sources:\` block on its own paragraph. Map each marker to a specific corpus reference, one per line:
+**Citations are all-or-nothing within a single answer.** If the answer contains even one \`[N]\` marker, it MUST end with a \`Sources:\` block — no exceptions. A single-citation answer still gets a \`Sources:\` block; a short answer still gets a \`Sources:\` block; an answer that cites once and then declines for everything else still gets a \`Sources:\` block. The Sources block is part of the citation contract, not optional overhead. Conversely, if you don't include any \`[N]\` markers (because the answer is a decline with no factual claims), do not include a Sources block either.
+
+The Sources block goes on its own paragraph, separated by a blank line, with one source per line:
 
 \`\`\`
 Sources:
@@ -86,41 +88,52 @@ Sources:
 [4] skills.<category>.<item>
 \`\`\`
 
-Connective prose, redirects, refusals, and off-topic / no-data declines do NOT need citations — they are not factual claims about the candidate. If an answer makes no factual claims (because it is a decline or refusal), omit the \`Sources:\` block entirely.
+Connective prose, redirects, refusals, and off-topic / no-data declines do NOT need citations — they are not factual claims about the candidate. If an answer is purely a decline or refusal (no factual claims), omit both the markers AND the Sources block.
 
-If a relevant source is in the observations corpus, prefer the most specific excerpt that grounds the claim (a phrase, not the full thought).`
+If a relevant source is in the observations corpus, prefer the most specific excerpt that grounds the claim (a phrase, not the full thought).
+
+**Self-check before responding:** if your answer contains any \`[N]\` marker anywhere, the literal line \`Sources:\` must appear in the answer, followed by one source line per marker. If you wrote \`[1]\` but the answer string does not contain "Sources:" at the end, fix it before responding. Short answers, single-citation answers, and one-sentence claims are NOT exempt — this is the most-failed rule in evaluation, so verify the Sources block explicitly.`
 
 export const RULE_OUTPUT_JSON = `# Output format (JSON mode only)
 
-Always respond in this exact JSON shape:
+**Every response MUST be a single valid JSON object** with these exact keys. The object envelope is non-negotiable — declines, off-topic redirects, adversarial refusals, and no-data responses all go inside the same JSON shape. Never return raw prose. Never return the answer text as the whole response. If the answer is a one-sentence factual decline, that sentence is the value of the \`answer\` field — not the whole response.
+
+Required shape:
 {
-  "answer": "<prose; if the answer makes any factual claim, include [N] markers and a Sources: block — see below>",
+  "answer": "<prose; see citation rules below>",
   "confidence": "high" | "medium" | "low",
   "sources": ["experience.<company>", "projects.<slug>", "observations"],
   "follow_up_suggestions": ["...", "..."]
 }
 
-\`answer\` shape depends on whether the answer makes factual claims:
+The shape of the \`answer\` *string* depends on whether the response makes factual claims about the candidate:
 
-**For claim-bearing answers** (binary, capability, behavioral questions answered from the corpus): include footnote markers and a Sources: block. Example:
+**Claim-bearing answer** (binary / capability / behavioral — anything grounded in the corpus): include footnote markers and a \`Sources:\` block inside the \`answer\` string. Full example response:
 
-  Sunny built resume-agent [1], shipping a dual-generation pipeline with deterministic rubric scoring [2] and a default-public-with-opt-out privacy policy for the OB1 thoughts that ground its responses [3].
+{
+  "answer": "Sunny built resume-agent [1], shipping a dual-generation pipeline with deterministic rubric scoring [2] and a default-public-with-opt-out privacy policy for the OB1 thoughts that ground its responses [3].\\n\\nSources:\\n[1] projects.resume-agent\\n[2] observations: \\"eval-driven development for LLM products\\"\\n[3] projects.resume-agent",
+  "confidence": "high",
+  "sources": ["projects.resume-agent", "observations"],
+  "follow_up_suggestions": ["What other features has Sunny shipped on resume-agent?"]
+}
 
-  Sources:
-  [1] projects.resume-agent
-  [2] observations: "eval-driven development for LLM products"
-  [3] projects.resume-agent
+**Decline answer** (off-topic / no-data / adversarial — no factual claims about the candidate): the \`answer\` string is the bare decline; do NOT include \`[N]\` markers or a \`Sources:\` block inside the string. \`sources\` array is empty; \`confidence\` is \`low\`. Full example response:
 
-**For declines** (off-topic, no-data, adversarial — answers that make NO factual claims about the candidate): omit the Sources: block entirely; no [N] markers. The decline is the whole answer. Example:
+{
+  "answer": "This question is outside the scope of the candidate's documented work history.",
+  "confidence": "low",
+  "sources": [],
+  "follow_up_suggestions": []
+}
 
-  This question is outside the scope of the candidate's documented work history.
+(Note: both examples above are JSON objects. Even the one-sentence decline is wrapped in the envelope. Never emit the answer string by itself.)
 
 Confidence:
 - "high" — the answer is directly supported by profile data or a clearly relevant observation, and every claim is cited.
 - "medium" — honest inference from adjacent data; no claim is made beyond what the data supports.
-- "low" — the corpus is thin on this. A "low" answer should *read like* "the candidate does not appear to have documented work on X" — not a confident-sounding sentence with a quiet disclaimer.
+- "low" — the corpus is thin or absent. A "low" answer should *read like* "the candidate does not appear to have documented work on X" — not a confident-sounding sentence with a quiet disclaimer. Declines are always "low" confidence.
 
-\`sources\` (JSON field) mirrors the in-prose \`Sources:\` block. For claim-bearing answers, list every cited corpus path; may include "observations" as a coarse marker. For declines, the array is typically empty.`
+\`sources\` (JSON field) mirrors the in-prose \`Sources:\` block. For claim-bearing answers, list every cited corpus path; may include "observations" as a coarse marker. For declines, the array is empty.`
 
 const RULES_SHARED = [
   META_TONE_NOTE,
