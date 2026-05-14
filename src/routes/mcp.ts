@@ -440,8 +440,14 @@ function buildServer(): McpServer {
           .eq('id', id)
           .single()
 
-        if (fetchError || !existing) {
-          return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+        if (fetchError) {
+          // PGRST116 = no rows returned via .single() — genuine not-found.
+          // Anything else (RLS, network, schema) should surface the real cause
+          // so the caller doesn't see a misleading "not found" for a transient failure.
+          if (fetchError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
+          return { content: [{ type: 'text' as const, text: `Failed to load thought ${id}: ${fetchError.message}` }], isError: true }
         }
 
         const opts = resolveThoughtUpdateOpts(existing.metadata, { private: isPrivate })
@@ -458,9 +464,24 @@ function buildServer(): McpServer {
           update.metadata = buildThoughtMetadata(existing.metadata, opts)
         }
 
-        const { error: updateError } = await supabase.from('thoughts').update(update).eq('id', id)
+        // .select().single() forces a representation back so we can confirm a
+        // row was actually touched. Without it, PostgREST can return success
+        // with 0 affected rows (e.g. on a concurrent delete) and we'd happily
+        // report "updated" for a row that no longer exists.
+        const { data: updated, error: updateError } = await supabase
+          .from('thoughts')
+          .update(update)
+          .eq('id', id)
+          .select('id')
+          .single()
         if (updateError) {
+          if (updateError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
           return { content: [{ type: 'text' as const, text: `Failed to update thought: ${updateError.message}` }], isError: true }
+        }
+        if (!updated) {
+          return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
         }
 
         const changed: string[] = []
@@ -487,22 +508,27 @@ function buildServer(): McpServer {
     },
     async ({ id }) => {
       try {
-        const { data: existing, error: fetchError } = await supabase
+        // .select().single() on the delete returns the deleted row and lets us
+        // detect "no row matched" via PGRST116, so a concurrent delete or a
+        // stale ID can't produce a false "Deleted" confirmation.
+        const { data: deleted, error: deleteError } = await supabase
           .from('thoughts')
-          .select('content')
+          .delete()
           .eq('id', id)
+          .select('content')
           .single()
 
-        if (fetchError || !existing) {
+        if (deleteError) {
+          if (deleteError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
+          return { content: [{ type: 'text' as const, text: `Failed to delete thought: ${deleteError.message}` }], isError: true }
+        }
+        if (!deleted) {
           return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
         }
 
-        const { error: deleteError } = await supabase.from('thoughts').delete().eq('id', id)
-        if (deleteError) {
-          return { content: [{ type: 'text' as const, text: `Failed to delete thought: ${deleteError.message}` }], isError: true }
-        }
-
-        const preview = existing.content.length > 80 ? existing.content.slice(0, 77) + '...' : existing.content
+        const preview = deleted.content.length > 80 ? deleted.content.slice(0, 77) + '...' : deleted.content
         return { content: [{ type: 'text' as const, text: `Deleted thought ${id}\n  "${preview}"` }] }
       } catch (err: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
