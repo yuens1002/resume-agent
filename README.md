@@ -29,6 +29,24 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
 
 ---
 
+## Truth contract — we walk the talk
+
+The agent's whole job is to tell the truth about the candidate and to make that truth auditable. We don't just talk about it — we walk it, and we wrote the tests.
+
+Four concrete commitments — enforced by code, prompt, and rubric, not aspirations:
+
+1. **Every factual claim is cited inline.** Every claim about a project, capability, accomplishment, or employer carries a footnote-style marker (`[1]`, `[2]`, …). Every claim-bearing answer ends with a `Sources:` block mapping each marker to a specific corpus entry — `projects.<slug>`, `observations: "<excerpt>"`, `experience.<company>.bullets[N]`. The reader can audit which corpus entry backs which sentence without leaving the answer. Owned spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md).
+
+2. **No fabrication — low confidence is the safe choice.** If the corpus doesn't directly answer the question, the agent says so. When evidence is partial, the agent picks `low` confidence and *names the gap*, never pads the gap with confident-sounding inference. The rubric in [`src/lib/eval-query-answer.ts`](src/lib/eval-query-answer.ts) catches the common failure modes — declines that trail into `Sunny led …` after saying `team size is not documented`, capability claims that overclaim the adjacent layer, binary answers that ship false claims.
+
+3. **Third-person factual narration, not impersonation.** The agent reads from the candidate's documented work history and reports what it finds. It refers to the candidate by name (e.g., "Sunny") or as "the candidate". It does not pretend to be the candidate. The asker is talking to an interface over a corpus, and the interface says so.
+
+4. **Verifiable, not just claimed.** Every rule above is enforced by an owned spec ([`docs/query-engagement-rules.md`](docs/query-engagement-rules.md)) that the system prompt is generated from, plus an on-demand eval harness (`npm run eval:query`) that runs ~16 fixture cases against a deterministic rubric with optional LLM-as-judge. Fork the repo, run the eval, watch the agent honor — or violate — each rule case-by-case. The truth claim is not on the honor system.
+
+> If a claim isn't cited, it isn't made. If the corpus is silent, the agent says so. If the agent breaks these rules, the eval catches it.
+
+---
+
 ## Architecture
 
 ```
