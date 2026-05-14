@@ -41,7 +41,7 @@ The data validates threshold-as-pre-filter for v2 (keep `QUERY_THOUGHTS_THRESHOL
 1. **Re-voice every named rule constant** in `src/lib/query-prompt.ts` from first person to third person. Refer to the candidate by name (e.g., "Sunny") or as "the candidate"; never use "I" / "my" / "me". Apply the same voice to the example tone phrasings in each rule.
 2. **Drop the calendly offer and any personal-contact gesture** from the `RULE_GAPS` no-data sub-case. Unify the no-data response shape with off-topic: both resolve to a single factual-scope-decline ("This question is outside the candidate's documented work history.").
 3. **Add `RULE_CITATION`** as a new top-level rule: every factual claim about a project, capability, or accomplishment in the answer text carries a footnote-style marker (`[1]`, `[2]`); the answer ends with a `Sources:` block mapping each marker to its corpus reference (`projects.<slug>`, `observations: "<excerpt>"`, `experience.<company>.bullets[N]`, etc.). The existing `sources` JSON field stays for machine consumers; the in-prose citations are for humans (and auditing).
-4. **Update the rubric** in `src/lib/eval-query-answer.ts`: drop `no-data-offers-contact`; add a `cites-source` deterministic rule applied to binary / capability / behavioral categories (checks the answer text contains at least one `[\d+]` marker AND a `Sources:` block); keep the false-positive-fixing fixture change (drop `"Kubernetes in production"` from `mustNotClaim`).
+4. **Update the rubric** in `src/lib/eval-query-answer.ts`: drop `no-data-offers-contact`; add a `cites-source` deterministic rule applied to binary / capability / behavioral categories (checks the answer text contains at least one bracketed-integer marker like `[1]` — matched by the regex `\[\d+\]` — AND a `Sources:` block); keep the false-positive-fixing fixture change (drop `"Kubernetes in production"` from `mustNotClaim`).
 5. **Update the spec doc, README, workflow, and unit tests** to reflect the v2 voice, citation requirement, and unified decline posture. Keep v1's plan as historical record.
 
 ## Non-goals
@@ -195,7 +195,7 @@ Sources:
 **Rubric**
 - AC-8: `no-data-offers-contact` rule is gone. *(automated — substring check on rubric source)*
 - AC-9: `cites-source` rule is applied to binary, capability, and behavioral categories. *(automated)*
-- AC-10: `cites-source` passes when the answer text contains both `[\d+]` markers and a `Sources:` header line; fails when either is missing. *(automated)*
+- AC-10: `cites-source` passes when the answer text contains both a bracketed-integer marker (matching `\[\d+\]`, e.g. `[1]`) and a `Sources:` header line; fails when either is missing. *(automated)*
 - AC-11: `capability-kubernetes` case fixture no longer contains `"Kubernetes in production"` in `mustNotClaim`. *(automated)*
 - AC-12: `no_data` rubric checks for a factual-decline shape (the answer contains at least one phrase from a small known-value list: `outside the scope`, `not in the candidate's`, `does not appear to have`, etc.) and does NOT check for calendly. *(automated)*
 
