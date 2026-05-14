@@ -212,6 +212,32 @@ describe('AC-12: no_data factual-decline rule', () => {
     ).rules.find((x) => x.rule === 'no-data-factual-decline')!
     assert.equal(contactTail.pass, false, 'a decline that says "feel free to contact" must fail')
   })
+
+  it('fails when a factual decline trails into an inference claim about the candidate (fabrication bait)', () => {
+    // This is the failure mode RULE_HONESTY exists to prevent: agent declines
+    // up front, then pads with a confident claim inferred from adjacent data.
+    const inferenceTail = scoreAnswer(
+      noDataCase,
+      makeResponse(`Team size is not documented in the work history, but Sunny led the resume-agent project through multiple iterations.`),
+    ).rules.find((x) => x.rule === 'no-data-factual-decline')!
+    assert.equal(inferenceTail.pass, false, 'a decline that pads with "Sunny led ..." must fail')
+    assert.match(inferenceTail.detail, /inference claim/i)
+
+    const inferenceTail2 = scoreAnswer(
+      noDataCase,
+      makeResponse(`The candidate does not appear to have documented budget responsibility. However, the candidate managed multi-project resource allocation across artisan-roast.`),
+    ).rules.find((x) => x.rule === 'no-data-factual-decline')!
+    assert.equal(inferenceTail2.pass, false, 'a decline that pads with "the candidate managed ..." must fail')
+  })
+
+  it('passes a clean decline that mentions the candidate only in the decline phrase itself', () => {
+    // Sanity: the inference regex must not fire on the decline shape itself.
+    const r = scoreAnswer(
+      noDataCase,
+      makeResponse(`The candidate does not appear to have documented work history relevant to this question.`),
+    ).rules.find((x) => x.rule === 'no-data-factual-decline')!
+    assert.equal(r.pass, true, 'clean decline must not trigger the inference-claim regex')
+  })
 })
 
 // ── AC-9, AC-10: cites-source rule ──
