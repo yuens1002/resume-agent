@@ -255,6 +255,24 @@ describe('RULE_ADVERSARIAL — third-person refusal', () => {
   })
 })
 
+// ── Few-shot examples invariant: spec doc mirrors the prompt ──
+
+describe('Few-shot examples — spec and prompt stay in sync', () => {
+  const specSource = readFileSync(join(repoRoot, 'docs', 'query-engagement-rules.md'), 'utf8')
+
+  it('spec doc has a "Few-shot examples" section under Output format', () => {
+    assert.match(specSource, /Few-shot examples/, 'docs/query-engagement-rules.md must mirror the few-shot section the prompt carries')
+  })
+
+  it('spec doc shows the short-binary, short-capability, multi-citation, and decline few-shots', () => {
+    assert.match(specSource, /Short binary, yes/i)
+    assert.match(specSource, /Short binary, no/i)
+    assert.match(specSource, /Short capability/i)
+    assert.match(specSource, /Multi-citation behavioral/i)
+    assert.match(specSource, /Decline \(no markers/i)
+  })
+})
+
 // ── AC-14: Doc/code sync ──
 
 describe('docs/query-engagement-rules.md stays in sync with the prompt module', () => {
