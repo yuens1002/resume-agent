@@ -29,6 +29,24 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
 
 ---
 
+## Truth contract — we walk the talk
+
+The agent's whole job is to tell the truth about the candidate and to make that truth auditable. We don't just talk about it — we walk it, and we wrote the tests.
+
+Four concrete commitments — enforced by code, prompt, and rubric, not aspirations:
+
+1. **Every factual claim is cited inline.** Every claim about a project, capability, accomplishment, or employer carries a footnote-style marker (`[1]`, `[2]`, …). Every claim-bearing answer ends with a `Sources:` block mapping each marker to a specific corpus entry — `projects.<slug>`, `observations: "<excerpt>"`, `experience.<company>.bullets[N]`. The reader can audit which corpus entry backs which sentence without leaving the answer. Owned spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md).
+
+2. **No fabrication — low confidence is the safe choice.** If the corpus doesn't directly answer the question, the agent says so. When evidence is partial, the agent picks `low` confidence and *names the gap*, never pads the gap with confident-sounding inference. The rubric in [`src/lib/eval-query-answer.ts`](src/lib/eval-query-answer.ts) catches the common failure modes — declines that trail into `Sunny led …` after saying `team size is not documented`, capability claims that overclaim the adjacent layer, binary answers that ship false claims.
+
+3. **Third-person factual narration, not impersonation.** The agent reads from the candidate's documented work history and reports what it finds. It refers to the candidate by name (e.g., "Sunny") or as "the candidate". It does not pretend to be the candidate. The asker is talking to an interface over a corpus, and the interface says so.
+
+4. **Verifiable, not just claimed.** Every rule above is enforced in two places: the system prompt is composed from named `RULE_*` constants in [`src/lib/query-prompt.ts`](src/lib/query-prompt.ts), and the human-readable spec [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md) mirrors those constants section-by-section (a unit test asserts they stay in sync). On top of that, the on-demand eval harness (`npm run eval:query`) runs ~16 fixture cases against a deterministic rubric with optional LLM-as-judge. Fork the repo, run the eval, watch the agent honor — or violate — each rule case-by-case. The truth claim is not on the honor system.
+
+> If a claim isn't cited, it isn't made. If the corpus is silent, the agent says so. If the agent breaks these rules, the eval catches it.
+
+---
+
 ## Architecture
 
 ```
@@ -402,9 +420,9 @@ The agent card's `provider.identity.fingerprint` field surfaces the same value s
 
 ## `/query` engagement rules & eval
 
-`/query` and `/public-mcp ask_candidate` answer per an explicit spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md). First-person voice; off-topic questions get a one-sentence redirect; capability gaps are named precisely with adjacent layers (never overclaiming); adversarial input is refused; `on record` / `in the database` phrasing is forbidden. The cosine similarity threshold for thoughts retrieval (default `0.35`, overridable via `QUERY_THOUGHTS_THRESHOLD`) is just a coarse pre-filter — the system prompt's `RULE_OBSERVATIONS_RELEVANCE` decides which retrieved thoughts actually inform the answer.
+`/query` and `/public-mcp ask_candidate` answer per an explicit spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md). Third-person factual narration (the agent refers to the candidate by name or as "the candidate", never impersonates); every factual claim carries a footnote-style `[N]` citation with a `Sources:` block at the end of the answer; off-topic, no-data, and adversarial questions all resolve to a single factual-decline posture; capability gaps are named precisely with adjacent layers (never overclaiming); `on record` / `in the database` phrasing is forbidden. The cosine similarity threshold for thoughts retrieval (default `0.35`, overridable via `QUERY_THOUGHTS_THRESHOLD`) is just a coarse pre-filter — the system prompt's `RULE_OBSERVATIONS_RELEVANCE` decides which retrieved thoughts actually inform the answer.
 
-On-demand eval harness in [`scripts/eval/run-eval.ts`](scripts/eval/run-eval.ts) — runs ~14 fixture cases across six categories (binary, capability, behavioral, off_topic, adversarial, no_data), scores each with a deterministic rubric (with an optional `--judge` LLM-as-judge pass), and prints a per-category report. **Not** in `test:unit` (it calls the LLM); same posture as `compare-prompts.ts`. Run with `.env.local` populated.
+On-demand eval harness in [`scripts/eval/run-eval.ts`](scripts/eval/run-eval.ts) — runs ~16 fixture cases across six categories (binary, capability, behavioral, off_topic, adversarial, no_data — including two fabrication-bait cases that test the agent declines instead of confabulating from adjacent data), scores each with a deterministic rubric (blocking correctness gates + additive quality rules) and an optional `--judge` LLM-as-judge pass. **Not** in `test:unit` (it calls the LLM); same posture as `compare-prompts.ts`. Run with `.env.local` populated.
 
 ```bash
 # Run the whole suite — deterministic rubric only, no extra LLM cost beyond /query calls
