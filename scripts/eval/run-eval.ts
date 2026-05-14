@@ -131,11 +131,13 @@ async function main(): Promise<void> {
 
     const rules = extraRule ? [...score.rules, extraRule] : score.rules
     // Blocking rules don't contribute to the additive total — match scoreAnswer's math.
+    // When a category has only blocking rules, pass rests on those alone.
     const blockingFailed = rules.some((r) => r.blocking && !r.pass)
     const additive = rules.filter((r) => !r.blocking)
     const total = additive.reduce((sum, r) => sum + r.score, 0)
-    const maxTotal = additive.length || 1
-    const pass = !blockingFailed && total >= maxTotal * PASS_RATIO
+    const maxTotal = additive.length
+    const passByThreshold = maxTotal === 0 ? true : total >= maxTotal * PASS_RATIO
+    const pass = !blockingFailed && passByThreshold
 
     process.stdout.write(`  A: ${result.answer.slice(0, 180).replace(/\s+/g, ' ')}${result.answer.length > 180 ? '…' : ''}\n`)
     process.stdout.write(`  confidence=${result.confidence}  sources=${JSON.stringify(result.sources ?? [])}\n`)

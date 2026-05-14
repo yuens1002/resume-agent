@@ -339,8 +339,12 @@ export function scoreAnswer(
   // rules are pass/fail; they don't contribute to the threshold math.
   const additive = rules.filter((r) => !r.blocking)
   const total = additive.reduce((sum, r) => sum + r.score, 0)
-  const maxTotal = additive.length || 1
-  const passByThreshold = total >= maxTotal * PASS_RATIO
+  const maxTotal = additive.length
+  // When a category has only blocking rules (e.g. adversarial), there's no
+  // additive total to threshold against — the blocking rules are the whole
+  // verdict. Default to pass-by-threshold so the case rests on the blocking
+  // gates alone. Otherwise apply the standard PASS_RATIO check.
+  const passByThreshold = maxTotal === 0 ? true : total >= maxTotal * PASS_RATIO
   return {
     caseId: caseDef.id,
     category: caseDef.category,
