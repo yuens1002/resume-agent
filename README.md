@@ -326,10 +326,12 @@ Then in Claude:
 The private `/mcp` endpoint exposes these tools for your personal use:
 
 **Open Brain tools:**
-- `search_thoughts` — Semantic search over your captured thoughts
-- `list_thoughts` — List recent thoughts with filters (type, topic, person, time)
+- `search_thoughts` — Semantic search over your captured thoughts. Each result includes the row ID so you can target it with `update_thought` / `delete_thought`
+- `list_thoughts` — List recent thoughts with filters (type, topic, person, time). Each row includes its ID
 - `thought_stats` — Get summary stats of all thoughts (totals, types, top topics, people)
 - `capture_thought` — Save a new thought with auto-generated embedding + metadata. Pass `private: true` to keep it out of the public `/query` and `/public-mcp` surfaces (default: public-eligible)
+- `update_thought` — Edit an existing thought by ID. When `content` changes, the embedding and metadata are regenerated so semantic search stays consistent. The `private` flag and `source` are preserved from the existing row unless `private` is passed explicitly
+- `delete_thought` — Permanently delete a thought by ID. No soft-delete
 - `update_profile` — Update your public profile (summary, skills, employment, projects, education, availability, contact)
 - `upsert_project` — Add or update a portfolio project by slug
 

@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
-import { buildThoughtMetadata } from '../lib/thought-metadata.js'
+import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import type { Project } from '../types.js'
 
@@ -91,10 +91,11 @@ function buildServer(): McpServer {
         }
 
         const results = data.map(
-          (t: { content: string; metadata: Record<string, unknown>; similarity: number; created_at: string }, i: number) => {
+          (t: { id: string; content: string; metadata: Record<string, unknown>; similarity: number; created_at: string }, i: number) => {
             const m = t.metadata || {}
             const parts = [
               `--- Result ${i + 1} (${(t.similarity * 100).toFixed(1)}% match) ---`,
+              `ID: ${t.id}`,
               `Captured: ${new Date(t.created_at).toLocaleDateString()}`,
               `Type: ${m.type || 'unknown'}`,
             ]
@@ -133,7 +134,7 @@ function buildServer(): McpServer {
 
         let q = supabase
           .from('thoughts')
-          .select('content, metadata, created_at')
+          .select('id, content, metadata, created_at')
           .order('created_at', { ascending: false })
           .limit(effectiveLimit)
 
@@ -151,10 +152,10 @@ function buildServer(): McpServer {
         if (error) return { content: [{ type: 'text' as const, text: `Error: ${error.message}` }], isError: true }
         if (!data || !data.length) return { content: [{ type: 'text' as const, text: 'No thoughts found.' }] }
 
-        const results = data.map((t: { content: string; metadata: Record<string, unknown>; created_at: string }, i: number) => {
+        const results = data.map((t: { id: string; content: string; metadata: Record<string, unknown>; created_at: string }, i: number) => {
           const m = t.metadata || {}
           const tags = Array.isArray(m.topics) ? (m.topics as string[]).join(', ') : ''
-          return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || '??'}${tags ? ' - ' + tags : ''})\n   ${t.content}`
+          return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || '??'}${tags ? ' - ' + tags : ''})\n   ${t.content}\n   ID: ${t.id}`
         })
 
         return { content: [{ type: 'text' as const, text: `${data.length} recent thought(s):\n\n${results.join('\n\n')}` }] }
@@ -407,6 +408,128 @@ function buildServer(): McpServer {
         if (Array.isArray(meta.action_items) && meta.action_items.length) confirmation += ` | Actions: ${(meta.action_items as string[]).join('; ')}`
 
         return { content: [{ type: 'text' as const, text: confirmation }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'update_thought',
+    {
+      title: 'Update Thought',
+      description:
+        'Edit an existing thought by ID. When `content` is provided, regenerates the embedding and re-extracts metadata so semantic search stays consistent with the new text. ' +
+        'The `private` flag and `source` are preserved from the existing record unless `private` is passed explicitly. ' +
+        'Find the ID via search_thoughts or list_thoughts (both surface it in their output).',
+      inputSchema: {
+        id: z.string().uuid().describe('UUID of the thought to update'),
+        content: z.string().optional().describe('New thought text. If provided, embedding and metadata are regenerated.'),
+        private: z.boolean().optional().describe('Override the privacy flag. Omit to leave unchanged. Pass true to hide from public surfaces; false to make public-eligible.'),
+      },
+    },
+    async ({ id, content, private: isPrivate }) => {
+      try {
+        if (content === undefined && isPrivate === undefined) {
+          return { content: [{ type: 'text' as const, text: 'Nothing to update — provide `content` and/or `private`.' }] }
+        }
+
+        const { data: existing, error: fetchError } = await supabase
+          .from('thoughts')
+          .select('metadata')
+          .eq('id', id)
+          .single()
+
+        if (fetchError) {
+          // PGRST116 = no rows returned via .single() — genuine not-found.
+          // Anything else (RLS, network, schema) should surface the real cause
+          // so the caller doesn't see a misleading "not found" for a transient failure.
+          if (fetchError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
+          return { content: [{ type: 'text' as const, text: `Failed to load thought ${id}: ${fetchError.message}` }], isError: true }
+        }
+
+        const opts = resolveThoughtUpdateOpts(existing.metadata, { private: isPrivate })
+        const update: Record<string, unknown> = {}
+
+        if (content !== undefined) {
+          const [embedding, extracted] = await Promise.all([getEmbedding(content), extractMetadata(content)])
+          update.content = content
+          update.embedding = embedding
+          update.metadata = buildThoughtMetadata(extracted, opts)
+        } else {
+          // privacy-only change: rebuild metadata from existing extracted fields,
+          // stripping reserved keys via buildThoughtMetadata.
+          update.metadata = buildThoughtMetadata(existing.metadata, opts)
+        }
+
+        // .select().single() forces a representation back so we can confirm a
+        // row was actually touched. Without it, PostgREST can return success
+        // with 0 affected rows (e.g. on a concurrent delete) and we'd happily
+        // report "updated" for a row that no longer exists.
+        const { data: updated, error: updateError } = await supabase
+          .from('thoughts')
+          .update(update)
+          .eq('id', id)
+          .select('id')
+          .single()
+        if (updateError) {
+          if (updateError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
+          return { content: [{ type: 'text' as const, text: `Failed to update thought: ${updateError.message}` }], isError: true }
+        }
+        if (!updated) {
+          return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+        }
+
+        const changed: string[] = []
+        if (content !== undefined) changed.push('content', 'embedding', 'metadata')
+        else if (isPrivate !== undefined) changed.push(`private=${opts.private}`)
+
+        return { content: [{ type: 'text' as const, text: `Thought ${id} updated — ${changed.join(', ')}.` }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'delete_thought',
+    {
+      title: 'Delete Thought',
+      description:
+        'Permanently delete a thought by ID. Irreversible — there is no soft-delete. ' +
+        'Find the ID via search_thoughts or list_thoughts (both surface it in their output).',
+      inputSchema: {
+        id: z.string().uuid().describe('UUID of the thought to delete'),
+      },
+    },
+    async ({ id }) => {
+      try {
+        // .select().single() on the delete returns the deleted row and lets us
+        // detect "no row matched" via PGRST116, so a concurrent delete or a
+        // stale ID can't produce a false "Deleted" confirmation.
+        const { data: deleted, error: deleteError } = await supabase
+          .from('thoughts')
+          .delete()
+          .eq('id', id)
+          .select('content')
+          .single()
+
+        if (deleteError) {
+          if (deleteError.code === 'PGRST116') {
+            return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+          }
+          return { content: [{ type: 'text' as const, text: `Failed to delete thought: ${deleteError.message}` }], isError: true }
+        }
+        if (!deleted) {
+          return { content: [{ type: 'text' as const, text: `Thought not found: ${id}` }], isError: true }
+        }
+
+        const preview = deleted.content.length > 80 ? deleted.content.slice(0, 77) + '...' : deleted.content
+        return { content: [{ type: 'text' as const, text: `Deleted thought ${id}\n  "${preview}"` }] }
       } catch (err: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
       }

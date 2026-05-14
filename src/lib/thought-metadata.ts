@@ -26,3 +26,27 @@ export function buildThoughtMetadata(
   if (opts.private) base.private = true
   return base
 }
+
+/**
+ * Decide the `source` and `private` flags to stamp on a thought being updated.
+ *
+ * `source` is preserved from the existing row (falling back to "mcp" only if
+ * missing or malformed). `private` is preserved from the existing row UNLESS
+ * the caller passes an explicit boolean override — `undefined` means "leave
+ * unchanged", not "make public". This mirrors the capture-side invariant in
+ * buildThoughtMetadata: the privacy flag is always caller-controlled, never
+ * inferred from extracted text.
+ */
+export function resolveThoughtUpdateOpts(
+  existingMeta: unknown,
+  override: { private?: boolean },
+): { source: string; private: boolean } {
+  const meta =
+    existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)
+      ? (existingMeta as Record<string, unknown>)
+      : {}
+  const source = typeof meta.source === 'string' && meta.source.length > 0 ? meta.source : 'mcp'
+  const existingPrivate = meta.private === true
+  const nextPrivate = override.private !== undefined ? override.private : existingPrivate
+  return { source, private: nextPrivate }
+}

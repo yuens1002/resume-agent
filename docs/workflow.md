@@ -181,16 +181,18 @@ What it does per repo (artisan-roast, artisan-roast-platform, resume-agent):
 
 To run this automatically on Windows, configure a Task Scheduler job to run `scripts/sync-nightly.bat` on a nightly schedule. Run it manually after shipping a significant feature to keep `/info` current without waiting for the next scheduled run.
 
-Once connected, 11 tools are available across two groups:
+Once connected, 13 tools are available across two groups:
 
 **Open Brain — personal knowledge capture**
 
 | Tool | What it does |
 |---|---|
 | `capture_thought` | Save a note — plain text, metadata (type, topics, people, action items) extracted automatically. Pass `private: true` to keep it out of the public `/query` and `/public-mcp` surfaces (default: public-eligible) |
-| `search_thoughts` | Semantic search by meaning — "find thoughts about accessibility work" |
-| `list_thoughts` | Chronological list with filters by type, topic, person, or date range |
+| `search_thoughts` | Semantic search by meaning — "find thoughts about accessibility work". Results include row IDs for use with `update_thought` / `delete_thought` |
+| `list_thoughts` | Chronological list with filters by type, topic, person, or date range. Rows include IDs |
 | `thought_stats` | Aggregate view — total count, distribution by type/topic/people |
+| `update_thought` | Edit an existing thought by ID. Regenerates embedding and metadata when `content` changes so semantic search stays consistent. `source` and `private` are preserved from the existing row unless `private` is explicitly overridden |
+| `delete_thought` | Permanently delete a thought by ID — no soft-delete |
 
 **Job Hunt Pipeline — application tracking**
 
