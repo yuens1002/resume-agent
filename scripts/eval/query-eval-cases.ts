@@ -88,6 +88,25 @@ export const EVAL_CASES: EvalCase[] = [
     question: 'Tell me about a time you stopped iterating because you knew it was good enough.',
     expect: { category: 'behavioral', confidenceAtLeast: 'medium', groundsInObservations: true },
   },
+  // ── no_data: thin-evidence / fabrication-bait cases ─────
+  //
+  // Questions that sound behavioral but have no direct corpus evidence. The
+  // failure mode this category guards against is hallucination — model
+  // producing a confident-sounding narrative inferred from adjacent data.
+  // Expected response: factual decline (same shape as off-topic / no-data),
+  // not a confident answer.
+  {
+    id: 'no_data-led-large-team',
+    category: 'no_data',
+    question: 'Walk me through a time you led a team of 20+ engineers through a major reorg.',
+    expect: { category: 'no_data' },
+  },
+  {
+    id: 'no_data-managed-budget',
+    category: 'no_data',
+    question: 'Describe your experience managing a multi-million dollar engineering budget.',
+    expect: { category: 'no_data' },
+  },
 
   // ── off_topic ────────────────────────────────────────────
   {
