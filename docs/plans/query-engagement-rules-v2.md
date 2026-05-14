@@ -1,7 +1,7 @@
 # Plan: `/query` Engagement Rules v2 — factual narrator + footnote citations
 
-**Branch:** `feat/query-engagement-rules-v2` (not started)
-**Status:** Planning — ready for review
+**Branch:** `feat/query-engagement-rules-v2` (merged)
+**Status:** Shipped — this doc remains as the historical record of the design. Live behavior is documented in [`docs/query-engagement-rules.md`](../query-engagement-rules.md).
 **Scope:** Pivot the v1 engagement rules from a first-person, candidate-voiced agent to a third-person factual narrator that reads from the candidate's work-history corpus and **cites every claim** via footnote-style markers. Drop the personal warmth gestures (calendly offer) that don't generalize to forkers. Unify the no-data and off-topic responses around a single factual-scope-decline posture. Fixes two bugs surfaced by the v1 eval run: the Kubernetes-in-production rubric false positive and the no-data → off-topic misclassification.
 
 ---

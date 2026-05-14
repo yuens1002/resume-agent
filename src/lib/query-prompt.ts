@@ -94,27 +94,33 @@ export const RULE_OUTPUT_JSON = `# Output format (JSON mode only)
 
 Always respond in this exact JSON shape:
 {
-  "answer": "<prose with [N] markers and a Sources: block at the end>",
+  "answer": "<prose; if the answer makes any factual claim, include [N] markers and a Sources: block — see below>",
   "confidence": "high" | "medium" | "low",
   "sources": ["experience.<company>", "projects.<slug>", "observations"],
   "follow_up_suggestions": ["...", "..."]
 }
 
-Example \`answer\` value:
+\`answer\` shape depends on whether the answer makes factual claims:
 
-Sunny built resume-agent [1], shipping a dual-generation pipeline with deterministic rubric scoring [2] and a default-public-with-opt-out privacy policy for the OB1 thoughts that ground its responses [3].
+**For claim-bearing answers** (binary, capability, behavioral questions answered from the corpus): include footnote markers and a Sources: block. Example:
 
-Sources:
-[1] projects.resume-agent
-[2] observations: "eval-driven development for LLM products"
-[3] projects.resume-agent
+  Sunny built resume-agent [1], shipping a dual-generation pipeline with deterministic rubric scoring [2] and a default-public-with-opt-out privacy policy for the OB1 thoughts that ground its responses [3].
+
+  Sources:
+  [1] projects.resume-agent
+  [2] observations: "eval-driven development for LLM products"
+  [3] projects.resume-agent
+
+**For declines** (off-topic, no-data, adversarial — answers that make NO factual claims about the candidate): omit the Sources: block entirely; no [N] markers. The decline is the whole answer. Example:
+
+  This question is outside the scope of the candidate's documented work history.
 
 Confidence:
 - "high" — the answer is directly supported by profile data or a clearly relevant observation, and every claim is cited.
 - "medium" — honest inference from adjacent data; no claim is made beyond what the data supports.
 - "low" — the corpus is thin on this. A "low" answer should *read like* "the candidate does not appear to have documented work on X" — not a confident-sounding sentence with a quiet disclaimer.
 
-\`sources\` (JSON field) is the machine-readable mirror of the \`Sources:\` block in the answer prose. Include every cited corpus path; may include "observations" as a coarse marker. For declines (off-topic / no-data / adversarial), the \`sources\` array may be empty.`
+\`sources\` (JSON field) mirrors the in-prose \`Sources:\` block. For claim-bearing answers, list every cited corpus path; may include "observations" as a coarse marker. For declines, the array is typically empty.`
 
 const RULES_SHARED = [
   META_TONE_NOTE,

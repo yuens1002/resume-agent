@@ -64,6 +64,7 @@ export const EVAL_CASES: EvalCase[] = [
         'operates Kubernetes',
         'k8s cluster the candidate manages',
         'Sunny runs Kubernetes',
+        'the candidate runs Kubernetes',
       ],
     },
   },

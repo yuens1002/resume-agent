@@ -23,7 +23,6 @@ import { generateText } from 'ai'
 import { getModel } from '../../src/lib/ai.js'
 import { parseJSON } from '../../src/lib/parse-json.js'
 import { queryProfile } from '../../src/routes/query.js'
-import { supabase } from '../../src/lib/supabase.js'
 import { scoreAnswer, buildJudgePrompt, PASS_RATIO, type RuleResult } from '../../src/lib/eval-query-answer.js'
 import { EVAL_CASES, type EvalCase } from './query-eval-cases.js'
 
@@ -83,17 +82,6 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
-  const { data: profile, error: profileErr } = await supabase
-    .from('public_profile')
-    .select('contact')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
-  if (profileErr || !profile) {
-    process.stderr.write(`Failed to load profile contact: ${profileErr?.message ?? 'not found'}\n`)
-    process.exit(2)
-  }
-  const ctx = { contact: profile.contact as { calendly?: string | null; email?: string | null } | null }
-
   process.stdout.write([
     `Running ${selected.length} case(s)`,
     flags.threshold !== undefined ? `  threshold=${flags.threshold}` : `  threshold=${process.env.QUERY_THOUGHTS_THRESHOLD ?? '0.35 (default)'}`,
@@ -114,7 +102,7 @@ async function main(): Promise<void> {
       continue
     }
 
-    const score = scoreAnswer(caseDef, result, ctx)
+    const score = scoreAnswer(caseDef, result)
     let extraRule: RuleResult | undefined
     if (flags.judge) {
       try {
@@ -142,16 +130,20 @@ async function main(): Promise<void> {
     }
 
     const rules = extraRule ? [...score.rules, extraRule] : score.rules
-    const total = rules.reduce((sum, r) => sum + r.score, 0)
-    const maxTotal = rules.length
-    const pass = total >= maxTotal * PASS_RATIO
+    // Blocking rules don't contribute to the additive total — match scoreAnswer's math.
+    const blockingFailed = rules.some((r) => r.blocking && !r.pass)
+    const additive = rules.filter((r) => !r.blocking)
+    const total = additive.reduce((sum, r) => sum + r.score, 0)
+    const maxTotal = additive.length || 1
+    const pass = !blockingFailed && total >= maxTotal * PASS_RATIO
 
     process.stdout.write(`  A: ${result.answer.slice(0, 180).replace(/\s+/g, ' ')}${result.answer.length > 180 ? '…' : ''}\n`)
     process.stdout.write(`  confidence=${result.confidence}  sources=${JSON.stringify(result.sources ?? [])}\n`)
     for (const r of rules) {
-      process.stdout.write(`  ${r.pass ? '✓' : '✗'} ${r.rule} — ${r.detail}\n`)
+      const tag = r.blocking ? (r.pass ? '✓ (blocking)' : '✗ BLOCKING-FAIL') : (r.pass ? '✓' : '✗')
+      process.stdout.write(`  ${tag} ${r.rule} — ${r.detail}\n`)
     }
-    process.stdout.write(`  ${pass ? 'PASS' : 'FAIL'} (${total.toFixed(1)}/${maxTotal})\n`)
+    process.stdout.write(`  ${pass ? 'PASS' : 'FAIL'} (additive ${total.toFixed(1)}/${maxTotal}${blockingFailed ? '; blocking-rule failure' : ''})\n`)
 
     scores.push({ caseId: caseDef.id, category: caseDef.category, pass, total, maxTotal })
   }

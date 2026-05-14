@@ -74,14 +74,16 @@ The existing `sources` JSON field stays in the response envelope as a machine-re
 
 ```json
 {
-  "answer": "<prose with [N] markers + a Sources: block>",
+  "answer": "<prose; if the answer makes any factual claim, include [N] markers and a Sources: block>",
   "confidence": "high" | "medium" | "low",
   "sources": ["experience.<company>", "projects.<slug>", "observations"],
   "follow_up_suggestions": ["...", "..."]
 }
 ```
 
-Example `answer` value:
+`answer` shape depends on whether the answer makes factual claims:
+
+**Claim-bearing answer** (binary, capability, behavioral — answers grounded in the corpus): include `[N]` markers and a `Sources:` block. Example:
 
 > Sunny built resume-agent [1], shipping a dual-generation pipeline with deterministic rubric scoring [2] and a default-public-with-opt-out privacy policy for the OB1 thoughts that ground its responses [3].
 >
@@ -89,6 +91,10 @@ Example `answer` value:
 > [1] projects.resume-agent
 > [2] observations: "eval-driven development for LLM products"
 > [3] projects.resume-agent
+
+**Decline answer** (off-topic, no-data, adversarial — no factual claims): omit the `Sources:` block; no `[N]` markers. The decline is the whole answer. Example:
+
+> This question is outside the scope of the candidate's documented work history.
 
 Confidence:
 - `high` — the answer is directly supported by profile or a clearly relevant observation, and every claim is cited.
