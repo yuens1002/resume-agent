@@ -28,6 +28,12 @@ _None right now._
 
 ## Next
 
+### `/query` engagement rules v2 — factual narrator + footnote citations
+
+**Plan:** [docs/plans/query-engagement-rules-v2.md](docs/plans/query-engagement-rules-v2.md)
+
+Pivots v1 from first-person ("I built X...") to third-person factual narrator ("Sunny built X [1]...") with footnote-style citation markers and a `Sources:` block mapping each marker to a corpus entry. Drops the calendly contact-offer (not portable to forkers) and unifies the no-data + off-topic responses around a single scope-decline posture. Folds in two bug fixes surfaced by v1's live eval: the `"Kubernetes in production"` overclaim false positive and the no-data → off-topic misclassification. Citations make "your agent is your truth" auditable line-by-line and set up the OEP signed-receipts work.
+
 ### Public MCP traffic observations
 
 Observations from live `/public-mcp` traffic — agent card fields consumed vs ignored, tool naming that AI clients discover reliably, rate-limit thresholds that hold up, errors worth surfacing. Deliverable: `docs/plans/base-layer-observations.md`, committed incrementally as patterns emerge.
