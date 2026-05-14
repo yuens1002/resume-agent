@@ -54,7 +54,17 @@ export const EVAL_CASES: EvalCase[] = [
       category: 'capability',
       namesGap: 'Kubernetes',
       allowsAdjacent: ['Railway', 'Supabase', 'Vercel'],
-      mustNotClaim: ['I run Kubernetes', 'Kubernetes in production', 'k8s cluster I manage'],
+      // NOTE: `"Kubernetes in production"` is NOT in this list — the natural
+      // disclaimer ("has not run Kubernetes in production") contains that
+      // exact substring, so flagging it produces a false positive. The
+      // overclaim anti-patterns target affirmative phrasings instead.
+      mustNotClaim: [
+        'runs Kubernetes in production',
+        'manages a Kubernetes cluster',
+        'operates Kubernetes',
+        'k8s cluster the candidate manages',
+        'Sunny runs Kubernetes',
+      ],
     },
   },
 
