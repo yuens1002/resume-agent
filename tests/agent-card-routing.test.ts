@@ -20,6 +20,7 @@ stubHandler.get('/', (c) => c.json({ stub: true }))
 
 function buildApp() {
   const app = new Hono()
+  app.route('/', stubHandler)
   app.route('/.well-known/agent-card.json', stubHandler)
   app.route('/.well-known/agent-card', stubHandler)
   app.get('/.well-known/agent.json', (c) => c.redirect('/.well-known/agent-card.json', 301))
@@ -41,6 +42,12 @@ describe('/.well-known/agent-card routing', () => {
   })
 
   after(() => server.close())
+
+  it('AC-0: GET / → 200 JSON (root alias for agent card)', async () => {
+    const res = await fetch(`${baseUrl}/`, { redirect: 'manual' })
+    assert.equal(res.status, 200, 'root must not redirect')
+    assert.match(res.headers.get('content-type') ?? '', /application\/json/)
+  })
 
   it('AC-1: /.well-known/agent-card.json → 200', async () => {
     const res = await fetch(`${baseUrl}/.well-known/agent-card.json`)

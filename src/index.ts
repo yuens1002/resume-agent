@@ -108,7 +108,8 @@ app.route('/mcp', mcpRoute)
 app.route('/public-mcp', publicMcpRoute)
 app.route('/', oauthRoute)
 
-app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))
+app.get('/health', (c) => c.json({ status: 'ok' }))
+app.route('/', agentCardRoute)
 
 const port = parseInt(process.env.PORT ?? '3000')
 
