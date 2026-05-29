@@ -17,9 +17,12 @@ app.get('/', async (c) => {
     margin: 2,
   })
 
-  c.header('Content-Type', 'image/png')
-  c.header('Cache-Control', 'public, max-age=3600')
-  return c.body(png)
+  return new Response(new Uint8Array(png), {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600',
+    },
+  })
 })
 
 export default app
