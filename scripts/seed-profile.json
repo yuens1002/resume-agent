@@ -121,9 +121,9 @@
   ],
   "projects": [
     {
-      "name": "Artisan Roast Platform",
+      "name": "Artisan Roast Store",
       "slug": "artisan-roast",
-      "description": "Open-source e-commerce platform for specialty coffee retailers, built with an AI-native development workflow and a SaaS layer for managed hosting, billing, and AI-powered back office.",
+      "description": "Open-source e-commerce store for specialty coffee retailers, built with an AI-native development workflow.",
       "problem": "Independent coffee shop owners lack affordable, purpose-built e-commerce tooling. Generic platforms are expensive and not tailored to specialty coffee workflows. Non-technical owners have no viable self-hosted option.",
       "role": "Sole developer and architect — designed and built the open-source store, the SaaS platform, and the AI-native development workflow end-to-end.",
       "tech": ["Next.js", "TypeScript", "Prisma", "Neon PostgreSQL", "Stripe", "NextAuth.js v5", "Tailwind CSS", "shadcn/ui", "Jest", "Playwright", "Claude Agent SDK", "Google Gemini", "Zod", "GitHub Actions", "Vercel"],
