@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — feat(routes): add GET /openapi.json (Custom GPT Actions schema) and GET /qr (QR code PNG targeting QR_TARGET_URL)
+
 - 2026-05-29 — feat(data): add Brew Guide project to portfolio
 
 - 2026-05-29 — feat(routes): GET / serves agent card directly; add GET /health → {status: ok}

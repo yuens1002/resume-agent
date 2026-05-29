@@ -10,6 +10,8 @@ import queryRoute from './routes/query.js'
 import matchRoute from './routes/match.js'
 import resumeRoute from './routes/resume.js'
 import agentCardRoute from './routes/agent-card.js'
+import openApiRoute from './routes/openapi.js'
+import qrRoute from './routes/qr.js'
 import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
@@ -112,6 +114,8 @@ app.get('/health', (c) => {
   c.header('Cache-Control', 'no-store')
   return c.json({ status: 'ok' })
 })
+app.route('/openapi.json', openApiRoute)
+app.route('/qr', qrRoute)
 app.route('/', agentCardRoute)
 
 const port = parseInt(process.env.PORT ?? '3000')
@@ -119,7 +123,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /health, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
+  console.log('[routes] GET /, /health, /openapi.json, /qr, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS, /health)')
 })
