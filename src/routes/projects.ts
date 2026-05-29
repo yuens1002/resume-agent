@@ -20,7 +20,7 @@ app.get('/', async (c) => {
   const projects: Project[] = data.projects ?? []
 
   return c.json(
-    projects.map(({ name, slug, description, role, tech, status, started, url, repo }) => ({
+    projects.map(({ name, slug, description, role, tech, status, started, url, repo, cover }) => ({
       name,
       slug,
       description,
@@ -30,6 +30,7 @@ app.get('/', async (c) => {
       started,
       url,
       repo,
+      cover,
     }))
   )
 })

@@ -142,7 +142,8 @@
       "status": "active",
       "started": "2025-11",
       "url": "https://demo.artisanroast.app",
-      "repo": "https://github.com/yuens1002/artisan-roast"
+      "repo": "https://github.com/yuens1002/artisan-roast",
+      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/artisan-roast.webp"
     },
     {
       "name": "Artisan Roast SaaS Platform",
@@ -160,7 +161,8 @@
       "status": "in-progress",
       "started": "2025-11",
       "url": "https://artisanroast.app",
-      "repo": "https://github.com/dev-yuen-agency/artisan-roast-platform"
+      "repo": "https://github.com/dev-yuen-agency/artisan-roast-platform",
+      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/artisan-roast-platform.webp"
     },
     {
       "name": "Resume Agent",
@@ -198,7 +200,8 @@
       "status": "active",
       "started": "2026-05",
       "url": "https://brew-guide-production.up.railway.app",
-      "repo": "https://github.com/yuens1002/brew-guide"
+      "repo": "https://github.com/yuens1002/brew-guide",
+      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/brew-guide.webp"
     }
   ],
   "availability": {
