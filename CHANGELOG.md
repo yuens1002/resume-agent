@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — fix(routes): serve /.well-known/agent-card as 200 JSON instead of 301 redirect — eliminates Google Safe Browsing false positive
+
 - 2026-05-14 — feat(mcp): add `update_thought` + `delete_thought` to the private MCP — closes the CRUD loop on captured thoughts; previously the private MCP could capture, search, list, and aggregate, but had no way to edit a typo or remove a thought without dropping into SQL
   - `update_thought` takes an `id` plus optional `content` and/or `private`. When `content` changes, the embedding and metadata are regenerated so semantic search stays consistent with the new text. `source` and `private` are preserved from the existing row unless `private` is explicitly overridden — `undefined` means "leave unchanged", not "make public"
   - `delete_thought` takes an `id` and removes the row permanently (no soft-delete)
