@@ -1,213 +1,87 @@
 {
   "contact": {
-    "name": "Sunny Yuen",
-    "email": "syuen@sbgrp.cc",
-    "calendly": "https://calendly.com/syuen-sbgrp/get_to_know_you",
-    "github": "https://github.com/yuens1002",
-    "linkedin": "https://linkedin.com/in/yuens-me/"
+    "name": "Your Name",
+    "email": "you@example.com",
+    "calendly": "https://calendly.com/your-handle/intro",
+    "github": "https://github.com/your-handle",
+    "linkedin": "https://linkedin.com/in/your-handle/"
   },
-  "summary": "Frontend engineer with 6+ years shipping user-centric web applications across startups and government entities. Deep experience in the Vue.js ecosystem, unit and end-to-end testing, and accessibility compliance (508/WCAG). Strong full-stack range with recent AI/ML integrations and TypeScript.",
+  "summary": "A brief professional summary — your focus area, years of experience, and key strengths.",
   "skills": [
     {
       "category": "Languages",
-      "items": ["JavaScript", "TypeScript", "Python", "Go", "HTML"]
+      "items": ["JavaScript", "TypeScript", "Python"]
     },
     {
       "category": "Frameworks & Libraries",
-      "items": ["Vue.js", "React.js", "Next.js", "Tailwind CSS", "LangChain"]
-    },
-    {
-      "category": "Testing",
-      "items": ["Jest", "Playwright", "Cucumber", "RTL"]
+      "items": ["React", "Next.js", "Node.js"]
     },
     {
       "category": "Data & APIs",
-      "items": ["PostgreSQL", "Prisma", "REST API", "GraphQL"]
+      "items": ["PostgreSQL", "REST API", "GraphQL"]
     },
     {
       "category": "Tools & Practices",
-      "items": ["Git", "CI/CD", "SAFe Agile", "508 & WCAG Compliance"]
+      "items": ["Git", "CI/CD", "Docker"]
     }
   ],
   "employment": [
     {
-      "company": "Self-Employed",
-      "title": "Application Developer",
-      "start_date": "2023-08",
+      "company": "Current Employer",
+      "title": "Software Engineer",
+      "start_date": "2023-01",
       "end_date": null,
       "bullets": [
-        "Built an AI chatbot platform MVP for landlords in Python, from ideation to working code",
-        "Launched a full-stack Next.js application from inception with CI/CD pipeline deployed on Vercel",
-        "Developed an open-source e-commerce solution with a secure admin portal for real-time analytics and AI/ML-powered public portal"
+        "Describe a key achievement with measurable impact",
+        "Describe a technical contribution or feature shipped",
+        "Describe a cross-functional collaboration or process improvement"
       ]
     },
     {
-      "company": "Wipro, Inc",
-      "title": "Frontend Developer",
-      "start_date": "2023-01",
-      "end_date": "2023-08",
-      "bullets": [
-        "Spearheaded development of a custom web application for LAX airport, enhancing organizational engagement through a dynamic reporting system and organization directory",
-        "Built responsive web/mobile-first UI using Next.js, React, TypeScript, and MUI based on Figma specs",
-        "Integrated Microsoft Active Directory for a searchable personnel directory across airport staff and management",
-        "Launched beta and revamped v1 with authenticated access to reporting via RESTful API endpoints"
-      ]
-    },
-    {
-      "company": "DesignIt, Inc",
-      "title": "Software Developer",
-      "start_date": "2022-04",
+      "company": "Previous Employer",
+      "title": "Junior Developer",
+      "start_date": "2021-06",
       "end_date": "2022-12",
       "bullets": [
-        "Enhanced Coherence Design System by adapting type-safe functional components, improving maintainability and performance",
-        "Boosted unit test code coverage from 50% to over 80% using Jest and RTL",
-        "Achieved 0% security vulnerabilities via manual and automated NPM dependency updates",
-        "Collaborated to resolve accessibility issues ensuring compliance with 508/WCAG standards"
-      ]
-    },
-    {
-      "company": "MetroStar Systems",
-      "title": "Frontend Developer",
-      "start_date": "2020-05",
-      "end_date": "2022-03",
-      "bullets": [
-        "Implemented automated accessibility (508) and code quality tests using Jest, Playwright, and Cucumber for the US Census Bureau",
-        "Refactored Farmers.gov Drupal 8 theme using HTML/Sass/CSS/JavaScript, improving efficiency and maintainability",
-        "Developed self-contained Vue.js web applications using Drupal as an endpoint for content management",
-        "Participated in SAFe Agile practices with cross-disciplinary teams"
-      ]
-    },
-    {
-      "company": "Remine, Inc",
-      "title": "Software Engineer",
-      "start_date": "2019-04",
-      "end_date": "2020-03",
-      "bullets": [
-        "Delivered cross-product features for a real-estate intelligence web app serving national brokerage firms",
-        "Contributed to both frontend (React/Redux) and backend (REST/GraphQL) layers",
-        "Designed and maintained global UI components including Modals and Drawers, improving consistency across the application",
-        "Implemented feature flags at the component level to facilitate smoother feature rollouts",
-        "Built styled components within a custom UI library in collaboration with the UX team"
-      ]
-    },
-    {
-      "company": "DealerOn, Inc",
-      "title": "Front End Developer",
-      "start_date": "2017-03",
-      "end_date": "2019-04",
-      "bullets": [
-        "Built data-intensive single-page applications for a client-facing operations management system",
-        "Integrated API endpoints to frontend using Vue.js/Vuetify and collaborated with QA on bug resolution",
-        "Partnered with UX team to iterate over design mocks and built prototypes for user testing",
-        "Utilized Google Charts for data visualization; participated in daily scrums and bi-weekly build cycles"
+        "Describe a key achievement with measurable impact",
+        "Describe a technical contribution or feature shipped"
       ]
     }
   ],
   "education": [
     {
-      "institution": "Seattle University",
-      "degree": "Certificate",
-      "field": "Web Development",
-      "start_date": "",
-      "end_date": "2016"
-    },
-    {
-      "institution": "University of Washington",
-      "degree": "Bachelor of Arts",
-      "field": "",
-      "start_date": "",
-      "end_date": "1999"
+      "institution": "University Name",
+      "degree": "Bachelor of Science",
+      "field": "Computer Science",
+      "start_date": "2017",
+      "end_date": "2021"
     }
   ],
   "projects": [
     {
-      "name": "Artisan Roast Store",
-      "slug": "artisan-roast",
-      "description": "Open-source e-commerce store for specialty coffee retailers, built with an AI-native development workflow.",
-      "problem": "Independent coffee shop owners lack affordable, purpose-built e-commerce tooling. Generic platforms are expensive and not tailored to specialty coffee workflows. Non-technical owners have no viable self-hosted option.",
-      "role": "Sole developer and architect — designed and built the open-source store, the SaaS platform, and the AI-native development workflow end-to-end.",
-      "tech": ["Next.js", "TypeScript", "Prisma", "Neon PostgreSQL", "Stripe", "NextAuth.js v5", "Tailwind CSS", "shadcn/ui", "Jest", "Playwright", "Claude Agent SDK", "Google Gemini", "Zod", "GitHub Actions", "Vercel"],
+      "name": "My Project",
+      "slug": "my-project",
+      "description": "One-line description of what the project does and who it is for.",
+      "problem": "What problem does this solve? Who has this problem and why do existing solutions fall short?",
+      "role": "Describe your role — sole developer, tech lead, contributor, etc.",
+      "tech": ["TypeScript", "Next.js", "PostgreSQL"],
       "highlights": [
-        "Built a complete coffee-native e-commerce platform (products, orders, subscriptions, admin, drag-and-drop menu builder) as a solo developer — 118 API routes, 39 Prisma models, 638 TypeScript files",
-        "Engineered a nightly QA system using Claude Agent SDK + Playwright that reads accessibility trees (not CSS selectors) to verify 16 acceptance criteria — auto-opens GitHub issues on regression",
-        "Designed a formalized agentic development workflow: 6-phase feature loop with sub-agent AC verification, pre-commit hooks enforcing a verification state machine (planning → planned → implementing → pending → partial → verified)",
-        "Built a spec drift guard (GitHub Actions) that enforces bidirectional sync between VERIFICATION.md and qa-agent.js — prevents spec/implementation divergence across the team",
-        "Implemented an AI about-page generator: Gemini 2.5-flash + 10-question wizard produces multiple content variations; owner selects, edits, and publishes — token usage tracked per feature for cost monitoring",
-        "Built an AI personalization engine that learns from user activity (page views, searches, add-to-cart, purchases) to power 'Recommended for You' sections and a natural language chat assistant",
-        "Engineered a SaaS monetization layer with Stripe Billing, tiered subscriptions (Free/Pro/Hosted), automated license key generation/validation, and a telemetry ingestion system for platform analytics",
-        "Designed and implemented an automated data migration pipeline for self-hosted → managed hosting transitions, modeled as a state machine (PENDING → EXPORTING → EXPORTED → IMPORTING → COMPLETED)"
+        "Key technical achievement or decision — quantify where possible",
+        "Another notable feature, pattern, or outcome"
       ],
-      "architecture": "Two-repo architecture: open-source store (Next.js 16 App Router, Prisma, Neon PostgreSQL) and a separate SaaS platform on the same stack. Both served from a single Vercel project via middleware hostname routing. Auth via NextAuth v5 + Google OAuth. Store instances validate licenses and phone home telemetry to the platform API. Dev workflow uses Claude as a first-class tool: agentic feature loop with sub-agents for AC verification, Claude Agent SDK for nightly install verification, and Gemini for in-app AI content generation.",
-      "impact": "Live at artisanroast.app with weekly releases (v0.97.0). Free community tier, support plans, and add-on packages shipped. Hosted solution and AI back office MCP server in active development.",
+      "architecture": "Brief description of the system design — how the pieces fit together.",
+      "impact": "What's the outcome? Users, traffic, revenue, time saved, or other measurable result.",
       "status": "active",
-      "started": "2025-11",
-      "url": "https://demo.artisanroast.app",
-      "repo": "https://github.com/yuens1002/artisan-roast",
-      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/artisan-roast.webp"
-    },
-    {
-      "name": "Artisan Roast SaaS Platform",
-      "slug": "artisan-roast-platform",
-      "description": "Multi-tenant SaaS layer on top of the open-source Artisan Roast store — managed hosting, billing, license enforcement, AI back office, and provisioning automation for independent coffee shop owners.",
-      "problem": "The open-source store requires self-hosting expertise. The SaaS platform removes that barrier: owners get a managed instance, Stripe billing, and AI-powered tools with zero DevOps overhead.",
-      "role": "Sole developer and architect — designed and built the SaaS layer, provisioning pipeline, and all platform services end-to-end.",
-      "tech": ["Next.js", "TypeScript", "Prisma", "Neon PostgreSQL", "Stripe", "NextAuth.js v5", "Tailwind CSS", "shadcn/ui", "MCP protocol", "Claude API", "GitHub Actions", "Vercel"],
-      "highlights": [
-        "Engineered a provisioning pipeline that spins up a fully configured Artisan Roast store instance (database, auth, Stripe, domain) for new customers on checkout completion",
-        "Built an AI back office MCP server — gives store owners natural-language access to orders, inventory, and analytics via Claude Desktop",
-        "Implemented tiered Stripe Billing (Free/Pro/Hosted) with automated license key generation, validation, and a telemetry ingestion system for platform-wide analytics",
-        "Designed an automated data migration pipeline for self-hosted → managed hosting transitions, modeled as a state machine (PENDING → EXPORTING → EXPORTED → IMPORTING → COMPLETED)"
-      ],
-      "status": "in-progress",
-      "started": "2025-11",
-      "url": "https://artisanroast.app",
-      "repo": "https://github.com/dev-yuen-agency/artisan-roast-platform",
-      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/artisan-roast-platform.webp"
-    },
-    {
-      "name": "Resume Agent",
-      "slug": "resume-agent",
-      "description": "A2A-compatible AI agent that represents a professional profile as a machine-queryable JSON API — built for employer AI systems, ATS tools, and personal LLM interfaces.",
-      "problem": "AI systems are increasingly the first pass in hiring. Most candidates have no structured, queryable representation of their professional profile that AI agents can interrogate directly.",
-      "role": "Sole developer and architect.",
-      "tech": ["Node.js", "TypeScript", "Hono", "Supabase", "PostgreSQL", "Anthropic Claude", "Vercel AI SDK", "Zod"],
-      "highlights": [
-        "Designed a mathematical job fit scoring model — AI provides categorical sub-dimension judgments (skills matched/partial/missing, experience, domain), code computes the weighted average (50/30/20) for deterministic, auditable results",
-        "Built A2A-compliant agent card autodiscovery (/.well-known/agent-card.json) for AI system interoperability",
-        "Implemented caller detection to adapt response tone and verbosity based on whether the requester is an ATS, a human recruiter, or another AI agent",
-        "Structured as a singleton-profile API with Supabase RLS enforcing public read-only access and a service-role-only write path"
-      ],
-      "architecture": "Hono HTTP server on Node.js. Single public_profile row in Supabase (singleton enforced via CHECK constraint on UUID). AI routes use Vercel AI SDK with provider abstraction (Anthropic/OpenAI/Google). /match uses Sonnet for reasoning-heavy scoring; lightweight routes use Haiku.",
-      "impact": "Designed to be discovered and queried by employer AI systems, ATS tools, and personal LLM agents. Queryable via QR code at networking events or by any A2A-compatible system.",
-      "status": "in-progress",
-      "started": "2026-03",
-      "repo": "https://github.com/yuens1002/resume-agent"
-    },
-    {
-      "name": "Brew Guide",
-      "slug": "brew-guide",
-      "description": "Community-powered MCP server that answers 'how should I brew this coffee?' — synthesizes consensus brew parameters from logged experiments with zero LLM dependency.",
-      "problem": "Brew parameter guides are anecdotal and inconsistent — different sources recommend wildly different temperatures, ratios, and grind sizes with no basis in collective data.",
-      "role": "Sole developer — designed and built the MCP server, recommendation engine, database schema, and all tooling end-to-end.",
-      "tech": ["TypeScript", "Hono", "Neon PostgreSQL", "Prisma", "MCP (@modelcontextprotocol/sdk)", "Vitest", "Railway", "Node.js"],
-      "highlights": [
-        "Built a deterministic recommendation engine — no LLM in the hot path; confidence tiers (high/medium/low) reflect actual community brew data volume, not model confidence",
-        "Implemented 5 MCP tools over a public Streamable HTTP endpoint (recommend, log_brew, search_brews, compare_brew, get_brewing_methods) — compatible with Claude Desktop, Claude.ai, Cursor, and any MCP client",
-        "56 Vitest tests with zero TypeScript errors; auto-deploys to Railway from main"
-      ],
-      "architecture": "Hono 4 HTTP server on Node.js 24 with MCP Streamable HTTP transport. Neon Postgres + Prisma for brew log persistence. Recommendation engine aggregates logged experiments into weighted consensus parameters per origin/roast/method — no AI in the hot path.",
-      "impact": "Public MCP endpoint at brew-guide-production.up.railway.app/mcp — usable by any MCP-capable tool. Submitted as an entry to the Hermes Agent Challenge 2026.",
-      "status": "active",
-      "started": "2026-05",
-      "url": "https://brew-guide-production.up.railway.app",
-      "repo": "https://github.com/yuens1002/brew-guide",
-      "cover": "https://snvyqnnmeotratupqbua.supabase.co/storage/v1/object/public/project-covers/brew-guide.webp"
+      "started": "2024-01",
+      "url": "https://your-project.com",
+      "repo": "https://github.com/your-handle/your-project",
+      "cover": "https://your-supabase-url/storage/v1/object/public/project-covers/my-project.webp"
     }
   ],
   "availability": {
     "seeking": true,
     "status": "actively-looking",
-    "preferred_roles": ["Frontend Engineer", "Full Stack Engineer", "Software Engineer"],
+    "preferred_roles": ["Software Engineer", "Full Stack Engineer"],
     "preferred_locations": [],
     "remote": true
   }
