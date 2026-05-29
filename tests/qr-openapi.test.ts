@@ -4,7 +4,7 @@
  * Run: npm run test:unit
  */
 
-import { describe, it, before, after, beforeEach, afterEach } from 'node:test'
+import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
@@ -86,14 +86,17 @@ describe('/openapi.json and /qr routes', () => {
       assert.equal(buf[3], 0x47) // G
     })
 
-    it('AC-6: uses QR_TARGET_URL env var when set', async () => {
+    it('AC-6: uses QR_TARGET_URL env var when set — PNG differs from fallback', async () => {
       const saved = process.env.QR_TARGET_URL
+      delete process.env.QR_TARGET_URL
+      const baseline = Buffer.from(await (await fetch(`${baseUrl}/qr`)).arrayBuffer())
+
       process.env.QR_TARGET_URL = 'https://chatgpt.com/g/g-TEST'
       try {
         const res = await fetch(`${baseUrl}/qr`)
         assert.equal(res.status, 200)
-        // We can't decode the QR in a unit test, but a 200 PNG response
-        // confirms the target URL was accepted and encoded without error
+        const withTarget = Buffer.from(await res.arrayBuffer())
+        assert.notDeepEqual(withTarget, baseline, 'QR PNG should differ when QR_TARGET_URL changes')
       } finally {
         if (saved === undefined) delete process.env.QR_TARGET_URL
         else process.env.QR_TARGET_URL = saved

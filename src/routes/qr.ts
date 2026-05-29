@@ -9,7 +9,7 @@ const app = new Hono()
 app.get('/', async (c) => {
   const target = process.env.QR_TARGET_URL
     ?? process.env.PUBLIC_URL
-    ?? 'https://agent.yuens.me'
+    ?? new URL(c.req.url).origin
 
   const png = await QRCode.toBuffer(target, {
     errorCorrectionLevel: 'M',
