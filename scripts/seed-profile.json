@@ -180,6 +180,25 @@
       "status": "in-progress",
       "started": "2026-03",
       "repo": "https://github.com/yuens1002/resume-agent"
+    },
+    {
+      "name": "Brew Guide",
+      "slug": "brew-guide",
+      "description": "Community-powered MCP server that answers 'how should I brew this coffee?' — synthesizes consensus brew parameters from logged experiments with zero LLM dependency.",
+      "problem": "Brew parameter guides are anecdotal and inconsistent — different sources recommend wildly different temperatures, ratios, and grind sizes with no basis in collective data.",
+      "role": "Sole developer — designed and built the MCP server, recommendation engine, database schema, and all tooling end-to-end.",
+      "tech": ["TypeScript", "Hono", "Neon PostgreSQL", "Prisma", "MCP (@modelcontextprotocol/sdk)", "Vitest", "Railway", "Node.js"],
+      "highlights": [
+        "Built a deterministic recommendation engine — no LLM in the hot path; confidence tiers (high/medium/low) reflect actual community brew data volume, not model confidence",
+        "Implemented 5 MCP tools over a public Streamable HTTP endpoint (recommend, log_brew, search_brews, compare_brew, get_brewing_methods) — compatible with Claude Desktop, Claude.ai, Cursor, and any MCP client",
+        "56 Vitest tests with zero TypeScript errors; auto-deploys to Railway from main"
+      ],
+      "architecture": "Hono 4 HTTP server on Node.js 24 with MCP Streamable HTTP transport. Neon Postgres + Prisma for brew log persistence. Recommendation engine aggregates logged experiments into weighted consensus parameters per origin/roast/method — no AI in the hot path.",
+      "impact": "Public MCP endpoint at brew-guide-production.up.railway.app/mcp — usable by any MCP-capable tool. Submitted as an entry to the Hermes Agent Challenge 2026.",
+      "status": "active",
+      "started": "2026-05",
+      "url": "https://brew-guide-production.up.railway.app",
+      "repo": "https://github.com/yuens1002/brew-guide"
     }
   ],
   "availability": {

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — feat(data): add Brew Guide project to portfolio
+
 - 2026-05-29 — feat(routes): GET / serves agent card directly; add GET /health → {status: ok}
 
 - 2026-05-29 — fix(routes): serve /.well-known/agent-card as 200 JSON instead of 301 redirect — eliminates Google Safe Browsing false positive
