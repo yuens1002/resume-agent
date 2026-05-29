@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — fix(data): rename artisan-roast project to "Artisan Roast Store" and trim description
+
 - 2026-05-29 — feat(profile): add optional cover image URL to Project schema; populate 3 project covers from Supabase Storage
 
 - 2026-05-29 — fix(qr): cast Buffer to Uint8Array for BodyInit compatibility — fixes Railway build failure
