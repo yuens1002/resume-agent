@@ -20,6 +20,10 @@ stubHandler.get('/', (c) => c.json({ stub: true }))
 
 function buildApp() {
   const app = new Hono()
+  app.get('/health', (c) => {
+    c.header('Cache-Control', 'no-store')
+    return c.json({ status: 'ok' })
+  })
   app.route('/', stubHandler)
   app.route('/.well-known/agent-card.json', stubHandler)
   app.route('/.well-known/agent-card', stubHandler)
@@ -43,25 +47,33 @@ describe('/.well-known/agent-card routing', () => {
 
   after(() => server.close())
 
-  it('AC-0: GET / → 200 JSON (root alias for agent card)', async () => {
+  it('AC-0: GET /health → 200 { status: ok }, Cache-Control: no-store', async () => {
+    const res = await fetch(`${baseUrl}/health`)
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('cache-control'), 'no-store')
+    const body = await res.json() as Record<string, unknown>
+    assert.equal(body.status, 'ok')
+  })
+
+  it('AC-2: GET / → 200 JSON (root alias for agent card)', async () => {
     const res = await fetch(`${baseUrl}/`, { redirect: 'manual' })
     assert.equal(res.status, 200, 'root must not redirect')
     assert.match(res.headers.get('content-type') ?? '', /application\/json/)
   })
 
-  it('AC-1: /.well-known/agent-card.json → 200', async () => {
+  it('AC-3: /.well-known/agent-card.json → 200', async () => {
     const res = await fetch(`${baseUrl}/.well-known/agent-card.json`)
     assert.equal(res.status, 200)
     assert.match(res.headers.get('content-type') ?? '', /application\/json/)
   })
 
-  it('AC-2: /.well-known/agent-card → 200 (not a redirect)', async () => {
+  it('AC-4: /.well-known/agent-card → 200 (not a redirect)', async () => {
     const res = await fetch(`${baseUrl}/.well-known/agent-card`, { redirect: 'manual' })
     assert.equal(res.status, 200, 'extensionless URL must not redirect')
     assert.match(res.headers.get('content-type') ?? '', /application\/json/)
   })
 
-  it('AC-3: /.well-known/agent.json → 301 to /.well-known/agent-card.json', async () => {
+  it('AC-5: /.well-known/agent.json → 301 to /.well-known/agent-card.json', async () => {
     const res = await fetch(`${baseUrl}/.well-known/agent.json`, { redirect: 'manual' })
     assert.equal(res.status, 301)
     assert.ok(
