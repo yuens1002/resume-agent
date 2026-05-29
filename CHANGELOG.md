@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — chore(seed): replace personal data with generic fork-starter template; real profile lives in Supabase
+
 - 2026-05-29 — fix(data): rename artisan-roast project to "Artisan Roast Store" and trim description
 
 - 2026-05-29 — docs(readme): fix stale QR badge, agent card version, missing routes (/health, /openapi.json, /qr, GET /), and setup step 10
