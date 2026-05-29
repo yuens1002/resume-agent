@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — feat(profile): add optional cover image URL to Project schema; populate 3 project covers from Supabase Storage
+
 - 2026-05-29 — fix(qr): cast Buffer to Uint8Array for BodyInit compatibility — fixes Railway build failure
 
 - 2026-05-29 — feat(routes): add GET /openapi.json (Custom GPT Actions schema) and GET /qr (QR code PNG targeting QR_TARGET_URL)

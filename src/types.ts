@@ -45,6 +45,7 @@ export interface Project {
   started?: string          // YYYY-MM
   url?: string              // live URL
   repo?: string             // source repo URL
+  cover?: string            // public cover image URL
 }
 
 export interface Availability {
