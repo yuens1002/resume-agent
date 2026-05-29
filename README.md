@@ -532,7 +532,7 @@ The included `.github/workflows/sync.yml` runs `npm run sync` on a nightly sched
 7. `npm run dev`
 8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
-10. Set `QR_TARGET_URL` in Railway to the URL you want the QR to point to (e.g. your resume website or a Custom GPT URL). `GET /your-domain/qr` generates the QR automatically — embed it anywhere as an `<img>` tag.
+10. Set `QR_TARGET_URL` in Railway to the URL you want the QR to point to (e.g. your resume website or a Custom GPT URL). `GET /qr` on your deployed domain generates the QR automatically — embed it anywhere as an `<img>` tag.
 
 ---
 
