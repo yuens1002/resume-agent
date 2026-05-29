@@ -1,8 +1,8 @@
 # resume-agent
 
-[![Agent QR Code](qr.png)](https://agent.yuens.me/.well-known/agent-card.json)
+[![Agent QR Code](https://agent.yuens.me/qr)](https://agent.yuens.me)
 
-> Scan to load the live agent card — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me/.well-known/agent-card.json).
+> Scan to open the agent — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me).
 
 A machine-queryable AI agent that represents a professional profile. No UI. Three access tiers: a public HTTP API for employer AI systems, a public MCP server (`ask_candidate` tool) that any MCP-aware AI client can add as a custom connector, and a private MCP server for personal interaction.
 
@@ -100,7 +100,7 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 {
   "name": "<from Supabase public_profile.contact.name>",
   "description": "...",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "supportedInterfaces": [
     {
       "url": "<baseUrl>/public-mcp",
@@ -155,6 +155,21 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 ```
 
 > **Note on `provider` field names:** The [official A2A proto spec](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto) uses `provider.name` and `provider.homepage`. The a2aregistry.org validator requires `provider.organization` and `provider.url` (both required). This card uses the registry's schema. See [Schema discrepancies](#schema-discrepancies) below.
+
+### `GET /`
+Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). `agent.yuens.me` is the short-form discovery URL.
+
+### `GET /health`
+Health check. Returns `{ "status": "ok" }` with `Cache-Control: no-store`. Exempt from rate limiting — safe to poll from uptime monitors.
+
+### `GET /openapi.json`
+OpenAPI 3.1.0 schema describing all five public endpoints (`/query`, `/match`, `/info`, `/availability`, `/projects`). Import this URL directly into ChatGPT's GPT builder (Actions → import from URL), Gemini Gems, or any platform that accepts OpenAPI for tool wiring. The `servers[0].url` is derived from the `PUBLIC_URL` env var — set it to your deployed domain.
+
+### `GET /qr`
+Returns a 300px QR code PNG. Target URL is controlled by the `QR_TARGET_URL` env var (e.g. a Custom GPT URL or your resume website). Falls back to `PUBLIC_URL` then the request origin if unset. Embed in any web page as a plain `<img>` tag:
+```html
+<img src="https://agent.yuens.me/qr" alt="Scan to chat" />
+```
 
 ### `GET /info`
 Full structured profile snapshot. Skills, experience, projects, education. No Claude call — raw data from `public_profile`. Fast, cacheable, suitable for ATS systems that want facts without NL processing.
@@ -517,7 +532,7 @@ The included `.github/workflows/sync.yml` runs `npm run sync` on a nightly sched
 7. `npm run dev`
 8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
-10. Generate a QR code pointing to `https://your-domain/.well-known/agent-card.json`
+10. Set `QR_TARGET_URL` in Railway to the URL you want the QR to point to (e.g. your resume website or a Custom GPT URL). `GET /your-domain/qr` generates the QR automatically — embed it anywhere as an `<img>` tag.
 
 ---
 
