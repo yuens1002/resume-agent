@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-29 — feat(routes): GET / serves agent card directly; add GET /health → {status: ok}
+
 - 2026-05-29 — fix(routes): serve /.well-known/agent-card as 200 JSON instead of 301 redirect — eliminates Google Safe Browsing false positive
 
 - 2026-05-14 — feat(mcp): add `update_thought` + `delete_thought` to the private MCP — closes the CRUD loop on captured thoughts; previously the private MCP could capture, search, list, and aggregate, but had no way to edit a typo or remove a thought without dropping into SQL

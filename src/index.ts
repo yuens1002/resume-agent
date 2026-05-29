@@ -45,8 +45,8 @@ const getClientIp = (c: Context): string => {
 }
 
 app.use('*', async (c, next) => {
-  // Skip OPTIONS preflights — don't count them toward the rate limit
-  if (c.req.method === 'OPTIONS') return next()
+  // Skip OPTIONS preflights and health checks — don't count toward the rate limit
+  if (c.req.method === 'OPTIONS' || c.req.path === '/health') return next()
 
   // Owner bypass — valid API_KEY skips rate limiting entirely
   const authHeader = c.req.header('Authorization') ?? ''
@@ -108,14 +108,18 @@ app.route('/mcp', mcpRoute)
 app.route('/public-mcp', publicMcpRoute)
 app.route('/', oauthRoute)
 
-app.get('/', (c) => c.json({ status: 'ok', agent: 'resume-agent' }))
+app.get('/health', (c) => {
+  c.header('Cache-Control', 'no-store')
+  return c.json({ status: 'ok' })
+})
+app.route('/', agentCardRoute)
 
 const port = parseInt(process.env.PORT ?? '3000')
 
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
+  console.log('[routes] GET /, /health, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
-  console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS)')
+  console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS, /health)')
 })
