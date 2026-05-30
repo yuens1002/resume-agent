@@ -194,11 +194,16 @@ Request:
 {
   "question": "Has this person shipped production systems using TypeScript?",
   "context": "ATS screening for a senior backend role",
-  "stream": false
+  "stream": false,
+  "style": "cited"
 }
 ```
 
-Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — useful for demo surfaces and human-readable interfaces.
+**`style`** (optional, default `"cited"`):
+- `"cited"` — full citation rules: inline `[N]` markers and a `Sources:` block in the answer string. Best for ATS, AI agents, and machine consumers.
+- `"conversational"` — 2–4 plain prose sentences, no inline markers, attribution via `sources[]` array only. Best for human chat UIs. Also triggered by `x-agent-type: human` header.
+
+Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — stream mode always uses cited style.
 
 Response (default, `stream: false`):
 ```json
@@ -236,7 +241,7 @@ Response:
 ### `POST /resume` _(private, key-protected)_
 Feed a job description (and optional `framing_hints`), get back a tailored 2-page resume as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
 
-**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 6-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
+**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 6-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores and a `jd_term_count` field — the number of unique extractable terms found in the submitted JD. Low `jd_term_count` (< 15) signals that the JD may be too thin for reliable keyword-dependent scoring; callers can use this to prompt users to enrich the JD before submitting. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
 
 ---
 
@@ -476,7 +481,15 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 
 `npm run sync` keeps every project in your `public_profile.projects` array up-to-date from GitHub — no configuration needed beyond what's already in the profile.
 
-**How it works:** For each project that has a `repo` field pointing to a GitHub URL, the sync script fetches the README and CHANGELOG, reconciles the `architecture` and `highlights` fields via LLM semantic diff, and extracts new OB1 thoughts for downstream context injection. Projects without a GitHub `repo` are skipped silently.
+**How it works:** For each project that has a `repo` field pointing to a GitHub URL, the sync script:
+
+1. Fetches the README and CHANGELOG and reconciles `architecture` and `highlights` via LLM semantic diff
+2. **Infers `status`** from last-push activity — projects pushed within 60 days become `active`; dormant for > 1 year become `archived`
+3. **Infers `url`** from the GitHub repo homepage field or deployment URL patterns in the README (only fills if the field is empty — never overwrites a manually-set URL)
+4. **Infers `tech`** from `package.json` dependencies — maps package names to canonical display names and merges additively with existing entries
+5. Extracts new OB1 thoughts for downstream semantic retrieval
+
+Projects without a GitHub `repo` are skipped silently. Fields that need human framing (`description`, `problem`, `role`, `impact`, `cover`) are never touched by the sync.
 
 **Controlling what appears on the resume:** Not every synced project belongs in the Projects section of a generated resume. Some projects are better represented as context for the employment section (e.g. a SaaS platform that's already covered by a self-employment entry). Use `HIDE_FROM_PROJECTS` to exclude specific slugs from the resume output at generation time — the project continues to sync and its OB1 thoughts continue to flow into employment bullet context.
 

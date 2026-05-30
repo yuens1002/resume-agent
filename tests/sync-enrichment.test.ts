@@ -12,12 +12,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-
-// The pure helpers below are currently re-implemented locally for unit
-// testing because sync.ts is a script entry point, not an importable
-// module. These tests do not currently exercise the production
-// implementation directly; once the helpers are extracted to a shared
-// module, this file should import them instead of duplicating them.
+import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY } from '../scripts/sync-helpers.js'
 
 // ── splitChangelogSections (re-implemented for test) ─────
 
@@ -131,6 +126,140 @@ describe('splitChangelogSections', () => {
     assert.ok(sections.shipped.includes('shipped item'))
   })
 })
+
+// ── inferStatus ──────────────────────────────────────────
+
+describe('inferStatus', () => {
+  const now = new Date('2026-05-30T00:00:00Z')
+
+  it('returns "active" when pushed within 60 days', () => {
+    const pushed = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'in-progress', now), 'active')
+  })
+
+  it('returns null when already active and pushed within 60 days', () => {
+    const pushed = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'active', now), null)
+  })
+
+  it('returns null when pushed 61–365 days ago (keep existing)', () => {
+    const pushed = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'in-progress', now), null)
+    assert.equal(inferStatus(pushed, 'active', now), null)
+  })
+
+  it('returns "archived" when pushed > 365 days ago', () => {
+    const pushed = new Date(now.getTime() - 400 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'active', now), 'archived')
+  })
+
+  it('returns null when already archived and pushed > 365 days ago', () => {
+    const pushed = new Date(now.getTime() - 400 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'archived', now), null)
+  })
+
+  it('returns "active" when previously archived project is pushed within 60 days', () => {
+    const pushed = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(inferStatus(pushed, 'archived', now), 'active')
+  })
+
+  it('returns null for invalid date string', () => {
+    assert.equal(inferStatus('not-a-date', 'active', now), null)
+  })
+})
+
+// ── inferUrl ────────────────────────────────────────────
+
+describe('inferUrl', () => {
+  it('returns null when currentUrl is already set', () => {
+    assert.equal(inferUrl('readme text', 'https://example.com', 'https://existing.com'), null)
+  })
+
+  it('returns GitHub homepage when set and currentUrl is empty', () => {
+    assert.equal(inferUrl(null, 'https://myproject.com', undefined), 'https://myproject.com')
+  })
+
+  it('extracts "Production MCP endpoint:" URL from README', () => {
+    const readme = '**Production MCP endpoint:** `https://brew-guide-production.up.railway.app/mcp`'
+    assert.equal(inferUrl(readme, null, undefined), 'https://brew-guide-production.up.railway.app/mcp')
+  })
+
+  it('extracts "Live at" URL from README', () => {
+    const readme = 'Live at https://agent.yuens.me — fully operational.'
+    assert.equal(inferUrl(readme, null, undefined), 'https://agent.yuens.me')
+  })
+
+  it('skips GitHub and shields.io badge links', () => {
+    const readme = '[![CI](https://github.com/org/repo/actions)](https://github.com/org/repo)'
+    assert.equal(inferUrl(readme, null, undefined), null)
+  })
+
+  it('returns null when no URL found and currentUrl is empty', () => {
+    assert.equal(inferUrl('Just some text with no URL.', null, undefined), null)
+  })
+
+  it('prefers homepage over README patterns', () => {
+    const readme = 'Live at https://readme-url.com'
+    assert.equal(inferUrl(readme, 'https://homepage-url.com', undefined), 'https://homepage-url.com')
+  })
+})
+
+// ── inferTech ────────────────────────────────────────────
+
+describe('inferTech', () => {
+  it('returns null when packageJson is null', () => {
+    assert.equal(inferTech(null, ['TypeScript']), null)
+  })
+
+  it('returns null for invalid JSON', () => {
+    assert.equal(inferTech('not json', []), null)
+  })
+
+  it('maps @anthropic-ai/sdk to "Anthropic Claude"', () => {
+    const pkg = JSON.stringify({ dependencies: { '@anthropic-ai/sdk': '^1.0.0' } })
+    const result = inferTech(pkg, [])
+    assert.ok(result?.includes('Anthropic Claude'), `expected Anthropic Claude in ${result}`)
+  })
+
+  it('maps @modelcontextprotocol/sdk to MCP display name', () => {
+    const pkg = JSON.stringify({ dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } })
+    const result = inferTech(pkg, [])
+    assert.ok(result?.includes('MCP (@modelcontextprotocol/sdk)'), `expected MCP in ${result}`)
+  })
+
+  it('deduplicates Vercel AI SDK when multiple ai-sdk packages are present', () => {
+    const pkg = JSON.stringify({
+      dependencies: { 'ai': '^4.0.0', '@ai-sdk/anthropic': '^1.0.0', '@ai-sdk/openai': '^1.0.0' },
+    })
+    const result = inferTech(pkg, [])
+    const count = result?.filter(t => t === 'Vercel AI SDK').length ?? 0
+    assert.equal(count, 1, 'Vercel AI SDK should appear exactly once')
+  })
+
+  it('preserves manual tech entries not in package.json', () => {
+    const pkg = JSON.stringify({ dependencies: { 'hono': '^4.0.0' } })
+    const result = inferTech(pkg, ['Railway', 'OEP'])
+    assert.ok(result?.includes('Railway'), 'manual Railway entry should be preserved')
+    assert.ok(result?.includes('OEP'), 'manual OEP entry should be preserved')
+    assert.ok(result?.includes('Hono'), 'inferred Hono should be added')
+  })
+
+  it('returns null when all inferred entries are already in currentTech', () => {
+    const pkg = JSON.stringify({ dependencies: { 'hono': '^4.0.0' } })
+    assert.equal(inferTech(pkg, ['Hono']), null)
+  })
+
+  it('caps result at 15 entries', () => {
+    const existing = Array.from({ length: 13 }, (_, i) => `Tech${i}`)
+    const pkg = JSON.stringify({
+      dependencies: Object.fromEntries(Object.keys(PACKAGE_TO_DISPLAY).map(k => [k, '1.0.0'])),
+    })
+    const result = inferTech(pkg, existing)
+    assert.ok(!result || result.length <= 15, `result length ${result?.length} exceeds 15`)
+  })
+})
+
+// ── contentHash ──────────────────────────────────────────
 
 describe('contentHash', () => {
   it('produces deterministic hash for same input', () => {
