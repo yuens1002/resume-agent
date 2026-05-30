@@ -114,6 +114,8 @@ Required shape:
   "follow_up_suggestions": ["...", "..."]
 }
 
+\`follow_up_suggestions\`: 2–3 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person, consistent with the answer's voice. Example: "What kind of work is Sunny looking for?" or "Has Sunny shipped anything with Rust?" — **not** "What kind of work are you looking for?" or "Have you shipped anything with Rust?" The visitor is talking to an agent about a candidate, not to the candidate directly.
+
 The shape of the \`answer\` *string* depends on whether the response makes factual claims about the candidate:
 
 **Claim-bearing answer** (binary / capability / behavioral — anything grounded in the corpus): include footnote markers and a \`Sources:\` block inside the \`answer\` string. Full example response:
@@ -207,6 +209,8 @@ export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational 
   "sources": ["experience.<company>", "projects.<slug>", "observations"],
   "follow_up_suggestions": ["...", "..."]
 }
+
+\`follow_up_suggestions\`: 2–3 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person. Example: "What kind of work is Sunny looking for?" — **not** "What kind of work are you looking for?" The visitor is talking to an agent about a candidate, not to the candidate directly.
 
 The \`answer\` string is plain, natural prose — 2 to 4 sentences. No footnote markers. No Sources block. Write as if answering a chat message, not filing a report.
 
