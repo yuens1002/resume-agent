@@ -476,7 +476,15 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 
 `npm run sync` keeps every project in your `public_profile.projects` array up-to-date from GitHub — no configuration needed beyond what's already in the profile.
 
-**How it works:** For each project that has a `repo` field pointing to a GitHub URL, the sync script fetches the README and CHANGELOG, reconciles the `architecture` and `highlights` fields via LLM semantic diff, and extracts new OB1 thoughts for downstream context injection. Projects without a GitHub `repo` are skipped silently.
+**How it works:** For each project that has a `repo` field pointing to a GitHub URL, the sync script:
+
+1. Fetches the README and CHANGELOG and reconciles `architecture` and `highlights` via LLM semantic diff
+2. **Infers `status`** from last-push activity — projects pushed within 60 days become `active`; dormant for > 1 year become `archived`
+3. **Infers `url`** from the GitHub repo homepage field or deployment URL patterns in the README (only fills if the field is empty — never overwrites a manually-set URL)
+4. **Infers `tech`** from `package.json` dependencies — maps package names to canonical display names and merges additively with existing entries
+5. Extracts new OB1 thoughts for downstream semantic retrieval
+
+Projects without a GitHub `repo` are skipped silently. Fields that need human framing (`description`, `problem`, `role`, `impact`, `cover`) are never touched by the sync.
 
 **Controlling what appears on the resume:** Not every synced project belongs in the Projects section of a generated resume. Some projects are better represented as context for the employment section (e.g. a SaaS platform that's already covered by a self-employment entry). Use `HIDE_FROM_PROJECTS` to exclude specific slugs from the resume output at generation time — the project continues to sync and its OB1 thoughts continue to flow into employment bullet context.
 

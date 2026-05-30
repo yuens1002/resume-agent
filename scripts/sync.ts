@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
+import { inferStatus, inferUrl, inferTech } from './sync-helpers.js'
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL
 const SUPA_KEY = process.env.SUPA_SERVICE_ROLE
@@ -87,6 +88,27 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
   const data = await res.json() as { content?: string }
   if (!data.content) return null
   return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
+}
+
+interface RepoMetadata { pushedAt: string; homepage: string | null }
+
+async function fetchRepoMetadata(owner: string, repo: string): Promise<RepoMetadata | null> {
+  const url = `https://api.github.com/repos/${owner}/${repo}`
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': GITHUB_API_VERSION,
+  }
+  if (GITHUB_TOKEN) headers['Authorization'] = `Bearer ${GITHUB_TOKEN}`
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    console.warn(`  GitHub metadata ${res.status} for ${owner}/${repo}`)
+    return null
+  }
+  const data = await res.json() as { pushed_at?: string; homepage?: string | null }
+  return {
+    pushedAt: data.pushed_at ?? '',
+    homepage: data.homepage ?? null,
+  }
 }
 
 // ── GitHub tree + feature doc fetching ────────────────────
@@ -606,6 +628,38 @@ async function syncProject(
     }
   } else {
     console.log(`  ⚠ CHANGELOG.md not found — skipping highlights + thought extraction`)
+  }
+
+  // ── Status / URL / Tech inference ────────────────────────
+  const meta = await fetchRepoMetadata(r.owner, r.repo)
+  if (meta) {
+    const newStatus = inferStatus(meta.pushedAt, project.status ?? '')
+    if (newStatus) {
+      project.status = newStatus
+      updated = true
+      console.log(`  ✔ status inferred: ${newStatus}`)
+    } else {
+      console.log(`  — status unchanged`)
+    }
+
+    const newUrl = inferUrl(archDoc, meta.homepage, project.url as string | undefined)
+    if (newUrl) {
+      project.url = newUrl
+      updated = true
+      console.log(`  ✔ url inferred: ${newUrl}`)
+    } else {
+      console.log(`  — url unchanged`)
+    }
+  }
+
+  const pkgJson = await fetchGitHubFile(r.owner, r.repo, 'package.json')
+  const newTech = inferTech(pkgJson, project.tech as string[] | undefined)
+  if (newTech) {
+    project.tech = newTech
+    updated = true
+    console.log(`  ✔ tech merged (${newTech.length} entries)`)
+  } else {
+    console.log(`  — tech unchanged`)
   }
 
   // ── Extract thoughts from feature docs ──
