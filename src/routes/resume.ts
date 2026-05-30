@@ -271,6 +271,7 @@ Respond with structured JSON:
         _rubric: {
           total: Math.round(winner.rubric.total * 100) / 100,
           passed: winner.rubric.passed,
+          jd_term_count: winner.rubric.jd_term_count,
           post_filtered: true,
           winner_model: winner.model,
           models: [RESUME_MODEL, RESUME_MODEL_B],

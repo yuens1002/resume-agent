@@ -74,6 +74,7 @@ export interface PublicProfile {
 export interface QueryRequest {
   question: string
   context?: string
+  style?: 'cited' | 'conversational'
 }
 
 export interface QueryResponse {

@@ -189,7 +189,48 @@ Confidence — when in doubt, downgrade. "Low" is the safe choice and the asker 
 
 \`sources\` (JSON field) mirrors the in-prose \`Sources:\` block. For claim-bearing answers, list every cited corpus path; may include "observations" as a coarse marker. For declines, the array is empty.`
 
-const RULES_SHARED = [
+export const RULE_CITATION_CONVERSATIONAL = `# Citation — sources array carries attribution
+
+Do NOT use inline \`[N]\` markers in the answer prose. Do NOT include a \`Sources:\` block in the answer string. Write natural flowing prose without any bracketed numbers.
+
+Attribution is carried entirely by the \`sources\` JSON array — populate it with the corpus paths that ground the answer (e.g. \`"projects.resume-agent"\`, \`"experience.Wipro"\`, \`"observations"\`). The reader can consult the array; it does not appear in the prose.
+
+Declines and off-topic answers have no factual claims, so the \`sources\` array is empty.`
+
+export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational JSON mode)
+
+**Every response MUST be a single valid JSON object** with these exact keys:
+
+{
+  "answer": "<2–4 sentences of plain prose — no [N] markers, no Sources: block>",
+  "confidence": "high" | "medium" | "low",
+  "sources": ["experience.<company>", "projects.<slug>", "observations"],
+  "follow_up_suggestions": ["...", "..."]
+}
+
+The \`answer\` string is plain, natural prose — 2 to 4 sentences. No footnote markers. No Sources block. Write as if answering a chat message, not filing a report.
+
+Attribution lives in the \`sources\` array only. Populate it with the corpus paths that back the answer.
+
+For declines (off-topic / no-data / adversarial): one short sentence; \`sources\` is empty; \`confidence\` is \`low\`.
+
+Example claim-bearing response:
+{
+  "answer": "Sunny has strong TypeScript experience, having used it as the primary language across several production projects including an e-commerce platform and an AI agent API.",
+  "confidence": "high",
+  "sources": ["projects.artisan-roast", "projects.resume-agent"],
+  "follow_up_suggestions": ["Which TypeScript patterns does Sunny reach for most?"]
+}
+
+Example decline:
+{
+  "answer": "That's outside the scope of Sunny's documented work history.",
+  "confidence": "low",
+  "sources": [],
+  "follow_up_suggestions": []
+}`
+
+const RULES_SHARED_BASE = [
   META_TONE_NOTE,
   RULE_VOICE,
   RULE_HONESTY,
@@ -198,17 +239,28 @@ const RULES_SHARED = [
   RULE_GAPS,
   RULE_ADVERSARIAL,
   RULE_CALLER_CONTEXT,
-  RULE_CITATION,
 ] as const
 
 /**
- * Compose the full system prompt for the given output mode. Caller-hint is
- * handled in the user message via `buildQueryPrompt` (`src/routes/query.ts`);
- * see `sanitizeCallerHint` for the boundary sanitization and
- * `RULE_CALLER_CONTEXT` for the model-side framing.
+ * Compose the full system prompt for the given output mode and style.
+ *
+ * mode:
+ *   'json'   — structured JSON output with inline [N] citations (default for /query)
+ *   'stream' — plain text streaming output
+ *
+ * style:
+ *   'cited'          — full citation rules with [N] markers + Sources: block (default)
+ *   'conversational' — 2-4 sentence prose, attribution in sources[] array only
+ *
+ * Caller-hint is handled in the user message via `buildQueryPrompt`; see
+ * `sanitizeCallerHint` and `RULE_CALLER_CONTEXT` for the security boundary.
  */
-export function buildSystemPrompt(mode: 'json' | 'stream'): string {
-  const rules = mode === 'json' ? [...RULES_SHARED, RULE_OUTPUT_JSON] : [...RULES_SHARED]
+export function buildSystemPrompt(mode: 'json' | 'stream', style: 'cited' | 'conversational' = 'cited'): string {
+  const citationRule = style === 'conversational' ? RULE_CITATION_CONVERSATIONAL : RULE_CITATION
+  const outputRule = mode === 'json'
+    ? (style === 'conversational' ? RULE_OUTPUT_JSON_CONVERSATIONAL : RULE_OUTPUT_JSON)
+    : null
+  const rules = [...RULES_SHARED_BASE, citationRule, ...(outputRule ? [outputRule] : [])]
   return rules.join('\n\n')
 }
 

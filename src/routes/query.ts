@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
 import { generateText, streamText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
-import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
+import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import { buildSystemPrompt, sanitizeCallerHint } from '../lib/query-prompt.js'
@@ -16,6 +16,7 @@ const app = new Hono()
 const schema = z.object({
   question: z.string().min(1),
   context: z.string().optional(),
+  style: z.enum(['cited', 'conversational']).optional(),
 })
 
 /**
@@ -64,6 +65,7 @@ export function buildQueryPrompt(
 export interface QueryProfileArgs {
   question: string
   callerHint: string
+  style?: 'cited' | 'conversational'
 }
 
 export interface ProfileNotFoundError {
@@ -98,7 +100,7 @@ export async function queryProfile(
   const { text: raw } = await generateText({
     model: getModel(),
     maxTokens: 1024,
-    system: buildSystemPrompt('json'),
+    system: buildSystemPrompt('json', args.style ?? 'cited'),
     prompt,
   })
   const latency_ms = Date.now() - start
@@ -142,7 +144,7 @@ export async function queryProfileStream(
   return streamText({
     model: getModel(),
     maxTokens: 1024,
-    system: buildSystemPrompt('stream'),
+    system: buildSystemPrompt('stream', args.style ?? 'cited'),
     prompt,
   })
 }
@@ -158,19 +160,30 @@ function deriveCallerHint(c: Context, question: string, context: string | undefi
   return (context?.trim() || undefined) ?? caller.hint
 }
 
+function deriveStyle(
+  c: Context,
+  explicitStyle: 'cited' | 'conversational' | undefined,
+): 'cited' | 'conversational' {
+  if (explicitStyle) return explicitStyle
+  const callerType = detectCaller(c).type as CallerType
+  return callerType === 'human' ? 'conversational' : 'cited'
+}
+
 async function handleQuery(
   c: Context,
   question: string,
   context: string | undefined,
   stream: boolean,
+  style?: 'cited' | 'conversational',
 ): Promise<Response> {
   const callerHint = deriveCallerHint(c, question, context)
+  const effectiveStyle = deriveStyle(c, style)
   const requestIp = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
   const userAgent = c.req.header('user-agent')
   const overallStart = Date.now()
 
   if (stream) {
-    const result = await queryProfileStream({ question, callerHint })
+    const result = await queryProfileStream({ question, callerHint, style: effectiveStyle })
     if ('kind' in result && result.kind === 'profile_not_found') {
       return c.json({ error: 'Profile not found' }, 404)
     }
@@ -210,7 +223,7 @@ async function handleQuery(
     return new Response(toClient, response)
   }
 
-  const result = await queryProfile({ question, callerHint })
+  const result = await queryProfile({ question, callerHint, style: effectiveStyle })
 
   if ('kind' in result) {
     if (result.kind === 'profile_not_found') return c.json({ error: 'Profile not found' }, 404)
@@ -266,8 +279,8 @@ app.get('/', async (c) => {
 })
 
 app.post('/', zValidator('json', schema.extend({ stream: z.boolean().optional() })), async (c) => {
-  const { question, context, stream } = c.req.valid('json')
-  return handleQuery(c, question, context, stream ?? false)
+  const { question, context, stream, style } = c.req.valid('json')
+  return handleQuery(c, question, context, stream ?? false, style)
 })
 
 export default app

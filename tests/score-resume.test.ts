@@ -246,3 +246,25 @@ describe('Overall rubric scoring', () => {
     assert.ok(Math.abs(result.total - expectedTotal) < 0.01, `Total ${result.total} != sum ${expectedTotal}`)
   })
 })
+
+// ── jd_term_count ────────────────────────────────────────
+
+describe('jd_term_count — thin JD signal', () => {
+  it('returns a non-negative integer for a normal JD', () => {
+    const result = scoreResume(makeResume(), UX_ENGINEER_JD)
+    assert.ok(typeof result.jd_term_count === 'number', 'jd_term_count should be a number')
+    assert.ok(result.jd_term_count >= 0, 'jd_term_count should be non-negative')
+    assert.ok(result.jd_term_count > 10, `normal JD should have many terms, got ${result.jd_term_count}`)
+  })
+
+  it('returns a low count for a thin JD (brief case from the brief)', () => {
+    const thinJd = 'Frontend Engineer. React, TypeScript. Build web apps.'
+    const result = scoreResume(makeResume(), thinJd)
+    assert.ok(result.jd_term_count < 15, `thin JD should have few terms, got ${result.jd_term_count}`)
+  })
+
+  it('returns zero for an empty JD', () => {
+    const result = scoreResume(makeResume(), '')
+    assert.equal(result.jd_term_count, 0)
+  })
+})

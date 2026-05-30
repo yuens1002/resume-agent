@@ -23,8 +23,9 @@ export interface RuleResult {
 
 export interface RubricResult {
   rules: RuleResult[]
-  total: number   // 0.0–6.0
-  passed: boolean // total >= threshold
+  total: number      // 0.0–6.0
+  passed: boolean    // total >= threshold
+  jd_term_count: number // unique extractable terms in the JD; < 15 suggests the JD is too thin for reliable keyword scoring
 }
 
 const PASS_THRESHOLD = 4.0
@@ -257,6 +258,7 @@ function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
 // ── Main scorer ──────────────────────────────────────────
 
 export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
+  const jdTerms = extractKeywords(jd)
   const rules = [
     scoreRule1(resume, jd),
     scoreRule2(resume, jd),
@@ -271,6 +273,7 @@ export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
     rules,
     total,
     passed: total >= PASS_THRESHOLD,
+    jd_term_count: jdTerms.length,
   }
 }
 
