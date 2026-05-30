@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-05-30 — fix(query): follow_up_suggestions now written from visitor's perspective (third-person about the candidate, not second-person directed at them)
+
 - 2026-05-30 — feat(sync): auto-infer status, url, and tech from GitHub repo metadata on each nightly sync run — closes #116
 
 - 2026-05-30 — feat(query): add conversational mode (style: "conversational" / x-agent-type: human) — 2-4 sentence prose, no inline [N] markers, attribution via sources[] array only; feat(resume): expose jd_term_count in rubric response for thin-JD UX signalling

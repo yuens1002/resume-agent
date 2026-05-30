@@ -91,6 +91,8 @@ Required shape:
 }
 ```
 
+`follow_up_suggestions`: 2–3 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person, consistent with the answer's voice. Example: "What kind of work is Sunny looking for?" — **not** "What kind of work are you looking for?" The visitor is talking to an agent about a candidate, not to the candidate directly.
+
 The shape of the `answer` *string* depends on whether the response makes factual claims:
 
 **Claim-bearing answer** (binary, capability, behavioral — anything grounded in the corpus): include `[N]` markers and a `Sources:` block inside the `answer` string. Full example response:
