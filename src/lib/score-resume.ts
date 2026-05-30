@@ -146,8 +146,7 @@ function scoreRule1(resume: ResumeResponse, jd: string): RuleResult {
 }
 
 /** Rule 2: 60-80% keyword coverage from JD across the resume. */
-function scoreRule2(resume: ResumeResponse, jd: string): RuleResult {
-  const jdKeywords = [...new Set(extractKeywords(jd))]
+function scoreRule2(resume: ResumeResponse, jdKeywords: string[]): RuleResult {
   const resumeText = [
     resume.summary ?? '',
     ...((resume.skills ?? []) as unknown[]).map((s: unknown) => typeof s === 'string' ? s : `${(s as { category?: string }).category ?? ''} ${((s as { items?: string[] }).items ?? []).join(' ')}`),
@@ -258,10 +257,10 @@ function scoreRule6(resume: ResumeResponse, jd: string): RuleResult {
 // ── Main scorer ──────────────────────────────────────────
 
 export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
-  const jdTerms = extractKeywords(jd)
+  const jdKeywords = [...new Set(extractKeywords(jd))]
   const rules = [
     scoreRule1(resume, jd),
-    scoreRule2(resume, jd),
+    scoreRule2(resume, jdKeywords),
     scoreRule3(resume),
     scoreRule4(resume),
     scoreRule6(resume, jd),
@@ -273,7 +272,7 @@ export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
     rules,
     total,
     passed: total >= PASS_THRESHOLD,
-    jd_term_count: jdTerms.length,
+    jd_term_count: jdKeywords.length,
   }
 }
 

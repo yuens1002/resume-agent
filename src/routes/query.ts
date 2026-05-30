@@ -183,7 +183,9 @@ async function handleQuery(
   const overallStart = Date.now()
 
   if (stream) {
-    const result = await queryProfileStream({ question, callerHint, style: effectiveStyle })
+    // Conversational mode relies on the JSON sources[] array; stream returns plain text with no
+    // JSON envelope, so conversational attribution cannot be emitted. Fall back to cited.
+    const result = await queryProfileStream({ question, callerHint, style: 'cited' })
     if ('kind' in result && result.kind === 'profile_not_found') {
       return c.json({ error: 'Profile not found' }, 404)
     }

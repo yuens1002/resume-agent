@@ -308,9 +308,11 @@ describe('buildSystemPrompt — conversational style', () => {
   })
 
   it('does NOT show a Sources: block inside the answer example string', () => {
-    // The rule may mention "Sources:" to forbid it, but must not demonstrate it in an answer example
-    assert.ok(!RULE_OUTPUT_JSON_CONVERSATIONAL.includes('Sources:\\n'), 'conversational output rule must not show Sources: inside an answer example')
-    assert.ok(!RULE_OUTPUT_JSON_CONVERSATIONAL.includes('"answer": ".*Sources:'), 'conversational answer examples must not contain a Sources: block')
+    // Cited-mode examples end answers with \\n\\nSources:\\n[N] — conversational must not
+    assert.ok(
+      !RULE_OUTPUT_JSON_CONVERSATIONAL.includes('\\n\\nSources:'),
+      'conversational answer examples must not contain the cited-mode \\n\\nSources: trailing block',
+    )
   })
 
   it('uses the conversational output rule with 2-4 sentence prose', () => {
