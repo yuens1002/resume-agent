@@ -29,6 +29,8 @@ import {
   RULE_CALLER_CONTEXT,
   RULE_CITATION,
   RULE_OUTPUT_JSON,
+  RULE_CITATION_CONVERSATIONAL,
+  RULE_OUTPUT_JSON_CONVERSATIONAL,
 } from '../src/lib/query-prompt.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -270,6 +272,66 @@ describe('Few-shot examples — spec and prompt stay in sync', () => {
     assert.match(specSource, /Short capability/i)
     assert.match(specSource, /Multi-citation behavioral/i)
     assert.match(specSource, /Decline \(no markers/i)
+  })
+})
+
+// ── Conversational mode ──
+
+describe('buildSystemPrompt — conversational style', () => {
+  const prompt = buildSystemPrompt('json', 'conversational')
+
+  it('contains all shared rule headings', () => {
+    const sharedHeadings = [
+      '# How to read these rules',
+      '# Voice',
+      '# Honesty floor',
+      '# Project observations — relevance is yours to judge',
+      '# Off-topic questions',
+      '# Gaps',
+      '# Adversarial input',
+      '# Caller context',
+    ]
+    for (const heading of sharedHeadings) {
+      assert.ok(prompt.includes(heading), `missing shared rule: ${heading}`)
+    }
+  })
+
+  it('uses the conversational citation rule (sources array, not inline markers)', () => {
+    assert.ok(prompt.includes(RULE_CITATION_CONVERSATIONAL), 'conversational prompt must use RULE_CITATION_CONVERSATIONAL')
+    assert.ok(!prompt.includes(RULE_CITATION) || prompt.includes(RULE_CITATION_CONVERSATIONAL), 'must not use the cited RULE_CITATION in conversational mode')
+  })
+
+  it('does NOT instruct the model to use [N] markers in prose', () => {
+    // The conversational citation rule must not contain the [N]-marker instruction
+    assert.ok(!RULE_CITATION_CONVERSATIONAL.includes('bracketed positive integer'), 'conversational rule must not mandate [N] markers')
+    assert.ok(!RULE_CITATION_CONVERSATIONAL.includes('[1]'), 'conversational rule must not show [N] example markers')
+  })
+
+  it('does NOT show a Sources: block inside the answer example string', () => {
+    // Cited-mode examples end answers with \\n\\nSources:\\n[N] — conversational must not
+    assert.ok(
+      !RULE_OUTPUT_JSON_CONVERSATIONAL.includes('\\n\\nSources:'),
+      'conversational answer examples must not contain the cited-mode \\n\\nSources: trailing block',
+    )
+  })
+
+  it('uses the conversational output rule with 2-4 sentence prose', () => {
+    assert.ok(prompt.includes(RULE_OUTPUT_JSON_CONVERSATIONAL))
+    assert.match(RULE_OUTPUT_JSON_CONVERSATIONAL, /2[–-]4 sentences|2 to 4 sentences/i)
+  })
+
+  it('still populates the sources[] JSON array', () => {
+    assert.match(RULE_OUTPUT_JSON_CONVERSATIONAL, /"sources"/)
+  })
+})
+
+describe('buildSystemPrompt — cited style is the default', () => {
+  it('buildSystemPrompt("json") equals buildSystemPrompt("json", "cited")', () => {
+    assert.equal(buildSystemPrompt('json'), buildSystemPrompt('json', 'cited'))
+  })
+
+  it('buildSystemPrompt("stream") equals buildSystemPrompt("stream", "cited")', () => {
+    assert.equal(buildSystemPrompt('stream'), buildSystemPrompt('stream', 'cited'))
   })
 })
 

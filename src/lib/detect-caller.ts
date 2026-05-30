@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 
-export type CallerType = 'ats' | 'recruiter' | 'hiring-manager' | 'personal-ai' | 'unknown'
+export type CallerType = 'ats' | 'recruiter' | 'hiring-manager' | 'personal-ai' | 'human' | 'unknown'
 
 export interface CallerProfile {
   type: CallerType
@@ -20,6 +20,7 @@ export function detectCaller(c: Context): CallerProfile {
   if (agentType === 'recruiter') return { type: 'recruiter', hint: 'Recruiter reviewing candidates. Be clear, narrative, and highlight standout qualities.' }
   if (agentType === 'hiring-manager') return { type: 'hiring-manager', hint: 'Hiring manager evaluating technical fit. Be specific, include depth on technical skills and project scope.' }
   if (agentType === 'personal-ai') return { type: 'personal-ai', hint: 'Personal AI assistant querying on behalf of the candidate. Full detail, no hedging.' }
+  if (agentType === 'human') return { type: 'human', hint: 'Human visitor browsing the portfolio. Be concise and conversational.' }
   if (explicitContext) return { type: 'unknown', hint: explicitContext }
 
   // Infer from User-Agent
