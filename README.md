@@ -194,11 +194,16 @@ Request:
 {
   "question": "Has this person shipped production systems using TypeScript?",
   "context": "ATS screening for a senior backend role",
-  "stream": false
+  "stream": false,
+  "style": "cited"
 }
 ```
 
-Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — useful for demo surfaces and human-readable interfaces.
+**`style`** (optional, default `"cited"`):
+- `"cited"` — full citation rules: inline `[N]` markers and a `Sources:` block in the answer string. Best for ATS, AI agents, and machine consumers.
+- `"conversational"` — 2–4 plain prose sentences, no inline markers, attribution via `sources[]` array only. Best for human chat UIs. Also triggered by `x-agent-type: human` header.
+
+Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — stream mode always uses cited style.
 
 Response (default, `stream: false`):
 ```json
@@ -236,7 +241,7 @@ Response:
 ### `POST /resume` _(private, key-protected)_
 Feed a job description (and optional `framing_hints`), get back a tailored 2-page resume as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
 
-**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 6-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
+**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 6-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores and a `jd_term_count` field — the number of unique extractable terms found in the submitted JD. Low `jd_term_count` (< 15) signals that the JD may be too thin for reliable keyword-dependent scoring; callers can use this to prompt users to enrich the JD before submitting. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
 
 ---
 

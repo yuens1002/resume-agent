@@ -573,12 +573,16 @@ async function syncProject(
     ? (project.highlights as string[])
     : []
 
-  // Fetch both docs in parallel
+  // Fetch docs in parallel; always fetch README.md for URL inference even when
+  // docsPath points to a custom architecture doc.
   const archPath = r.docsPath ?? 'README.md'
-  const [archDoc, changelog] = await Promise.all([
+  const needsSeparateReadme = archPath !== 'README.md'
+  const [archDoc, changelog, readmeDoc] = await Promise.all([
     fetchGitHubFile(r.owner, r.repo, archPath),
     fetchGitHubFile(r.owner, r.repo, 'CHANGELOG.md'),
+    needsSeparateReadme ? fetchGitHubFile(r.owner, r.repo, 'README.md') : Promise.resolve(null),
   ])
+  const readmeForUrl = needsSeparateReadme ? readmeDoc : archDoc
 
   let updated = false
 
@@ -642,7 +646,7 @@ async function syncProject(
       console.log(`  — status unchanged`)
     }
 
-    const newUrl = inferUrl(archDoc, meta.homepage, project.url as string | undefined)
+    const newUrl = inferUrl(readmeForUrl, meta.homepage, project.url as string | undefined)
     if (newUrl) {
       project.url = newUrl
       updated = true
