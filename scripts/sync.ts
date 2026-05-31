@@ -27,7 +27,8 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats } from './sync-helpers.js'
+import type { GitEvidence } from '../src/types.js'
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL
 const SUPA_KEY = process.env.SUPA_SERVICE_ROLE
@@ -90,7 +91,12 @@ async function fetchGitHubFile(owner: string, repo: string, path: string): Promi
   return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
 }
 
-interface RepoMetadata { pushedAt: string; homepage: string | null }
+interface RepoMetadata {
+  pushedAt: string
+  homepage: string | null
+  createdAt: string
+  defaultBranch: string
+}
 
 async function fetchRepoMetadata(owner: string, repo: string): Promise<RepoMetadata | null> {
   const url = `https://api.github.com/repos/${owner}/${repo}`
@@ -104,10 +110,108 @@ async function fetchRepoMetadata(owner: string, repo: string): Promise<RepoMetad
     console.warn(`  GitHub metadata ${res.status} for ${owner}/${repo}`)
     return null
   }
-  const data = await res.json() as { pushed_at?: string; homepage?: string | null }
+  const data = await res.json() as {
+    pushed_at?: string
+    homepage?: string | null
+    created_at?: string
+    default_branch?: string
+  }
   return {
     pushedAt: data.pushed_at ?? '',
     homepage: data.homepage ?? null,
+    createdAt: data.created_at ?? '',
+    defaultBranch: data.default_branch ?? 'main',
+  }
+}
+
+// ── Git evidence ──────────────────────────────────────────
+
+interface GitProvider {
+  fetchCommitCount(owner: string, repo: string): Promise<number>
+  fetchContributorCount(owner: string, repo: string): Promise<number | null>
+}
+
+class GitHubProvider implements GitProvider {
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': GITHUB_API_VERSION,
+    }
+    if (GITHUB_TOKEN) h['Authorization'] = `Bearer ${GITHUB_TOKEN}`
+    return h
+  }
+
+  async fetchCommitCount(owner: string, repo: string): Promise<number> {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/commits?per_page=1`,
+      { headers: this.headers() },
+    )
+    if (!res.ok) return 0
+    return parseCommitCount(res.headers.get('link')) ?? 1
+  }
+
+  async fetchContributorCount(owner: string, repo: string): Promise<number | null> {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/stats/contributors`,
+      { headers: this.headers() },
+    )
+    // 202 = stats still computing — return null so caller preserves existing value
+    if (res.status === 202) return null
+    if (!res.ok) return null
+    const data = await res.json() as unknown[]
+    return Array.isArray(data) ? data.length : null
+  }
+}
+
+// Stub providers — return zeros so they skip gracefully until implemented
+class GitLabProvider implements GitProvider {
+  async fetchCommitCount(_o: string, _r: string) { return 0 }
+  async fetchContributorCount(_o: string, _r: string): Promise<number | null> { return null }
+}
+class BitbucketProvider implements GitProvider {
+  async fetchCommitCount(_o: string, _r: string) { return 0 }
+  async fetchContributorCount(_o: string, _r: string): Promise<number | null> { return null }
+}
+
+function getGitProvider(repoUrl: string): { provider: GitProvider; platform: GitEvidence['provider'] } | null {
+  const p = detectGitProvider(repoUrl)
+  if (p === 'github') return { provider: new GitHubProvider(), platform: 'github' }
+  if (p === 'gitlab') return { provider: new GitLabProvider(), platform: 'gitlab' }
+  if (p === 'bitbucket') return { provider: new BitbucketProvider(), platform: 'bitbucket' }
+  return null
+}
+
+async function fetchGitEvidence(
+  owner: string,
+  repo: string,
+  repoUrl: string,
+  meta: RepoMetadata,
+  tree: TreeEntry[],
+  existing?: GitEvidence,
+): Promise<GitEvidence | null> {
+  const gp = getGitProvider(repoUrl)
+  if (!gp) return null
+
+  const [commitCount, contributorCountRaw] = await Promise.all([
+    gp.provider.fetchCommitCount(owner, repo),
+    gp.provider.fetchContributorCount(owner, repo),
+  ])
+
+  // Preserve existing contributor count when GitHub returns 202 (still computing)
+  const contributors = contributorCountRaw ?? existing?.contributors ?? 0
+
+  const repoStats = buildRepoStats(tree)
+
+  return {
+    verified_at: new Date().toISOString(),
+    repo_created_at: meta.createdAt.slice(0, 10),
+    last_push_at: meta.pushedAt.slice(0, 10),
+    commit_count: commitCount,
+    contributors,
+    default_branch: meta.defaultBranch,
+    provider: gp.platform,
+    repo_stats: repoStats,
+    source: repoUrl,
   }
 }
 
@@ -137,8 +241,9 @@ async function fetchFeatureDocs(
   owner: string,
   repo: string,
   prefixes: string[],
+  preloadedTree?: TreeEntry[],
 ): Promise<Array<{ path: string; content: string }>> {
-  const tree = await fetchGitHubTree(owner, repo)
+  const tree = preloadedTree ?? await fetchGitHubTree(owner, repo)
   const mdFiles = tree
     .filter(e =>
       e.type === 'blob' &&
@@ -634,6 +739,9 @@ async function syncProject(
     console.log(`  ⚠ CHANGELOG.md not found — skipping highlights + thought extraction`)
   }
 
+  // ── Repo tree (needed for git evidence + feature docs) ───
+  const repoTree = await fetchGitHubTree(r.owner, r.repo)
+
   // ── Status / URL / Tech inference ────────────────────────
   const meta = await fetchRepoMetadata(r.owner, r.repo)
   if (meta) {
@@ -666,11 +774,24 @@ async function syncProject(
     console.log(`  — tech unchanged`)
   }
 
+  // ── Git evidence ──────────────────────────────────────────
+  if (meta && project.repo) {
+    const repoUrl = String(project.repo)
+    const evidence = await fetchGitEvidence(r.owner, r.repo, repoUrl, meta, repoTree, project.git_evidence as GitEvidence | undefined)
+    if (evidence) {
+      project.git_evidence = evidence
+      updated = true
+      console.log(`  ✔ git_evidence updated (${evidence.commit_count} commits, ${evidence.repo_stats.total_files} files)`)
+    } else {
+      console.log(`  — git_evidence skipped (unsupported provider)`)
+    }
+  }
+
   // ── Extract thoughts from feature docs ──
   const prefixes = (r as { featureDocsGlobs?: string[] }).featureDocsGlobs
   if (prefixes?.length) {
     console.log(`  Fetching feature docs (${prefixes.join(', ')})...`)
-    const docs = await fetchFeatureDocs(r.owner, r.repo, prefixes)
+    const docs = await fetchFeatureDocs(r.owner, r.repo, prefixes, repoTree)
     console.log(`  Found ${docs.length} doc(s)`)
     for (const doc of docs) {
       // Docs under plans/ directories are planned; others are shipped

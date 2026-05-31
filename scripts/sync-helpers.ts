@@ -160,3 +160,65 @@ export function inferTech(
   const merged = [...(currentTech ?? []), ...newEntries]
   return merged.slice(0, TECH_CAP)
 }
+
+// ── Git evidence helpers ──────────────────────────────────
+
+/**
+ * Detect which git hosting provider a repo URL belongs to.
+ * Returns null for unsupported/unrecognised hosts.
+ */
+export function detectGitProvider(repoUrl: string): 'github' | 'gitlab' | 'bitbucket' | null {
+  try {
+    const { hostname } = new URL(repoUrl)
+    if (hostname === 'github.com') return 'github'
+    if (hostname === 'gitlab.com') return 'gitlab'
+    if (hostname === 'bitbucket.org') return 'bitbucket'
+  } catch {
+    // invalid URL
+  }
+  return null
+}
+
+/**
+ * Parse the total commit count from GitHub's Link response header.
+ *
+ * GitHub returns a Link header like:
+ *   <https://api.github.com/repos/owner/repo/commits?per_page=1&page=142>; rel="last"
+ * The page number equals total commits when per_page=1.
+ *
+ * Returns null if the header is absent, malformed, or the repo has only one page
+ * (single-page repos have no `last` rel — caller should treat null as 0/unknown).
+ */
+export function parseCommitCount(linkHeader: string | null | undefined): number | null {
+  if (!linkHeader) return null
+  const match = /[?&]page=(\d+)>;\s*rel="last"/.exec(linkHeader)
+  if (!match?.[1]) return null
+  const n = parseInt(match[1], 10)
+  return isNaN(n) ? null : n
+}
+
+export interface RepoStats {
+  total_files: number
+  typescript_files: number
+  test_files: number
+}
+
+/**
+ * Count file types from a GitHub tree response.
+ * Only counts blobs (files), not trees (directories).
+ */
+export function buildRepoStats(tree: Array<{ path: string; type: string }>): RepoStats {
+  let total_files = 0
+  let typescript_files = 0
+  let test_files = 0
+
+  for (const entry of tree) {
+    if (entry.type !== 'blob') continue
+    total_files++
+    const p = entry.path
+    if ((p.endsWith('.ts') || p.endsWith('.tsx')) && !p.endsWith('.d.ts')) typescript_files++
+    if (/[/\\]tests?[/\\]|\.test\.[tj]sx?$|\.spec\.[tj]sx?$/.test(p)) test_files++
+  }
+
+  return { total_files, typescript_files, test_files }
+}
