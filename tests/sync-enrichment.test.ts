@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY } from '../scripts/sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY, parseCommitCount, buildRepoStats, detectGitProvider } from '../scripts/sync-helpers.js'
 
 // ── splitChangelogSections (re-implemented for test) ─────
 
@@ -290,5 +290,81 @@ describe('contentHash', () => {
     const a = contentHash('slug', 'Built a Menu Builder')
     const b = contentHash('slug', 'built a menu builder')
     assert.equal(a, b)
+  })
+})
+
+// ── detectGitProvider ────────────────────────────────────
+
+describe('detectGitProvider', () => {
+  it('detects github.com', () => assert.equal(detectGitProvider('https://github.com/owner/repo'), 'github'))
+  it('detects gitlab.com', () => assert.equal(detectGitProvider('https://gitlab.com/owner/repo'), 'gitlab'))
+  it('detects bitbucket.org', () => assert.equal(detectGitProvider('https://bitbucket.org/owner/repo'), 'bitbucket'))
+  it('returns null for unknown host', () => assert.equal(detectGitProvider('https://codeberg.org/owner/repo'), null))
+  it('returns null for empty string', () => assert.equal(detectGitProvider(''), null))
+})
+
+// ── parseCommitCount ─────────────────────────────────────
+
+describe('parseCommitCount', () => {
+  it('parses page number from standard GitHub Link header', () => {
+    const header = '<https://api.github.com/repos/o/r/commits?per_page=1&page=142>; rel="last", <https://api.github.com/repos/o/r/commits?per_page=1&page=2>; rel="next"'
+    assert.equal(parseCommitCount(header), 142)
+  })
+
+  it('returns null for null header', () => assert.equal(parseCommitCount(null), null))
+  it('returns null for undefined header', () => assert.equal(parseCommitCount(undefined), null))
+  it('returns null for empty string', () => assert.equal(parseCommitCount(''), null))
+
+  it('returns null for single-page repo (no last rel)', () => {
+    const header = '<https://api.github.com/repos/o/r/commits?per_page=1&page=1>; rel="first"'
+    assert.equal(parseCommitCount(header), null)
+  })
+
+  it('returns null for malformed header', () => {
+    assert.equal(parseCommitCount('not a link header at all'), null)
+  })
+})
+
+// ── buildRepoStats ───────────────────────────────────────
+
+describe('buildRepoStats', () => {
+  const makeTree = (entries: Array<{ path: string; type?: string }>) =>
+    entries.map(e => ({ path: e.path, type: e.type ?? 'blob' }))
+
+  it('returns zeros for empty tree', () => {
+    const stats = buildRepoStats([])
+    assert.deepEqual(stats, { total_files: 0, typescript_files: 0, test_files: 0 })
+  })
+
+  it('counts total blob entries, not directories', () => {
+    const tree = makeTree([
+      { path: 'src', type: 'tree' },
+      { path: 'src/index.ts' },
+      { path: 'src/lib.ts' },
+    ])
+    assert.equal(buildRepoStats(tree).total_files, 2)
+  })
+
+  it('counts .ts and .tsx files but not .d.ts', () => {
+    const tree = makeTree([
+      { path: 'src/index.ts' },
+      { path: 'src/app.tsx' },
+      { path: 'src/types.d.ts' },
+      { path: 'src/util.js' },
+    ])
+    const stats = buildRepoStats(tree)
+    assert.equal(stats.typescript_files, 2)
+  })
+
+  it('counts test files by path pattern', () => {
+    const tree = makeTree([
+      { path: 'tests/unit.test.ts' },
+      { path: 'src/__tests__/foo.spec.tsx' },
+      { path: 'tests/helpers/util.ts' },
+      { path: 'src/index.ts' },
+    ])
+    const stats = buildRepoStats(tree)
+    // tests/unit.test.ts, src/__tests__/foo.spec.tsx match; tests/helpers/util.ts matches /tests?/ dir
+    assert.ok(stats.test_files >= 2, `expected ≥2 test files, got ${stats.test_files}`)
   })
 })

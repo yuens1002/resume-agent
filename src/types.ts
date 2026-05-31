@@ -21,6 +21,7 @@ export interface Employment {
   end_date: string | null   // null = current
   description?: string
   bullets: string[]
+  attestations?: PeerAttestation[]
 }
 
 export interface Education {
@@ -46,6 +47,40 @@ export interface Project {
   url?: string              // live URL
   repo?: string             // source repo URL
   cover?: string            // public cover image URL
+  git_evidence?: GitEvidence
+}
+
+export interface GitEvidence {
+  verified_at: string
+  first_commit: string      // YYYY-MM-DD (repo created_at)
+  last_commit: string       // YYYY-MM-DD (last push)
+  commit_count: number
+  contributors: number
+  default_branch: string
+  provider: 'github' | 'gitlab' | 'bitbucket'
+  repo_stats: {
+    total_files: number
+    typescript_files: number
+    test_files: number
+  }
+  source: string
+}
+
+export interface PeerAttestation {
+  author: string
+  author_url: string
+  post_url: string
+  posted_at: string         // YYYY-MM-DD
+  excerpt: string
+  employer_match: boolean
+}
+
+export interface VerificationStatus {
+  domain: 'verified'
+  git_evidence: 'partial' | 'none'
+  peer_attestations: 'pending' | 'attested' | 'not_sought'
+  employer_cosignature: 'pending_ecosystem'
+  note: string
 }
 
 export interface Availability {
@@ -67,6 +102,7 @@ export interface PublicProfile {
   projects: Project[]
   availability: Availability
   updated_at: string
+  verification_status?: VerificationStatus
 }
 
 // API request/response shapes

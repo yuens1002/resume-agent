@@ -31,6 +31,7 @@ app.get('/', async (c) => {
       url,
       repo,
       cover,
+      // git_evidence excluded from list — detail-view only via GET /projects/:slug
     }))
   )
 })
