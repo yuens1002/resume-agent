@@ -63,7 +63,7 @@ While waiting for employer-side adoption, the candidate can build a public attes
 
 For projects where the candidate owns and controls the repo, git history is direct, factual evidence. The nightly sync fetches per-project:
 
-- First and last commit dates
+- `repo_created_at` and `last_push_at` (repository host metadata — creation date and last push; not guaranteed to match actual first/last commit for imported histories)
 - Total commit count
 - Contributor count
 - File counts by type (total, TypeScript, test files)

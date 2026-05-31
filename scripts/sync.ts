@@ -128,7 +128,7 @@ async function fetchRepoMetadata(owner: string, repo: string): Promise<RepoMetad
 
 interface GitProvider {
   fetchCommitCount(owner: string, repo: string): Promise<number>
-  fetchContributorCount(owner: string, repo: string): Promise<number>
+  fetchContributorCount(owner: string, repo: string): Promise<number | null>
 }
 
 class GitHubProvider implements GitProvider {
@@ -150,26 +150,27 @@ class GitHubProvider implements GitProvider {
     return parseCommitCount(res.headers.get('link')) ?? 1
   }
 
-  async fetchContributorCount(owner: string, repo: string): Promise<number> {
+  async fetchContributorCount(owner: string, repo: string): Promise<number | null> {
     const res = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/stats/contributors`,
       { headers: this.headers() },
     )
-    // Stats API returns 202 while computing — treat as unknown
-    if (!res.ok || res.status === 202) return 0
+    // 202 = stats still computing — return null so caller preserves existing value
+    if (res.status === 202) return null
+    if (!res.ok) return null
     const data = await res.json() as unknown[]
-    return Array.isArray(data) ? data.length : 0
+    return Array.isArray(data) ? data.length : null
   }
 }
 
 // Stub providers — return zeros so they skip gracefully until implemented
 class GitLabProvider implements GitProvider {
   async fetchCommitCount(_o: string, _r: string) { return 0 }
-  async fetchContributorCount(_o: string, _r: string) { return 0 }
+  async fetchContributorCount(_o: string, _r: string): Promise<number | null> { return null }
 }
 class BitbucketProvider implements GitProvider {
   async fetchCommitCount(_o: string, _r: string) { return 0 }
-  async fetchContributorCount(_o: string, _r: string) { return 0 }
+  async fetchContributorCount(_o: string, _r: string): Promise<number | null> { return null }
 }
 
 function getGitProvider(repoUrl: string): { provider: GitProvider; platform: GitEvidence['provider'] } | null {
@@ -186,23 +187,27 @@ async function fetchGitEvidence(
   repoUrl: string,
   meta: RepoMetadata,
   tree: TreeEntry[],
+  existing?: GitEvidence,
 ): Promise<GitEvidence | null> {
   const gp = getGitProvider(repoUrl)
   if (!gp) return null
 
-  const [commitCount, contributorCount] = await Promise.all([
+  const [commitCount, contributorCountRaw] = await Promise.all([
     gp.provider.fetchCommitCount(owner, repo),
     gp.provider.fetchContributorCount(owner, repo),
   ])
+
+  // Preserve existing contributor count when GitHub returns 202 (still computing)
+  const contributors = contributorCountRaw ?? existing?.contributors ?? 0
 
   const repoStats = buildRepoStats(tree)
 
   return {
     verified_at: new Date().toISOString(),
-    first_commit: meta.createdAt.slice(0, 10),
-    last_commit: meta.pushedAt.slice(0, 10),
+    repo_created_at: meta.createdAt.slice(0, 10),
+    last_push_at: meta.pushedAt.slice(0, 10),
     commit_count: commitCount,
-    contributors: contributorCount,
+    contributors,
     default_branch: meta.defaultBranch,
     provider: gp.platform,
     repo_stats: repoStats,
@@ -772,7 +777,7 @@ async function syncProject(
   // ── Git evidence ──────────────────────────────────────────
   if (meta && project.repo) {
     const repoUrl = String(project.repo)
-    const evidence = await fetchGitEvidence(r.owner, r.repo, repoUrl, meta, repoTree)
+    const evidence = await fetchGitEvidence(r.owner, r.repo, repoUrl, meta, repoTree, project.git_evidence as GitEvidence | undefined)
     if (evidence) {
       project.git_evidence = evidence
       updated = true

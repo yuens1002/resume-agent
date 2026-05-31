@@ -52,8 +52,8 @@ export interface Project {
 
 export interface GitEvidence {
   verified_at: string
-  first_commit: string      // YYYY-MM-DD (repo created_at)
-  last_commit: string       // YYYY-MM-DD (last push)
+  repo_created_at: string   // YYYY-MM-DD — when the repo was created on the host
+  last_push_at: string      // YYYY-MM-DD — last push to any branch
   commit_count: number
   contributors: number
   default_branch: string
@@ -76,7 +76,7 @@ export interface PeerAttestation {
 }
 
 export interface VerificationStatus {
-  domain: 'verified'
+  domain: 'verified' | 'unverified'
   git_evidence: 'partial' | 'none'
   peer_attestations: 'pending' | 'attested' | 'not_sought'
   employer_cosignature: 'pending_ecosystem'
@@ -102,7 +102,6 @@ export interface PublicProfile {
   projects: Project[]
   availability: Availability
   updated_at: string
-  verification_status?: VerificationStatus
 }
 
 // API request/response shapes

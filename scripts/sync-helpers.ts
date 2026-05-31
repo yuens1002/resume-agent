@@ -168,9 +168,14 @@ export function inferTech(
  * Returns null for unsupported/unrecognised hosts.
  */
 export function detectGitProvider(repoUrl: string): 'github' | 'gitlab' | 'bitbucket' | null {
-  if (repoUrl.includes('github.com')) return 'github'
-  if (repoUrl.includes('gitlab.com')) return 'gitlab'
-  if (repoUrl.includes('bitbucket.org')) return 'bitbucket'
+  try {
+    const { hostname } = new URL(repoUrl)
+    if (hostname === 'github.com') return 'github'
+    if (hostname === 'gitlab.com') return 'gitlab'
+    if (hostname === 'bitbucket.org') return 'bitbucket'
+  } catch {
+    // invalid URL
+  }
   return null
 }
 
