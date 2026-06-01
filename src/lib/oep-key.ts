@@ -80,11 +80,16 @@ function base64url(buf: Buffer): string {
  * Both signer and verifier must use this to produce identical byte strings.
  */
 export function canonicalJson(obj: unknown): string {
+  if (obj === undefined) return 'null'
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-    return JSON.stringify(obj)
+    const s = JSON.stringify(obj)
+    return s ?? 'null'
   }
-  const keys = Object.keys(obj as object).sort()
-  const parts = keys.map(k => `${JSON.stringify(k)}:${canonicalJson((obj as Record<string, unknown>)[k])}`)
+  const record = obj as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter(k => record[k] !== undefined && typeof record[k] !== 'function' && typeof record[k] !== 'symbol')
+    .sort()
+  const parts = keys.map(k => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
   return `{${parts.join(',')}}`
 }
 

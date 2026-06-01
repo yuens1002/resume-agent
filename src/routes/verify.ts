@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { supabase } from '../lib/supabase.js'
-import { loadPublicKeyFromEnv, verifyEvidenceSignature } from '../lib/oep-key.js'
+import { loadPublicKeyFromEnv, verifyEvidenceSignature, fingerprint as computeFingerprint } from '../lib/oep-key.js'
 import type { GitEvidence } from '../types.js'
 
 const app = new Hono()
@@ -45,13 +45,26 @@ app.get('/git-evidence', async (c) => {
     })
   }
 
-  const loaded = loadPublicKeyFromEnv()
+  let loaded: ReturnType<typeof loadPublicKeyFromEnv>
+  try {
+    loaded = loadPublicKeyFromEnv()
+  } catch {
+    return c.json({ slug, evidence_signature: 'key_not_configured', summary: 'OEP public key misconfigured on this instance.' }, 503)
+  }
   if (!loaded) {
+    return c.json({ slug, evidence_signature: 'key_not_configured', summary: 'OEP public key not configured on this instance.' }, 503)
+  }
+
+  // Compute fingerprint from the actual key in use — never trust attacker-controlled metadata
+  const actualFingerprint = computeFingerprint(loaded.rawKey)
+  if (signature.fingerprint !== actualFingerprint) {
     return c.json({
       slug,
-      evidence_signature: 'key_not_configured',
-      summary: 'OEP public key not configured on this instance.',
-    }, 503)
+      evidence_signature: 'fail',
+      signed_at: signature.signed_at,
+      verified_at: new Date().toISOString(),
+      summary: `FAIL — evidence fingerprint does not match this instance's OEP key. Evidence may have been signed by a different key.`,
+    })
   }
 
   const valid = verifyEvidenceSignature(payload, signature.value, loaded.rawKey)
@@ -62,12 +75,12 @@ app.get('/git-evidence', async (c) => {
     domain: baseUrl.replace(/^https?:\/\/agent\./, '').replace(/^https?:\/\//, ''),
     oep_phase1: 'see /.well-known/oep-public-key.json',
     evidence_signature: valid ? 'pass' : 'fail',
-    key_fingerprint: signature.fingerprint,
+    key_fingerprint: actualFingerprint,
     signed_at: signature.signed_at,
     verified_at: new Date().toISOString(),
     summary: valid
       ? `VERIFIED — git evidence for '${slug}' is signed by the OEP key at ${signature.key_url} and has not been tampered with.`
-      : `FAIL — signature verification failed. The evidence may have been tampered with or signed by a different key.`,
+      : `FAIL — signature verification failed. The evidence may have been tampered with.`,
   })
 })
 

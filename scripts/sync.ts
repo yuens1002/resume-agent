@@ -780,21 +780,31 @@ async function syncProject(
     const repoUrl = String(project.repo)
     const evidence = await fetchGitEvidence(r.owner, r.repo, repoUrl, meta, repoTree, project.git_evidence as GitEvidence | undefined)
     if (evidence) {
-      // Sign the evidence if OEP private key is configured
-      const privKey = loadPrivateKeyFromEnv()
-      const pubLoaded = loadPublicKeyFromEnv()
-      if (privKey && pubLoaded) {
-        const { signature: _existing, ...payload } = evidence
-        const baseUrl = (process.env.PUBLIC_URL ?? '').replace(/\/$/, '')
-        const sig: EvidenceSignature = {
-          alg: 'ed25519',
-          key_url: `${baseUrl}/.well-known/oep-public-key.json`,
-          fingerprint: pubLoaded.fingerprint,
-          value: signEvidence(payload, privKey),
-          signed_at: new Date().toISOString(),
+      // Sign the evidence if OEP keys are configured — best-effort, never abort sync on failure
+      try {
+        const baseUrl = process.env.PUBLIC_URL?.replace(/\/$/, '')
+        if (!baseUrl?.startsWith('http')) {
+          console.log(`  — git_evidence signing skipped: PUBLIC_URL not set or not absolute`)
+        } else {
+          const privKey = loadPrivateKeyFromEnv()
+          const pubLoaded = loadPublicKeyFromEnv()
+          if (privKey && pubLoaded) {
+            const { signature: _existing, ...payload } = evidence
+            const sig: EvidenceSignature = {
+              alg: 'ed25519',
+              key_url: `${baseUrl}/.well-known/oep-public-key.json`,
+              fingerprint: pubLoaded.fingerprint,
+              value: signEvidence(payload, privKey),
+              signed_at: new Date().toISOString(),
+            }
+            evidence.signature = sig
+            console.log(`  ✔ git_evidence signed (fingerprint: ${pubLoaded.fingerprint.slice(0, 12)}…)`)
+          } else {
+            console.log(`  — git_evidence signing skipped: OEP keys not configured`)
+          }
         }
-        evidence.signature = sig
-        console.log(`  ✔ git_evidence signed (fingerprint: ${pubLoaded.fingerprint.slice(0, 12)}…)`)
+      } catch (err) {
+        console.warn(`  ⚠ git_evidence signing failed (non-fatal): ${(err as Error).message}`)
       }
       project.git_evidence = evidence
       updated = true
