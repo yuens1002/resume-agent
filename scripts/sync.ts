@@ -29,6 +29,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
 import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
+import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL
@@ -836,6 +837,186 @@ async function syncProject(
   return { projects, newThoughts: allNewThoughts }
 }
 
+// ── Employment consolidation ─────────────────────────────
+//
+// Controlled entirely by env vars — disabled by default (opt-in).
+// When enabled, reads the most recent employment delta proposal from OB1,
+// runs a rubric gate, and applies it to the self-employed entry.
+// Writes a notification thought so the candidate knows what changed.
+
+interface ConsolidationConfig {
+  enabled: boolean
+  strategy: 'replace' | 'additive'
+  minBullets: number
+  rubricGate: boolean
+  frequency: 'weekly' | 'on_change' | 'always'
+}
+
+function getConsolidationConfig(): ConsolidationConfig {
+  return {
+    enabled: process.env.EMPLOYMENT_SYNC_ENABLED === 'true',
+    strategy: (process.env.EMPLOYMENT_SYNC_STRATEGY ?? 'replace') as 'replace' | 'additive',
+    minBullets: Math.max(1, parseInt(process.env.EMPLOYMENT_SYNC_MIN_BULLETS ?? '3', 10)),
+    rubricGate: process.env.EMPLOYMENT_SYNC_RUBRIC_GATE !== 'false',
+    frequency: (process.env.EMPLOYMENT_SYNC_FREQUENCY ?? 'weekly') as 'weekly' | 'on_change' | 'always',
+  }
+}
+
+/** Parse proposed bullets out of a delta proposal thought. */
+function parseDeltaProposal(content: string): string[] | null {
+  const match = content.match(/Proposed self-employment bullets:\s*\n([\s\S]*?)(?:\n\nCurrent bullets:|$)/)
+  if (!match) return null
+  const bullets = match[1].trim().split('\n')
+    .map(l => l.replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean)
+  return bullets.length >= 1 ? bullets : null
+}
+
+/** Rubric gate: no banned phrases + quantified ratio must not regress >20%. */
+function passesRubricGate(
+  proposed: string[],
+  current: string[],
+  config: ConsolidationConfig,
+): { pass: boolean; reason: string } {
+  if (!config.rubricGate) return { pass: true, reason: 'gate disabled' }
+  if (proposed.length < config.minBullets) {
+    return { pass: false, reason: `too few bullets: ${proposed.length} < ${config.minBullets}` }
+  }
+  const joined = proposed.join(' ').toLowerCase()
+  const found = BANNED_PHRASES.filter(p => joined.includes(p))
+  if (found.length > 0) return { pass: false, reason: `banned phrase: ${found.join(', ')}` }
+  const metricRe = /\d+%|\$[\d,.]+|\b\d{2,}\b|\d+x\b|\d+\+/
+  const currentRatio = current.length > 0 ? current.filter(b => metricRe.test(b)).length / current.length : 0
+  const proposedRatio = proposed.filter(b => metricRe.test(b)).length / proposed.length
+  if (currentRatio > 0 && proposedRatio < currentRatio * 0.8) {
+    return { pass: false, reason: `quantified ratio regressed: ${(currentRatio * 100).toFixed(0)}% → ${(proposedRatio * 100).toFixed(0)}%` }
+  }
+  return { pass: true, reason: `banned_phrases=pass, quantified=${(proposedRatio * 100).toFixed(0)}%` }
+}
+
+/** Check frequency gate — returns true if we should apply now. */
+async function shouldApplyNow(
+  proposed: string[],
+  current: string[],
+  config: ConsolidationConfig,
+): Promise<boolean> {
+  if (config.frequency === 'always') return true
+  if (config.frequency === 'on_change') {
+    const h = (arr: string[]) => createHash('sha256').update(arr.join('|')).digest('hex')
+    return h(proposed) !== h(current)
+  }
+  // weekly: skip if already applied within 7 days
+  const { data } = await supabase
+    .from('thoughts')
+    .select('created_at')
+    .contains('metadata', { topics: ['employment_sync_applied'] })
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (!data || data.length === 0) return true
+  const daysSince = (Date.now() - new Date(data[0].created_at as string).getTime()) / 86_400_000
+  return daysSince >= 7
+}
+
+async function consolidateEmployment(employment: ProfileRow['employment']): Promise<void> {
+  const config = getConsolidationConfig()
+  if (!config.enabled) {
+    console.log('  — employment consolidation disabled (set EMPLOYMENT_SYNC_ENABLED=true to enable)')
+    return
+  }
+
+  // Find most recent delta proposal
+  const { data: proposals } = await supabase
+    .from('thoughts')
+    .select('content, created_at')
+    .contains('metadata', { type: 'review_needed', topics: ['employment'] })
+    .order('created_at', { ascending: false })
+    .limit(1)
+  if (!proposals?.length) {
+    console.log('  — no delta proposals found in OB1')
+    return
+  }
+
+  const proposed = parseDeltaProposal(proposals[0].content)
+  if (!proposed) {
+    console.warn('  ⚠ could not parse proposed bullets from delta proposal')
+    return
+  }
+
+  const selfEmployed = employment?.find(e =>
+    e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'),
+  )
+  if (!selfEmployed) {
+    console.log('  — no self-employed entry found in profile')
+    return
+  }
+  const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets as string[] : []
+
+  // Frequency gate
+  if (!await shouldApplyNow(proposed, currentBullets, config)) {
+    console.log('  — employment consolidation skipped (frequency gate)')
+    return
+  }
+
+  // Rubric gate
+  const gate = passesRubricGate(proposed, currentBullets, config)
+  if (!gate.pass) {
+    console.log(`  ⚠ employment consolidation skipped — rubric gate failed: ${gate.reason}`)
+    return
+  }
+
+  // Apply
+  const finalBullets = config.strategy === 'additive'
+    ? [...new Set([...currentBullets, ...proposed])]
+    : proposed
+
+  const updatedEmployment = (employment ?? []).map(e =>
+    (e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'))
+      ? { ...e, bullets: finalBullets }
+      : e,
+  )
+
+  const { error } = await supabase
+    .from('public_profile')
+    .update({ employment: updatedEmployment, updated_at: new Date().toISOString() })
+    .eq('id', PROFILE_ID)
+  if (error) {
+    console.warn(`  ⚠ employment consolidation failed: ${error.message}`)
+    return
+  }
+  console.log(`  ✔ employment bullets updated: ${currentBullets.length} → ${finalBullets.length} (${config.strategy})`)
+
+  // Notification thought
+  const notification = [
+    `[sync | ${new Date().toISOString().slice(0, 10)} | notification] Employment bullets updated automatically.`,
+    `Strategy: ${config.strategy} | Bullets: ${currentBullets.length} → ${finalBullets.length} | Rubric: ${gate.reason}`,
+    '',
+    'New bullets:',
+    ...finalBullets.map((b, i) => `${i + 1}. ${b}`),
+    '',
+    'Previous bullets archived:',
+    ...currentBullets.map((b, i) => `${i + 1}. ${b}`),
+  ].join('\n')
+
+  try {
+    const { embedding } = await embed({
+      model: openrouter.embedding('openai/text-embedding-3-small'),
+      value: notification,
+    })
+    await supabase.from('thoughts').insert({
+      content: notification,
+      embedding,
+      metadata: {
+        type: 'notification',
+        source: 'sync',
+        topics: ['employment', 'employment_sync_applied', 'notification'],
+      },
+    })
+    console.log('  ✔ notification written to OB1 (search "employment updated" in private MCP)')
+  } catch (err) {
+    console.warn(`  ⚠ notification write failed (non-fatal): ${(err as Error).message}`)
+  }
+}
+
 // ── CANDIDATE_STACK ───────────────────────────────────────
 
 function buildCandidateStack(profile: ProfileRow): string {
@@ -904,6 +1085,10 @@ async function sync(): Promise<void> {
     console.log('\nProposing employment delta...')
     await proposeEmploymentDelta(profile.employment, allNewThoughts, 'all-projects')
   }
+
+  // Consolidate employment bullets from most recent proposal (opt-in via env var)
+  console.log('\nConsolidating employment...')
+  await consolidateEmployment(profile.employment)
 
   console.log('\nRebuilding CANDIDATE_STACK...')
   const stack = buildCandidateStack({ ...profile, projects })

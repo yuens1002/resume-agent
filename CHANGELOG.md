@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-01 — feat(sync): employment consolidation — auto-apply delta proposals on configurable schedule with rubric gate; closes #129
+
 - 2026-06-01 — fix(query): add premise-absent behavioral few-shot to RULE_OUTPUT_JSON — closes #126; eval 15/16 → 16/16 (25/25 rule points)
 
 - 2026-06-01 — perf(query): 3 fixes — maxTokens 512 for conversational, skip thought embedding for binary questions, in-memory profile cache (5-min TTL); binary roundtrip overhead −18×, conversational behavioral LLM −42%; eval 15/16 unchanged
