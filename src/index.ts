@@ -15,6 +15,7 @@ import qrRoute from './routes/qr.js'
 import verifyRoute from './routes/verify.js'
 import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
+import observationsRoute from './routes/observations.js'
 import mcpRoute from './routes/mcp.js'
 import publicMcpRoute from './routes/public-mcp.js'
 import oauthRoute from './routes/oauth.js'
@@ -107,6 +108,7 @@ app.get('/robots.txt', (c) =>
 )
 app.route('/profile', profileRoute)
 app.route('/projects', projectsRoute)
+app.route('/observations', observationsRoute)
 app.route('/mcp', mcpRoute)
 app.route('/public-mcp', publicMcpRoute)
 app.route('/', oauthRoute)
@@ -125,7 +127,7 @@ const port = parseInt(process.env.PORT ?? '3000')
 serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
-  console.log('[routes] GET /, /health, /openapi.json, /qr, /info, /availability, /projects, /projects/:slug, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
+  console.log('[routes] GET /, /health, /openapi.json, /qr, /info, /availability, /projects, /projects/:slug, /observations, /observations/:id, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
   console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS, /health)')
 })

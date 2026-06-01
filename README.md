@@ -105,7 +105,7 @@ Four concrete commitments — enforced by code, prompt, and rubric, not aspirati
 | Table | Access | Purpose |
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
-| `thoughts` | MCP only (private) | Raw notes, captures, work-in-progress |
+| `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Reasoning, observations, lessons — the "why" behind the work |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
@@ -155,7 +155,8 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
             "availability": { "url": "<baseUrl>/availability", "method": "GET"  },
             "query":        { "url": "<baseUrl>/query",        "method": "POST" },
             "match":        { "url": "<baseUrl>/match",        "method": "POST" },
-            "projects":     { "url": "<baseUrl>/projects",     "method": "GET"  }
+            "projects":     { "url": "<baseUrl>/projects",     "method": "GET"  },
+            "observations": { "url": "<baseUrl>/observations", "method": "GET"  }
           }
         }
       }
@@ -184,7 +185,7 @@ Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). 
 Health check. Returns `{ "status": "ok" }` with `Cache-Control: no-store`. Exempt from rate limiting — safe to poll from uptime monitors.
 
 ### `GET /openapi.json`
-OpenAPI 3.1.0 schema describing all five public endpoints (`/query`, `/match`, `/info`, `/availability`, `/projects`). Import this URL directly into ChatGPT's GPT builder (Actions → import from URL), Gemini Gems, or any platform that accepts OpenAPI for tool wiring. The `servers[0].url` is derived from the `PUBLIC_URL` env var — set it to your deployed domain.
+OpenAPI 3.1.0 schema describing all six public endpoints (`/query`, `/match`, `/info`, `/availability`, `/projects`, `/observations`). Import this URL directly into ChatGPT's GPT builder (Actions → import from URL), Gemini Gems, or any platform that accepts OpenAPI for tool wiring. The `servers[0].url` is derived from the `PUBLIC_URL` env var — set it to your deployed domain.
 
 ### `GET /qr`
 Returns a 300px QR code PNG. Target URL is controlled by the `QR_TARGET_URL` env var (e.g. a Custom GPT URL or your resume website). Falls back to `PUBLIC_URL` then the request origin if unset. Embed in any web page as a plain `<img>` tag:
@@ -197,6 +198,16 @@ Full structured profile snapshot. Skills, experience, projects, education. No Cl
 
 ### `GET /availability`
 Current job-seeking status, preferred roles, start date, contact links.
+
+### `GET /observations` · `GET /observations/:id`
+Browsable list of the candidate's **public-eligible OB1 observations** — the dated reasoning and lessons behind the profile (the "why", not just the "what"). Each item is individually addressable at `GET /observations/:id`, so a premise can be cited as a stable, verifiable node — the human/agent-browsable companion to the semantic grounding `/query` already draws on ("the edge-resolver made browsable", in OEP evidence-graph terms).
+
+Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Optional filters: `?topic=` (exact OB1 tag), `?type=`, `?since=YYYY-MM-DD`, `?limit=` (1–100, default 25). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated) when set, otherwise the most recent public observations.
+
+```bash
+curl "https://agent.yuens.me/observations?topic=OEP&limit=5"
+curl "https://agent.yuens.me/observations/<id>"
+```
 
 ### `GET /try`
 Demo shortcut — redirects to `/query?question=Tell+me+about+yourself&stream=true`. Shareable CTA for humans and AI systems to see the agent in action.
@@ -579,6 +590,7 @@ The included `.github/workflows/sync.yml` runs `npm run sync` on a nightly sched
 8. Deploy to Railway (connect the repo — `railway.toml` handles build + start)
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
 10. Set `QR_TARGET_URL` in Railway to the URL you want the QR to point to (e.g. your resume website or a Custom GPT URL). `GET /qr` on your deployed domain generates the QR automatically — embed it anywhere as an `<img>` tag.
+11. _(Optional)_ Set `OBSERVATIONS_TOPICS` (comma-separated OB1 topic tags) to scope the default `GET /observations` listing to a curated trail (e.g. `OEP,Open Employment Protocol,employment`). Unset, the endpoint lists your most recent public-eligible observations. Private thoughts are never included.
 
 ---
 

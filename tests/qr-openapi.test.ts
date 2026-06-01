@@ -41,17 +41,18 @@ describe('/openapi.json and /qr routes', () => {
       assert.match(res.headers.get('content-type') ?? '', /application\/json/)
     })
 
-    it('AC-2: body has openapi 3.1.0 and exactly 5 paths', async () => {
+    it('AC-2: body has openapi 3.1.0 and exactly 6 paths', async () => {
       const res = await fetch(`${baseUrl}/openapi.json`)
       const body = await res.json() as Record<string, unknown>
       assert.equal(body.openapi, '3.1.0')
       const paths = Object.keys(body.paths as object)
-      assert.equal(paths.length, 5, `expected 5 paths, got ${paths.length}: ${paths.join(', ')}`)
+      assert.equal(paths.length, 6, `expected 6 paths, got ${paths.length}: ${paths.join(', ')}`)
       assert.ok(paths.includes('/query'))
       assert.ok(paths.includes('/match'))
       assert.ok(paths.includes('/info'))
       assert.ok(paths.includes('/availability'))
       assert.ok(paths.includes('/projects'))
+      assert.ok(paths.includes('/observations'))
     })
 
     it('AC-3: servers[0].url uses PUBLIC_URL env var when set', async () => {
