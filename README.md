@@ -512,6 +512,18 @@ See [`docs/workflow.md`](docs/workflow.md) for a walkthrough of how employer AI 
 
 Projects without a GitHub `repo` are skipped silently. Fields that need human framing (`description`, `problem`, `role`, `impact`, `cover`) are never touched by the sync.
 
+**Employment consolidation (opt-in):** Active self-employment generates a continuous stream of granular technical evidence — individual changelogs mention specific UX patterns, state machines, modal states, and API shapes. Useful as raw signal, but too narrow as employment bullets. The nightly sync distills this stream into accurate, broader-scope bullets backed by shipped evidence — replacing "built a modal" with "engineers complex financial flows with non-dismissable state machines" when the body of work supports it.
+
+Set `EMPLOYMENT_SYNC_ENABLED=true` in Railway to automatically apply the best proposal to the self-employed entry on a configurable schedule. The consolidation runs a rubric gate (no generic phrases, quantified-metric ratio must not regress) before applying. A notification thought is written to OB1 after each update so you can audit what changed via `search_thoughts "employment updated"` in your private MCP.
+
+| Env var | Default | Options |
+|---|---|---|
+| `EMPLOYMENT_SYNC_ENABLED` | `false` | `true` to enable |
+| `EMPLOYMENT_SYNC_STRATEGY` | `replace` | `replace` \| `additive` |
+| `EMPLOYMENT_SYNC_FREQUENCY` | `weekly` | `weekly` \| `on_change` \| `always` |
+| `EMPLOYMENT_SYNC_MIN_BULLETS` | `3` | minimum bullet count to accept |
+| `EMPLOYMENT_SYNC_RUBRIC_GATE` | `true` | `false` to skip banned-phrase + metric check |
+
 **Controlling what appears on the resume:** Not every synced project belongs in the Projects section of a generated resume. Some projects are better represented as context for the employment section (e.g. a SaaS platform that's already covered by a self-employment entry). Use `HIDE_FROM_PROJECTS` to exclude specific slugs from the resume output at generation time — the project continues to sync and its OB1 thoughts continue to flow into employment bullet context.
 
 ```bash
