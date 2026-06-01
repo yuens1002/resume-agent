@@ -15,8 +15,9 @@ const app = new Hono()
 
 // ── Profile cache ────────────────────────────────────────
 // Profile changes at most a few times per day (via MCP or sync).
-// A 5-min TTL eliminates one Supabase round-trip per request without
-// risk of serving meaningfully stale data.
+// A 5-min TTL eliminates one Supabase round-trip per request.
+// Intentional tradeoff: callers may see data up to 5 minutes stale after
+// a profile update. Acceptable given how infrequently the profile changes.
 
 interface ProfileCache { data: unknown; expiresAt: number }
 let profileCache: ProfileCache | null = null
