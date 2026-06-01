@@ -12,6 +12,7 @@ import resumeRoute from './routes/resume.js'
 import agentCardRoute from './routes/agent-card.js'
 import openApiRoute from './routes/openapi.js'
 import qrRoute from './routes/qr.js'
+import verifyRoute from './routes/verify.js'
 import profileRoute from './routes/profile.js'
 import projectsRoute from './routes/projects.js'
 import mcpRoute from './routes/mcp.js'
@@ -110,6 +111,7 @@ app.route('/mcp', mcpRoute)
 app.route('/public-mcp', publicMcpRoute)
 app.route('/', oauthRoute)
 
+app.route('/verify', verifyRoute)
 app.get('/health', (c) => {
   c.header('Cache-Control', 'no-store')
   return c.json({ status: 'ok' })

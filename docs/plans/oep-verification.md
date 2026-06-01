@@ -1,5 +1,17 @@
 # OEP Verification — Philosophy and Roadmap
 
+## The one-paragraph version
+
+Fork the code freely — that is the point. But forking the code does not clone the identity. MIT licenses software; it does not license you. If someone deployed this with your name and claimed to be your canonical agent, that is impersonation. The Open Employment Protocol is the technical defense: each layer in the chain below is independently verifiable by any third party, and no fork can reproduce it without controlling your DNS and your private key.
+
+| Layer | What it proves |
+|---|---|
+| **OEP Phase 1** — domain fingerprint | Only you operate the agent at your domain |
+| **OEP Phase 2** — git evidence | The work you claim is backed by real commit history |
+| **OEP Phase 3** — signed evidence | The evidence is signed by the key only you control |
+
+---
+
 ## The problem
 
 A professional profile makes claims about work history. Those claims are self-reported. The gap between "I built X" and "I provably built X" is where most resume fraud lives — and where most AI hiring tools have no ground truth.

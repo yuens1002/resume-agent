@@ -18,6 +18,9 @@ import {
   fingerprint,
   loadPublicKeyFromEnv,
   parseTxtRecord,
+  canonicalJson,
+  signEvidence,
+  verifyEvidenceSignature,
 } from '../src/lib/oep-key.js'
 import oepRoute from '../src/routes/oep.js'
 import { verifyOepDomain } from '../scripts/verify-oep-domain.js'
@@ -271,5 +274,83 @@ describe('buildEnvelope()', () => {
     assert.deepEqual(Object.keys(env).sort(), ['alg', 'fingerprint', 'issued_at', 'key', 'version'])
     assert.equal(env.alg, 'ed25519')
     assert.equal(env.version, 'oep1')
+  })
+})
+
+// ── Phase 3: canonicalJson + sign/verify ─────────────────
+
+describe('canonicalJson', () => {
+  it('sorts keys alphabetically at top level', () => {
+    const result = canonicalJson({ z: 1, a: 2, m: 3 })
+    assert.equal(result, '{"a":2,"m":3,"z":1}')
+  })
+
+  it('sorts keys recursively in nested objects', () => {
+    const result = canonicalJson({ b: { z: 1, a: 2 }, a: 'x' })
+    assert.equal(result, '{"a":"x","b":{"a":2,"z":1}}')
+  })
+
+  it('is deterministic regardless of insertion order', () => {
+    const a = canonicalJson({ commit_count: 142, repo_created_at: '2026-03-01', source: 'https://github.com/x/y' })
+    const b = canonicalJson({ source: 'https://github.com/x/y', commit_count: 142, repo_created_at: '2026-03-01' })
+    assert.equal(a, b)
+  })
+
+  it('handles null and array values without sorting', () => {
+    const result = canonicalJson({ tags: ['b', 'a'], n: null })
+    assert.equal(result, '{"n":null,"tags":["b","a"]}')
+  })
+
+  it('returns primitive JSON for non-object inputs', () => {
+    assert.equal(canonicalJson(42), '42')
+    assert.equal(canonicalJson('hello'), '"hello"')
+    assert.equal(canonicalJson(null), 'null')
+  })
+})
+
+describe('signEvidence + verifyEvidenceSignature', () => {
+  const { rawPublic, encodedPrivate } = makeKeypair()
+  // Decode private seed from base64url (same as loadPrivateKeyFromEnv logic)
+  const rawPrivate = new Uint8Array(Buffer.from(encodedPrivate.replace(/-/g, '+').replace(/_/g, '/'), 'base64'))
+
+  const sampleEvidence = {
+    verified_at: '2026-06-01T00:00:00.000Z',
+    repo_created_at: '2026-03-01',
+    last_push_at: '2026-06-01',
+    commit_count: 142,
+    contributors: 1,
+    default_branch: 'main',
+    provider: 'github',
+    repo_stats: { total_files: 87, typescript_files: 48, test_files: 19 },
+    source: 'https://github.com/yuens1002/resume-agent',
+  }
+
+  it('produces a non-empty base64url signature string', () => {
+    const sig = signEvidence(sampleEvidence, rawPrivate)
+    assert.ok(typeof sig === 'string' && sig.length > 0)
+    assert.ok(!/[+/=]/.test(sig), 'should be base64url (no +, /, or =)')
+  })
+
+  it('verifies a valid signature', () => {
+    const sig = signEvidence(sampleEvidence, rawPrivate)
+    assert.ok(verifyEvidenceSignature(sampleEvidence, sig, rawPublic))
+  })
+
+  it('rejects a tampered payload', () => {
+    const sig = signEvidence(sampleEvidence, rawPrivate)
+    const tampered = { ...sampleEvidence, commit_count: 999 }
+    assert.ok(!verifyEvidenceSignature(tampered, sig, rawPublic))
+  })
+
+  it('rejects a signature from a different key', () => {
+    const { rawPublic: otherPub, encodedPrivate: otherPrivEnc } = makeKeypair()
+    const otherPriv = new Uint8Array(Buffer.from(otherPrivEnc.replace(/-/g, '+').replace(/_/g, '/'), 'base64'))
+    const sig = signEvidence(sampleEvidence, otherPriv)
+    assert.ok(!verifyEvidenceSignature(sampleEvidence, sig, rawPublic))
+    assert.ok(verifyEvidenceSignature(sampleEvidence, sig, otherPub))
+  })
+
+  it('rejects a malformed signature string', () => {
+    assert.ok(!verifyEvidenceSignature(sampleEvidence, 'not-a-real-sig', rawPublic))
   })
 })

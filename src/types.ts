@@ -50,6 +50,14 @@ export interface Project {
   git_evidence?: GitEvidence
 }
 
+export interface EvidenceSignature {
+  alg: 'ed25519'
+  key_url: string       // URL to /.well-known/oep-public-key.json
+  fingerprint: string   // base64url SHA256 of raw public key (same as Phase 1)
+  value: string         // base64url Ed25519 signature over canonical JSON of evidence
+  signed_at: string     // ISO timestamp
+}
+
 export interface GitEvidence {
   verified_at: string
   repo_created_at: string   // YYYY-MM-DD — when the repo was created on the host
@@ -64,6 +72,7 @@ export interface GitEvidence {
     test_files: number
   }
   source: string
+  signature?: EvidenceSignature
 }
 
 export interface PeerAttestation {
