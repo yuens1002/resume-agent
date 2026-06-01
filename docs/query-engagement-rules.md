@@ -167,6 +167,23 @@ The hardest pattern to get right is short answers — single-citation responses 
 }
 ```
 
+**Premise-absent behavioral answer — ONLY for behavioral questions where OB1 observations exist but address the inverse or adjacent pattern, not the exact scenario asked:**
+
+```json
+{
+  "answer": "Sunny's documented pattern is the inverse — iteration stopped when quality degraded, not when \"good enough\" was reached [1][2]. There is no captured instance of deliberately stopping at a satisfaction threshold; the closest documented decision is pausing iteration until an eval harness existed [3].\n\nSources:\n[1] observations: \"Diagnosed Artisan Roast Smart Search / Counter feature as degrading across 8 iterations\"\n[2] observations: \"Artisan Roast — Counter iter-6 through iter-8 planning decision\"\n[3] observations: \"Explicitly paused all further iteration\"",
+  "confidence": "medium",
+  "sources": ["observations"],
+  "follow_up_suggestions": ["What did the eval infrastructure look like for Artisan Roast?"]
+}
+```
+
+**When this pattern applies:** The question is behavioral AND OB1 observations speak to the same domain even if not the exact scenario. Cite those observations, decline the specific premise, end with a Sources block. Confidence is `medium`.
+
+**When it does NOT apply:** Capability gap questions (use the Short capability pattern), no-data questions where the corpus has genuinely nothing relevant (pure factual decline, no markers), off-topic questions (pure decline).
+
+**This is the most-failed edge case** — when the premise is absent, it is tempting to treat the answer as a decline and omit the Sources block. For behavioral questions with adjacent observations: if you cited anything, the Sources block is mandatory.
+
 **Decline (no markers, no Sources block):**
 
 ```json
