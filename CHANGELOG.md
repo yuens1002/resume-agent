@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-01 — fix(query): add premise-absent behavioral few-shot to RULE_OUTPUT_JSON — closes #126; eval 15/16 → 16/16 (25/25 rule points)
+
 - 2026-06-01 — perf(query): 3 fixes — maxTokens 512 for conversational, skip thought embedding for binary questions, in-memory profile cache (5-min TTL); binary roundtrip overhead −18×, conversational behavioral LLM −42%; eval 15/16 unchanged
 
 - 2026-06-01 — feat(oep): Phase 3 — sign git evidence with Ed25519 key; GET /verify/git-evidence; CLI verify-git-evidence.ts; README fork/identity clarity

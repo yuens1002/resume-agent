@@ -266,12 +266,22 @@ describe('Few-shot examples — spec and prompt stay in sync', () => {
     assert.match(specSource, /Few-shot examples/, 'docs/query-engagement-rules.md must mirror the few-shot section the prompt carries')
   })
 
-  it('spec doc shows the short-binary, short-capability, multi-citation, and decline few-shots', () => {
+  it('spec doc shows all five few-shot patterns including premise-absent behavioral', () => {
     assert.match(specSource, /Short binary, yes/i)
     assert.match(specSource, /Short binary, no/i)
     assert.match(specSource, /Short capability/i)
     assert.match(specSource, /Multi-citation behavioral/i)
+    assert.match(specSource, /Premise-absent behavioral/i)
     assert.match(specSource, /Decline \(no markers/i)
+  })
+
+  it('RULE_OUTPUT_JSON prompt contains the same five few-shot headings (doc mirrors prompt)', () => {
+    assert.match(RULE_OUTPUT_JSON, /Short binary, yes/i)
+    assert.match(RULE_OUTPUT_JSON, /Short binary, no/i)
+    assert.match(RULE_OUTPUT_JSON, /Short capability/i)
+    assert.match(RULE_OUTPUT_JSON, /Multi-citation behavioral/i)
+    assert.match(RULE_OUTPUT_JSON, /Premise-absent behavioral/i)
+    assert.match(RULE_OUTPUT_JSON, /Decline \(no markers/i)
   })
 })
 
