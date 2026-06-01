@@ -853,12 +853,22 @@ interface ConsolidationConfig {
 }
 
 function getConsolidationConfig(): ConsolidationConfig {
+  const rawMinBullets = parseInt(process.env.EMPLOYMENT_SYNC_MIN_BULLETS ?? '3', 10)
+  const minBullets = Number.isFinite(rawMinBullets) && rawMinBullets >= 1 ? rawMinBullets : 3
+
+  const rawStrategy = process.env.EMPLOYMENT_SYNC_STRATEGY ?? 'replace'
+  const strategy: 'replace' | 'additive' = rawStrategy === 'additive' ? 'additive' : 'replace'
+
+  const rawFrequency = process.env.EMPLOYMENT_SYNC_FREQUENCY ?? 'weekly'
+  const frequency: 'weekly' | 'on_change' | 'always' =
+    rawFrequency === 'on_change' ? 'on_change' : rawFrequency === 'always' ? 'always' : 'weekly'
+
   return {
     enabled: process.env.EMPLOYMENT_SYNC_ENABLED === 'true',
-    strategy: (process.env.EMPLOYMENT_SYNC_STRATEGY ?? 'replace') as 'replace' | 'additive',
-    minBullets: Math.max(1, parseInt(process.env.EMPLOYMENT_SYNC_MIN_BULLETS ?? '3', 10)),
+    strategy,
+    minBullets,
     rubricGate: process.env.EMPLOYMENT_SYNC_RUBRIC_GATE !== 'false',
-    frequency: (process.env.EMPLOYMENT_SYNC_FREQUENCY ?? 'weekly') as 'weekly' | 'on_change' | 'always',
+    frequency,
   }
 }
 
