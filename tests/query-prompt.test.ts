@@ -274,6 +274,15 @@ describe('Few-shot examples — spec and prompt stay in sync', () => {
     assert.match(specSource, /Premise-absent behavioral/i)
     assert.match(specSource, /Decline \(no markers/i)
   })
+
+  it('RULE_OUTPUT_JSON prompt contains the same five few-shot headings (doc mirrors prompt)', () => {
+    assert.match(RULE_OUTPUT_JSON, /Short binary, yes/i)
+    assert.match(RULE_OUTPUT_JSON, /Short binary, no/i)
+    assert.match(RULE_OUTPUT_JSON, /Short capability/i)
+    assert.match(RULE_OUTPUT_JSON, /Multi-citation behavioral/i)
+    assert.match(RULE_OUTPUT_JSON, /Premise-absent behavioral/i)
+    assert.match(RULE_OUTPUT_JSON, /Decline \(no markers/i)
+  })
 })
 
 // ── Conversational mode ──
