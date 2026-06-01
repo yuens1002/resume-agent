@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-01 — chore: add MIT LICENSE file — closes #121
+
 - 2026-05-31 — feat(oep): Phase 2a — git evidence per project via nightly sync; provider abstraction (GitHub implemented, GitLab/Bitbucket stubs); verification_status on profile; oep-verification.md documents full chain and peer attestation model
 
 - 2026-05-30 — fix(query): follow_up_suggestions now written from visitor's perspective (third-person about the candidate, not second-person directed at them)
