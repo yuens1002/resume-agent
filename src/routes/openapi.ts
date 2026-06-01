@@ -191,6 +191,49 @@ app.get('/', (c) => {
           },
         },
       },
+      '/observations': {
+        get: {
+          operationId: 'listObservations',
+          summary: 'Browse the candidate\'s reasoning/premise trail',
+          description: 'Returns public-eligible OB1 observations — the dated "why and lessons" notes behind the profile, each with a stable URL for citation. Use this to examine the evidence trail behind the candidate\'s claims and reasoning. Private notes are excluded.',
+          parameters: [
+            { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an exact OB1 topic tag' },
+            { name: 'type', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by type: observation, idea, task, reference' },
+            { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date' }, description: 'Only observations on or after this date (YYYY-MM-DD)' },
+            { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+          ],
+          responses: {
+            '200': {
+              description: 'A list of public-eligible observations, each individually addressable',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      count: { type: 'integer' },
+                      scope: { type: 'object' },
+                      observations: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            date: { type: 'string', format: 'date' },
+                            type: { type: 'string' },
+                            topics: { type: 'array', items: { type: 'string' } },
+                            content: { type: 'string' },
+                            url: { type: 'string', format: 'uri', description: 'Stable URL for this observation (GET returns the single record)' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   })
 })

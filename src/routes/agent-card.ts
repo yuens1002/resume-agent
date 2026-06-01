@@ -82,6 +82,7 @@ app.get('/', async (c) => {
               query: { url: `${baseUrl}/query`, method: 'POST' },
               match: { url: `${baseUrl}/match`, method: 'POST' },
               projects: { url: `${baseUrl}/projects`, method: 'GET' },
+              observations: { url: `${baseUrl}/observations`, method: 'GET' },
             },
           },
         },

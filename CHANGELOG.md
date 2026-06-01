@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-01 — feat(observations): public `GET /observations` + `/observations/:id` — browsable, individually-citable OB1 reasoning/premise trail (the "edge-resolver made browsable"); private thoughts excluded at the same boundary as `/query`, `404`-not-`403` on a private/unknown id; `OBSERVATIONS_TOPICS` scopes the default listing; advertised in openapi + agent-card; pure helpers unit-tested
+
 - 2026-06-01 — feat(sync): employment consolidation — auto-apply delta proposals on configurable schedule with rubric gate; closes #129
 
 - 2026-06-01 — fix(query): add premise-absent behavioral few-shot to RULE_OUTPUT_JSON — closes #126; eval 15/16 → 16/16 (25/25 rule points)
