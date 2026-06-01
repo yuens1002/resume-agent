@@ -20,6 +20,27 @@ The public endpoint is not a portfolio site. It is not a chatbot. It is an agent
 
 ---
 
+## Fork the code. Your identity is yours.
+
+This repo is MIT-licensed — fork it, deploy your own instance, build a product on top of it. That is the explicit intent. The README guides you through it, the OpenAPI schema is published so any platform can integrate, and the `robots.txt` welcomes AI crawlers. This is a reference implementation meant to be replicated.
+
+But forking the code does not clone the identity. If someone deployed this repo with your name, your employment history, and your contact details — that is impersonation, not a license question. MIT licenses software; it does not license you.
+
+**This is where the Open Employment Protocol comes in.** OEP Phase 1 ties your agent to a domain you control via a DNS fingerprint. A fork deployed at a different domain cannot reproduce your `_oep.yourdomain.com` DNS record. Any AI or verifier running `verify-oep-domain yourdomain.com` gets a cryptographic PASS for your agent — and gets nothing for theirs. Your domain is your root of trust.
+
+The full chain — each layer independently verifiable:
+
+| Layer | What it proves | Who can verify |
+|---|---|---|
+| **MIT code** | Anyone can run this software | N/A — it's a license |
+| **OEP Phase 1** — domain fingerprint | Only you operate the agent at your domain | Anyone with DNS + `scripts/verify-oep-domain.ts` |
+| **OEP Phase 2** — git evidence | The work you claim is backed by real commit history | Anyone fetching `GET /projects/:slug` |
+| **OEP Phase 3** — signed evidence | The evidence is signed by the key only you control | Anyone with `scripts/verify-git-evidence.ts` |
+
+The code is for everyone. The proof chain is yours alone.
+
+---
+
 ## What it is not
 
 - No web UI. No dashboard. No frontend.
@@ -596,4 +617,6 @@ Contributions welcome — particularly around the job match scoring methodology 
 
 ## License
 
-MIT
+MIT — fork freely, deploy your own instance, build on top of it. See [LICENSE](LICENSE).
+
+The code is open. Your identity proof (OEP domain fingerprint, signed evidence) is yours. A fork of this repo is a new agent, not a copy of you.

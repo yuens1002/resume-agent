@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-01 — feat(oep): Phase 3 — sign git evidence with Ed25519 key; GET /verify/git-evidence; CLI verify-git-evidence.ts; README fork/identity clarity
+
 - 2026-06-01 — chore: add MIT LICENSE file — closes #121
 
 - 2026-05-31 — feat(oep): Phase 2a — git evidence per project via nightly sync; provider abstraction (GitHub implemented, GitLab/Bitbucket stubs); verification_status on profile; oep-verification.md documents full chain and peer attestation model

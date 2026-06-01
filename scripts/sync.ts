@@ -28,7 +28,8 @@ import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
 import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats } from './sync-helpers.js'
-import type { GitEvidence } from '../src/types.js'
+import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
+import type { GitEvidence, EvidenceSignature } from '../src/types.js'
 
 const SUPA_URL = process.env.SUPA_PROJECT_URL
 const SUPA_KEY = process.env.SUPA_SERVICE_ROLE
@@ -779,6 +780,32 @@ async function syncProject(
     const repoUrl = String(project.repo)
     const evidence = await fetchGitEvidence(r.owner, r.repo, repoUrl, meta, repoTree, project.git_evidence as GitEvidence | undefined)
     if (evidence) {
+      // Sign the evidence if OEP keys are configured — best-effort, never abort sync on failure
+      try {
+        const baseUrl = process.env.PUBLIC_URL?.replace(/\/$/, '')
+        if (!baseUrl?.startsWith('http')) {
+          console.log(`  — git_evidence signing skipped: PUBLIC_URL not set or not absolute`)
+        } else {
+          const privKey = loadPrivateKeyFromEnv()
+          const pubLoaded = loadPublicKeyFromEnv()
+          if (privKey && pubLoaded) {
+            const { signature: _existing, ...payload } = evidence
+            const sig: EvidenceSignature = {
+              alg: 'ed25519',
+              key_url: `${baseUrl}/.well-known/oep-public-key.json`,
+              fingerprint: pubLoaded.fingerprint,
+              value: signEvidence(payload, privKey),
+              signed_at: new Date().toISOString(),
+            }
+            evidence.signature = sig
+            console.log(`  ✔ git_evidence signed (fingerprint: ${pubLoaded.fingerprint.slice(0, 12)}…)`)
+          } else {
+            console.log(`  — git_evidence signing skipped: OEP keys not configured`)
+          }
+        }
+      } catch (err) {
+        console.warn(`  ⚠ git_evidence signing failed (non-fatal): ${(err as Error).message}`)
+      }
       project.git_evidence = evidence
       updated = true
       console.log(`  ✔ git_evidence updated (${evidence.commit_count} commits, ${evidence.repo_stats.total_files} files)`)

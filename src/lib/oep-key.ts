@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 
 const VERSION = 'oep1'
 const ALG = 'ed25519'
@@ -71,4 +71,70 @@ export function parseTxtRecord(value: string): { version: string; alg: string; f
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+// ── Signing ───────────────────────────────────────────────
+
+/**
+ * Produce deterministic canonical JSON: sorted keys, no whitespace, recursive.
+ * Both signer and verifier must use this to produce identical byte strings.
+ */
+export function canonicalJson(obj: unknown): string {
+  if (obj === undefined) return 'null'
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    const s = JSON.stringify(obj)
+    return s ?? 'null'
+  }
+  const record = obj as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter(k => record[k] !== undefined && typeof record[k] !== 'function' && typeof record[k] !== 'symbol')
+    .sort()
+  const parts = keys.map(k => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
+  return `{${parts.join(',')}}`
+}
+
+// PKCS8 DER header for Ed25519 private key (seed): RFC 5958
+const ED25519_PRIVATE_DER_HEADER = Buffer.from('302e020100300506032b657004220420', 'hex')
+// SPKI DER header for Ed25519 public key: RFC 5480
+const ED25519_PUBLIC_DER_HEADER = Buffer.from('302a300506032b6570032100', 'hex')
+
+/**
+ * Load the OEP private key from `OEP_PRIVATE_KEY` env var.
+ * Returns raw 32-byte seed, or null if not configured.
+ * Call only from sync/CLI scripts — never on the public HTTP surface.
+ */
+export function loadPrivateKeyFromEnv(env: NodeJS.ProcessEnv = process.env): Uint8Array | null {
+  const encoded = env.OEP_PRIVATE_KEY
+  if (!encoded) return null
+  const padded = encoded.replace(/-/g, '+').replace(/_/g, '/')
+  const buf = Buffer.from(padded, 'base64')
+  if (buf.length !== 32) throw new Error(`OEP private key must be 32 bytes, got ${buf.length}`)
+  return new Uint8Array(buf)
+}
+
+/**
+ * Sign `data` (as canonical JSON) with the Ed25519 private key seed.
+ * Returns base64url-encoded signature.
+ */
+export function signEvidence(data: object, privateKeyRaw: Uint8Array): string {
+  const der = Buffer.concat([ED25519_PRIVATE_DER_HEADER, Buffer.from(privateKeyRaw)])
+  const key = createPrivateKey({ key: der, format: 'der', type: 'pkcs8' })
+  const payload = Buffer.from(canonicalJson(data), 'utf8')
+  return base64url(sign(null, payload, key))
+}
+
+/**
+ * Verify a signature produced by `signEvidence`.
+ * Returns true if the signature is valid, false otherwise.
+ */
+export function verifyEvidenceSignature(data: object, sigBase64url: string, publicKeyRaw: Uint8Array): boolean {
+  try {
+    const der = Buffer.concat([ED25519_PUBLIC_DER_HEADER, Buffer.from(publicKeyRaw)])
+    const key = createPublicKey({ key: der, format: 'der', type: 'spki' })
+    const payload = Buffer.from(canonicalJson(data), 'utf8')
+    const sig = Buffer.from(sigBase64url.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
+    return verify(null, payload, key, sig)
+  } catch {
+    return false
+  }
 }
