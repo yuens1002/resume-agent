@@ -13,6 +13,44 @@ import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
 
+// ── Profile cache ────────────────────────────────────────
+// Profile changes at most a few times per day (via MCP or sync).
+// A 5-min TTL eliminates one Supabase round-trip per request without
+// risk of serving meaningfully stale data.
+
+interface ProfileCache { data: unknown; expiresAt: number }
+let profileCache: ProfileCache | null = null
+const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000
+
+async function fetchProfile() {
+  const now = Date.now()
+  if (profileCache && now < profileCache.expiresAt) {
+    return { data: profileCache.data, error: null }
+  }
+  const result = await supabase
+    .from('public_profile')
+    .select('*')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .single()
+  if (!result.error && result.data) {
+    profileCache = { data: result.data, expiresAt: now + PROFILE_CACHE_TTL_MS }
+  }
+  return result
+}
+
+// ── Binary question detection ────────────────────────────
+// Binary questions (did/does/has/is/can + short) are answered from structured
+// profile data alone — OB1 thoughts add noise, not signal, and the embedding
+// call costs ~150ms. Skip thoughts for these to cut one OpenRouter hop.
+
+function isBinaryQuestion(question: string): boolean {
+  const q = question.toLowerCase().trim()
+  if (q.split(/\s+/).length >= 15) return false
+  if (!/^(did|does|has|have|is|was|were|will|can|could|would|should)\b/.test(q)) return false
+  // Behavioral signals indicate the model needs observations context
+  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff)\b/.test(q)
+}
+
 const schema = z.object({
   question: z.string().min(1),
   context: z.string().optional(),
@@ -81,13 +119,10 @@ export interface ParseError {
 export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
+  const skipThoughts = isBinaryQuestion(args.question)
   const [{ data: profile, error }, thoughts] = await Promise.all([
-    supabase
-      .from('public_profile')
-      .select('*')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
-      .single(),
-    queryRelevantThoughtsForQuestion(args.question),
+    fetchProfile(),
+    skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
   ])
 
   if (error || !profile) {
@@ -99,7 +134,7 @@ export async function queryProfile(
   const start = Date.now()
   const { text: raw } = await generateText({
     model: getModel(),
-    maxTokens: 1024,
+    maxTokens: args.style === 'conversational' ? 512 : 1024,
     system: buildSystemPrompt('json', args.style ?? 'cited'),
     prompt,
   })
@@ -126,13 +161,10 @@ export async function queryProfile(
 export async function queryProfileStream(
   args: QueryProfileArgs,
 ): Promise<ReturnType<typeof streamText> | ProfileNotFoundError> {
+  const skipThoughts = isBinaryQuestion(args.question)
   const [{ data: profile, error }, thoughts] = await Promise.all([
-    supabase
-      .from('public_profile')
-      .select('*')
-      .eq('id', '00000000-0000-0000-0000-000000000001')
-      .single(),
-    queryRelevantThoughtsForQuestion(args.question),
+    fetchProfile(),
+    skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
   ])
 
   if (error || !profile) {
@@ -143,7 +175,7 @@ export async function queryProfileStream(
 
   return streamText({
     model: getModel(),
-    maxTokens: 1024,
+    maxTokens: args.style === 'conversational' ? 512 : 1024,
     system: buildSystemPrompt('stream', args.style ?? 'cited'),
     prompt,
   })
