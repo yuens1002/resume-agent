@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-02 — refactor(observations): default to the authored "why" layer (observation/idea/task) and exclude the git-sync `reference` changelog ledger unless `?type=reference`; topic matching is now case-insensitive so casing variants resolve to one trail; type filter applied at the DB layer (before LIMIT) so the small authored corpus isn't crowded out by the freshly-synced ledger. Clarifies the split: `/observations` = authored why · `/verify` = proven what · `/query` grounds on both. Docs (README, openapi, .env.example) updated for self + downstream
+
 - 2026-06-01 — feat(observations): public `GET /observations` + `/observations/:id` — browsable, individually-citable OB1 reasoning/premise trail (the "edge-resolver made browsable"); private thoughts excluded at the same boundary as `/query`, `404`-not-`403` on a private/unknown id; `OBSERVATIONS_TOPICS` scopes the default listing; advertised in openapi + agent-card; pure helpers unit-tested
 
 - 2026-06-01 — feat(sync): employment consolidation — auto-apply delta proposals on configurable schedule with rubric gate; closes #129

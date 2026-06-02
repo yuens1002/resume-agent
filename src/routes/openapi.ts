@@ -194,11 +194,11 @@ app.get('/', (c) => {
       '/observations': {
         get: {
           operationId: 'listObservations',
-          summary: 'Browse the candidate\'s reasoning/premise trail',
-          description: 'Returns public-eligible OB1 observations — the dated "why and lessons" notes behind the profile, each with a stable URL for citation. Use this to examine the evidence trail behind the candidate\'s claims and reasoning. Private notes are excluded.',
+          summary: 'Browse the candidate\'s authored reasoning/premise trail',
+          description: 'Returns public-eligible OB1 observations — the dated, authored "why and lessons" notes behind the profile (types observation/idea/task), each with a stable URL for citation. Excludes the git-sync changelog ledger (type=reference) by default; pass type=reference to read it. Private notes are always excluded.',
           parameters: [
-            { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an exact OB1 topic tag' },
-            { name: 'type', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by type: observation, idea, task, reference' },
+            { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an OB1 topic tag (case-insensitive)' },
+            { name: 'type', in: 'query', required: false, schema: { type: 'string', enum: ['observation', 'idea', 'task', 'reference'] }, description: 'Override the default type filter (observation/idea/task). Use "reference" for the git/changelog ledger.' },
             { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date' }, description: 'Only observations on or after this date (YYYY-MM-DD)' },
             { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
           ],

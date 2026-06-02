@@ -105,7 +105,7 @@ Four concrete commitments — enforced by code, prompt, and rubric, not aspirati
 | Table | Access | Purpose |
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
-| `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Reasoning, observations, lessons — the "why" behind the work |
+| `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: **authored** `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`) |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
@@ -202,11 +202,16 @@ Current job-seeking status, preferred roles, start date, contact links.
 ### `GET /observations` · `GET /observations/:id`
 Browsable list of the candidate's **public-eligible OB1 observations** — the dated reasoning and lessons behind the profile (the "why", not just the "what"). Each item is individually addressable at `GET /observations/:id`, so a premise can be cited as a stable, verifiable node — the human/agent-browsable companion to the semantic grounding `/query` already draws on ("the edge-resolver made browsable", in OEP evidence-graph terms).
 
-Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Optional filters: `?topic=` (exact OB1 tag), `?type=`, `?since=YYYY-MM-DD`, `?limit=` (1–100, default 25). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated) when set, otherwise the most recent public observations.
+**Authored "why", not the commit ledger.** By default this returns the *authored* reasoning types — `observation`, `idea`, `task` — and **excludes `type: reference`**, which is the git-to-OB1 sync's commit/changelog ledger ("what shipped"). That ledger still grounds `/query` and `/resume` semantically; it's just noise in a reflective browse. Pass `?type=reference` to read it explicitly. This keeps a clean split:
+
+> **`/observations` = the authored *why*** · **`/verify` = the *proven what*** (Ed25519-signed git evidence per project, a different data path) · **`/query` grounds on both.**
+
+Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Filters: `?topic=` (OB1 tag, **case-insensitive** so casing variants resolve to one trail), `?type=` (override the default; e.g. `reference`), `?since=YYYY-MM-DD`, `?limit=` (1–100, default 25). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated, case-insensitive) when set, otherwise the most recent public observations. *Note: topic matching normalizes case but not synonyms — `OEP` and `Open Employment Protocol` are distinct tags; list both in `OBSERVATIONS_TOPICS` to union them in the default view.*
 
 ```bash
-curl "https://agent.yuens.me/observations?topic=OEP&limit=5"
-curl "https://agent.yuens.me/observations/<id>"
+curl "https://agent.yuens.me/observations?topic=OEP&limit=5"          # authored OEP trail
+curl "https://agent.yuens.me/observations?type=reference&topic=resume-agent"  # the changelog ledger
+curl "https://agent.yuens.me/observations/<id>"                       # one premise, by stable id
 ```
 
 ### `GET /try`
