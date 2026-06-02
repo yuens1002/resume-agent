@@ -24,6 +24,7 @@ import {
   hasAnyTopic,
   parseTopicScope,
   isUuid,
+  DEFAULT_OBSERVATION_TYPES,
 } from '../src/lib/observations.js'
 
 describe('observations helpers', () => {
@@ -88,6 +89,13 @@ describe('observations helpers', () => {
     assert.equal(isUuid('not-a-uuid'), false)
     assert.equal(isUuid('../../etc/passwd'), false)
     assert.equal(isUuid(''), false)
+  })
+
+  it('DEFAULT_OBSERVATION_TYPES: the authored "why" layer, excluding the reference ledger', () => {
+    // These are the types the bare /observations listing returns by default.
+    assert.deepEqual([...DEFAULT_OBSERVATION_TYPES], ['observation', 'idea', 'task'])
+    // The git-sync changelog ledger must NOT be in the default (reachable via ?type=reference).
+    assert.equal((DEFAULT_OBSERVATION_TYPES as readonly string[]).includes('reference'), false)
   })
 })
 

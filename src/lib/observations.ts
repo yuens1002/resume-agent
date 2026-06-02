@@ -17,6 +17,16 @@ export interface ThoughtRow {
   created_at: string
 }
 
+/**
+ * The thought types `/observations` returns by default — the *authored* reasoning
+ * layer (the "why / lessons / aha"). This deliberately EXCLUDES `type: reference`,
+ * which is the git-to-OB1 sync's commit/changelog ledger (the "what shipped"): that
+ * ledger still grounds `/query` and `/resume` semantically and is reachable here via
+ * an explicit `?type=reference`, but it does not belong in the default reflective
+ * view. See README "GET /observations" for the observations-vs-verify distinction.
+ */
+export const DEFAULT_OBSERVATION_TYPES = ['observation', 'idea', 'task'] as const
+
 export interface PublicObservation {
   id: string
   date: string // YYYY-MM-DD

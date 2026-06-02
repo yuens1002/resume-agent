@@ -6,6 +6,7 @@ import {
   hasAnyTopic,
   parseTopicScope,
   isUuid,
+  DEFAULT_OBSERVATION_TYPES,
   type ThoughtRow,
 } from '../lib/observations.js'
 
@@ -14,9 +15,12 @@ const app = new Hono()
 const baseUrlOf = (url: string): string =>
   (process.env.PUBLIC_URL ?? new URL(url).origin).replace(/\/$/, '')
 
-// We exclude private thoughts and apply topic scope in app code, so over-fetch a
-// bounded window of recent rows, then slice to the caller's limit.
-const FETCH_CEILING = 300
+// Topic is matched in app code (case-insensitive), so we fetch the per-type window and
+// filter in memory. The ceiling sits above the largest single thought type (the
+// `reference` ledger) so a `?topic` filter sees *every* candidate of that type, not just
+// the most recent — otherwise `?type=reference&topic=…` could miss matches outside the
+// window. Revisit if any one type ever grows past this.
+const FETCH_CEILING = 1000
 
 /**
  * GET /observations — browsable list of public-eligible OB1 observations: the
@@ -24,14 +28,20 @@ const FETCH_CEILING = 300
  * (`metadata.private === true`) are always excluded. Each item carries a stable
  * URL so a premise can be cited as a verifiable node (OEP `EVIDENCE-GRAPH.md`).
  *
+ * Defaults to the *authored* reasoning layer ({@link DEFAULT_OBSERVATION_TYPES} —
+ * observation/idea/task: the "why & lessons"), and excludes the git-sync `reference`
+ * ledger ("what shipped"). The ledger still grounds `/query` and `/resume`; fetch it
+ * here explicitly with `?type=reference`.
+ *
  * Query params:
- *   - `topic`  — filter by an exact OB1 topic tag
- *   - `type`   — filter by type (observation, idea, task, reference, …)
+ *   - `topic`  — filter by an OB1 topic tag (case-insensitive)
+ *   - `type`   — override the type filter (e.g. `reference` for the changelog ledger)
  *   - `since`  — only observations on/after this date (YYYY-MM-DD)
  *   - `limit`  — 1–100, default 25
  *
  * Without `topic`, the listing is scoped to `OBSERVATIONS_TOPICS` (comma-separated
- * env) when set; otherwise it returns the most recent public observations.
+ * env, case-insensitive) when set; otherwise it returns the most recent public
+ * observations.
  */
 app.get('/', async (c) => {
   const topic = c.req.query('topic')?.trim()
@@ -42,6 +52,10 @@ app.get('/', async (c) => {
     ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
     : 25
 
+  // Type filter is applied at the DB layer (before LIMIT) so a small, older type isn't
+  // crowded out of the window by a large, freshly-synced one. With FETCH_CEILING above
+  // the largest type's row count, the in-memory topic filter sees the complete per-type
+  // set, so case-insensitive `?topic` matching is exact, not recency-bounded.
   let q = supabase
     .from('thoughts')
     .select('id, content, metadata, created_at')
@@ -49,7 +63,7 @@ app.get('/', async (c) => {
     .limit(FETCH_CEILING)
 
   if (type) q = q.contains('metadata', { type })
-  if (topic) q = q.contains('metadata', { topics: [topic] })
+  else q = q.in('metadata->>type', [...DEFAULT_OBSERVATION_TYPES])
   if (since) {
     const d = new Date(since)
     if (!Number.isNaN(d.getTime())) q = q.gte('created_at', d.toISOString())
@@ -58,20 +72,25 @@ app.get('/', async (c) => {
   const { data, error } = await q
   if (error) return c.json({ error: error.message }, 500)
 
-  // When no explicit topic is requested, fall back to the owner-configured scope.
-  const scope = topic ? [] : parseTopicScope(process.env.OBSERVATIONS_TOPICS)
+  // Topic scope: an explicit `?topic` (single tag) overrides the owner-configured
+  // default scope. Matching is case-insensitive (see hasAnyTopic) so casing variants
+  // of the same tag — e.g. "open employment protocol" vs "Open Employment Protocol" —
+  // resolve to one trail.
+  const envScope = parseTopicScope(process.env.OBSERVATIONS_TOPICS)
+  const wantedTopics = topic ? [topic] : envScope
   const baseUrl = baseUrlOf(c.req.url)
 
   const filtered = ((data ?? []) as ThoughtRow[])
     .filter((r) => isPublicThought(r.metadata))
-    .filter((r) => (topic ? true : hasAnyTopic(r.metadata, scope)))
+    .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
     .slice(0, limit)
 
   c.header('Cache-Control', 'public, max-age=300')
   return c.json({
     count: filtered.length,
-    scope: topic ? { topic } : scope.length ? { topics: scope } : { recent: true },
-    note: 'Public-eligible OB1 observations — the dated reasoning/premise trail behind this profile. Private thoughts are excluded; each item has a stable URL for citation. Context: OEP EVIDENCE-GRAPH.md.',
+    scope: topic ? { topic } : envScope.length ? { topics: envScope } : { recent: true },
+    types: type ? [type] : [...DEFAULT_OBSERVATION_TYPES],
+    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
     observations: filtered.map((r) => shapeObservation(r, baseUrl)),
   })
 })
