@@ -95,7 +95,7 @@ describe('observations helpers', () => {
     // These are the types the bare /observations listing returns by default.
     assert.deepEqual([...DEFAULT_OBSERVATION_TYPES], ['observation', 'idea', 'task'])
     // The git-sync changelog ledger must NOT be in the default (reachable via ?type=reference).
-    assert.equal(DEFAULT_OBSERVATION_TYPES.includes('reference' as never), false)
+    assert.equal((DEFAULT_OBSERVATION_TYPES as readonly string[]).includes('reference'), false)
   })
 })
 

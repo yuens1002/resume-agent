@@ -15,9 +15,12 @@ const app = new Hono()
 const baseUrlOf = (url: string): string =>
   (process.env.PUBLIC_URL ?? new URL(url).origin).replace(/\/$/, '')
 
-// We exclude private thoughts and apply topic scope in app code, so over-fetch a
-// bounded window of recent rows, then slice to the caller's limit.
-const FETCH_CEILING = 300
+// Topic is matched in app code (case-insensitive), so we fetch the per-type window and
+// filter in memory. The ceiling sits above the largest single thought type (the
+// `reference` ledger) so a `?topic` filter sees *every* candidate of that type, not just
+// the most recent — otherwise `?type=reference&topic=…` could miss matches outside the
+// window. Revisit if any one type ever grows past this.
+const FETCH_CEILING = 1000
 
 /**
  * GET /observations — browsable list of public-eligible OB1 observations: the
@@ -49,10 +52,10 @@ app.get('/', async (c) => {
     ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
     : 25
 
-  // Type filter is applied at the DB layer (before LIMIT) so the small, older
-  // authored corpus isn't crowded out of the fetch window by the large, freshly-
-  // synced `reference` ledger. Topic is matched in app code (case-insensitive),
-  // which is correct because the authored set is small enough to fit the window.
+  // Type filter is applied at the DB layer (before LIMIT) so a small, older type isn't
+  // crowded out of the window by a large, freshly-synced one. With FETCH_CEILING above
+  // the largest type's row count, the in-memory topic filter sees the complete per-type
+  // set, so case-insensitive `?topic` matching is exact, not recency-bounded.
   let q = supabase
     .from('thoughts')
     .select('id, content, metadata, created_at')

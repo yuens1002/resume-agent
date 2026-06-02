@@ -211,7 +211,9 @@ app.get('/', (c) => {
                     type: 'object',
                     properties: {
                       count: { type: 'integer' },
-                      scope: { type: 'object' },
+                      scope: { type: 'object', description: 'The active topic scope: {topic}, {topics}, or {recent:true}' },
+                      types: { type: 'array', items: { type: 'string' }, description: 'The thought types included (default observation/idea/task, or the explicit ?type)' },
+                      note: { type: 'string', description: 'Human-readable description of what this surface returns' },
                       observations: {
                         type: 'array',
                         items: {
