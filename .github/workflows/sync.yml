@@ -30,4 +30,13 @@ jobs:
           SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          OEP_PUBLIC_KEY: ${{ secrets.OEP_PUBLIC_KEY }}
+          OEP_PRIVATE_KEY: ${{ secrets.OEP_PRIVATE_KEY }}
+          OEP_KEY_ISSUED_AT: ${{ secrets.OEP_KEY_ISSUED_AT }}
+          EMPLOYMENT_SYNC_ENABLED: ${{ secrets.EMPLOYMENT_SYNC_ENABLED }}
+          EMPLOYMENT_SYNC_STRATEGY: ${{ secrets.EMPLOYMENT_SYNC_STRATEGY }}
+          EMPLOYMENT_SYNC_FREQUENCY: ${{ secrets.EMPLOYMENT_SYNC_FREQUENCY }}
+          EMPLOYMENT_SYNC_MIN_BULLETS: ${{ secrets.EMPLOYMENT_SYNC_MIN_BULLETS }}
+          EMPLOYMENT_SYNC_RUBRIC_GATE: ${{ secrets.EMPLOYMENT_SYNC_RUBRIC_GATE }}
         run: npx tsx scripts/sync.ts
