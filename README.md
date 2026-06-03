@@ -528,9 +528,18 @@ npm run eval:query -- --threshold 0.35
 # Add the LLM-as-judge rule (one Haiku call per case) — spot-checks the
 # semantic stuff the deterministic rules can't read (overclaim, real redirect)
 npm run eval:query -- --judge
+
+# Latency: run each case N times, report median-of-N per phase + p50/p95 aggregate.
+# Majority-vote across the N runs also stabilizes correctness (kills behavioral
+# single-run variance), so the recorded pass rate is trustworthy.
+npm run eval:query -- --runs 3
+
+# Record a baseline row (date, version, pass rate, p50/p95) to docs/eval-baselines.md
+# so git history shows which commit moved latency. Record from a clean run.
+npm run eval:query -- --runs 3 --baseline
 ```
 
-Read the per-case `PASS/FAIL — <rule>: <detail>` lines, then the category summary, then the overall score. A glance tells you whether off-topic cases are redirecting, capability cases are honest about gaps, behavioral cases are grounding in observations, and so on.
+Read the per-case `PASS/FAIL — <rule>: <detail>` lines, then the category summary, the overall score, and the **latency report** (p50/p95 for total / llm / retrieval, plus the slowest cases). The harness measures correctness **and** latency on one fixed set, so latency is only ever optimized with the pass rate held — see [`docs/plans/query-latency.md`](docs/plans/query-latency.md) and the recorded snapshots in [`docs/eval-baselines.md`](docs/eval-baselines.md).
 
 ---
 
