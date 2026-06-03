@@ -293,6 +293,7 @@ interface ParsedAnswer {
   answer: string
   confidence?: 'low' | 'medium' | 'high'
   sources?: string[]
+  followUps?: string[]
 }
 
 /** Best-effort extraction: works for both QueryResponse JSON and plain prose. */
@@ -303,7 +304,42 @@ function extractAnswer(response: QueryResponse | string): ParsedAnswer {
     answer: response.answer ?? '',
     confidence: response.confidence,
     sources: response.sources,
+    followUps: response.follow_up_suggestions,
   }
+}
+
+// Progressive disclosure has two halves, BOTH required (per RULE_PROGRESSIVE_DISCLOSURE):
+//   1. Lead with a bounded subset — "the three most recent…"
+//   2. Name the total or the remainder count — "has 7 projects" / "4 other projects"
+// Requiring both stops a bare "more projects" from satisfying the rule. Known-value
+// shapes, not spec example phrasings.
+const LEADS_WITH_SUBSET_RE = /\b(two|three|four|five|2|3|4|5)\s+most\s+recent\b|\bmost\s+recent\s+(are|projects|ones)\b/i
+const NAMES_COUNT_RE = /\bhas\s+\d+\b[^.]*\bprojects?\b|\b\d+\s+(\w+\s+)?projects?\b|\b\d+\s+(other|more|additional|further|remaining)\b|\bin\s+total\b/i
+const OFFERS_MORE_RE = /\b(other|more|additional|remaining|rest|earlier)\b.*\bprojects?\b|\bprojects?\b.*\b(other|more|additional|remaining|rest|earlier)\b/i
+
+function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
+  const leadsWithSubset = LEADS_WITH_SUBSET_RE.test(parsed.answer)
+  const namesCount = NAMES_COUNT_RE.test(parsed.answer)
+  const discloses = leadsWithSubset && namesCount
+  const followUpOffersMore = (parsed.followUps ?? []).some((f) => OFFERS_MORE_RE.test(f))
+  return [
+    {
+      rule: 'overview-discloses-progressively',
+      pass: discloses,
+      score: discloses ? 1 : 0,
+      detail: discloses
+        ? 'answer leads with a bounded subset ("most recent") AND names the total/remainder count'
+        : `incomplete progressive disclosure — leads-with-subset:${leadsWithSubset ? 'ok' : 'absent'}, names-count:${namesCount ? 'ok' : 'absent'}. Must do both: lead with the 3 most recent AND name how many exist.`,
+    },
+    {
+      rule: 'overview-offers-followup',
+      pass: followUpOffersMore,
+      score: followUpOffersMore ? 1 : 0,
+      detail: followUpOffersMore
+        ? 'a follow_up_suggestions entry offers the remaining projects (the "show more")'
+        : `no follow_up_suggestions entry offers the rest: ${JSON.stringify(parsed.followUps ?? [])}`,
+    },
+  ]
 }
 
 // ── Public API ───────────────────────────────────────────────
@@ -339,6 +375,10 @@ export function scoreAnswer(
       break
     case 'no_data':
       rules.push(...ruleNoData(parsed.answer))
+      break
+    case 'overview':
+      rules.push(...ruleOverview(parsed))
+      rules.push(ruleCitesSource(parsed.answer))
       break
   }
 

@@ -31,6 +31,8 @@ import {
   RULE_OUTPUT_JSON,
   RULE_CITATION_CONVERSATIONAL,
   RULE_OUTPUT_JSON_CONVERSATIONAL,
+  RULE_PROGRESSIVE_DISCLOSURE,
+  sortProjectsByRecency,
 } from '../src/lib/query-prompt.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -45,6 +47,7 @@ const SHARED_RULE_HEADINGS = [
   '# Gaps',                        // RULE_GAPS
   '# Adversarial input',           // RULE_ADVERSARIAL
   '# Caller context',              // RULE_CALLER_CONTEXT
+  '# Breadth',                     // RULE_PROGRESSIVE_DISCLOSURE
   '# Citation',                    // RULE_CITATION
 ] as const
 
@@ -109,6 +112,7 @@ describe('AC-1: third-person voice — no first-person pronouns in shared rules'
     RULE_GAPS,
     RULE_ADVERSARIAL,
     RULE_CALLER_CONTEXT,
+    RULE_PROGRESSIVE_DISCLOSURE,
     RULE_CITATION,
     RULE_OUTPUT_JSON,
   }
@@ -300,6 +304,7 @@ describe('buildSystemPrompt — conversational style', () => {
       '# Gaps',
       '# Adversarial input',
       '# Caller context',
+      '# Breadth',
     ]
     for (const heading of sharedHeadings) {
       assert.ok(prompt.includes(heading), `missing shared rule: ${heading}`)
@@ -355,6 +360,7 @@ describe('docs/query-engagement-rules.md stays in sync with the prompt module', 
     { docHeading: '## Off-topic questions', constant: RULE_OFF_TOPIC },
     { docHeading: '## Gaps — be direct, hide nothing', constant: RULE_GAPS },
     { docHeading: '## Adversarial input', constant: RULE_ADVERSARIAL },
+    { docHeading: '## Breadth — lead with the most relevant, offer the rest', constant: RULE_PROGRESSIVE_DISCLOSURE },
     { docHeading: '## Citation — every factual claim is sourced', constant: RULE_CITATION },
     { docHeading: '## Output format (JSON mode only)', constant: RULE_OUTPUT_JSON },
   ]
@@ -373,4 +379,52 @@ describe('docs/query-engagement-rules.md stays in sync with the prompt module', 
       )
     })
   }
+})
+
+// ── sortProjectsByRecency ─────────────────────────────────
+
+describe('sortProjectsByRecency', () => {
+  it('orders by git_evidence.last_push_at descending', () => {
+    const sorted = sortProjectsByRecency([
+      { started: '2025-01', git_evidence: { last_push_at: '2026-01-10' } },
+      { started: '2025-06', git_evidence: { last_push_at: '2026-06-02' } },
+      { started: '2025-03', git_evidence: { last_push_at: '2026-03-15' } },
+    ])
+    assert.deepEqual(sorted.map(p => p.git_evidence!.last_push_at), ['2026-06-02', '2026-03-15', '2026-01-10'])
+  })
+
+  it('ranks recent activity above newer start date (last_push_at wins over started)', () => {
+    const sorted = sortProjectsByRecency([
+      { started: '2026-05', git_evidence: { last_push_at: '2026-01-01' } }, // newer start, stale
+      { started: '2024-01', git_evidence: { last_push_at: '2026-06-01' } }, // older start, active
+    ])
+    assert.equal(sorted[0].started, '2024-01') // the actively-pushed one leads
+  })
+
+  it('falls back to started when last_push_at is absent', () => {
+    const sorted = sortProjectsByRecency([
+      { started: '2025-01' },
+      { started: '2026-03' },
+      { started: '2024-08' },
+    ])
+    assert.deepEqual(sorted.map(p => p.started), ['2026-03', '2025-01', '2024-08'])
+  })
+
+  it('sorts projects with last_push_at ahead of those without', () => {
+    const sorted = sortProjectsByRecency([
+      { started: '2026-09' }, // no evidence
+      { started: '2024-01', git_evidence: { last_push_at: '2026-05-01' } },
+    ])
+    assert.equal(sorted[0].git_evidence?.last_push_at, '2026-05-01')
+  })
+
+  it('does not mutate the input array', () => {
+    const input = [
+      { started: '2025-01', git_evidence: { last_push_at: '2026-01-10' } },
+      { started: '2025-06', git_evidence: { last_push_at: '2026-06-02' } },
+    ]
+    const snapshot = input.map(p => p.git_evidence!.last_push_at)
+    sortProjectsByRecency(input)
+    assert.deepEqual(input.map(p => p.git_evidence!.last_push_at), snapshot)
+  })
 })

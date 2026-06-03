@@ -8,7 +8,7 @@ import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
-import { buildSystemPrompt, sanitizeCallerHint } from '../lib/query-prompt.js'
+import { buildSystemPrompt, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -88,7 +88,13 @@ export function buildQueryPrompt(
     parts.push('')
   }
   parts.push('# Profile data')
-  parts.push(JSON.stringify(profile, null, 2))
+  // Pre-sort projects most-recent-first so the model leads with current work
+  // when asked about projects generally (RULE_PROGRESSIVE_DISCLOSURE).
+  const profileForPrompt =
+    profile && typeof profile === 'object' && Array.isArray((profile as { projects?: unknown }).projects)
+      ? { ...(profile as object), projects: sortProjectsByRecency((profile as { projects: Array<{ started?: string; git_evidence?: { last_push_at?: string } }> }).projects) }
+      : profile
+  parts.push(JSON.stringify(profileForPrompt, null, 2))
   parts.push('')
   parts.push('# Question')
   parts.push(question)
