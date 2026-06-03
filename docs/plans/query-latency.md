@@ -16,8 +16,8 @@ We log wall-clock total but throw away the phase breakdown. Persist it:
 
 Migration adds two columns to `observed_queries`; `queryProfile` surfaces `retrieval_ms` in `meta`; logger persists both. Non-streaming only for now (streaming logs a partial payload — acceptable gap).
 
-### Stage 2 — Latency on `eval:query` (later)
-Add per-case timing + aggregate p50/p95 to the existing eval run. One command → correctness **and** latency on a fixed set. Write each run (version, date, pass rate, p50/p95) to a **committed** baseline file so git history shows which commit moved latency.
+### Stage 2 — Latency on `eval:query` ✅ shipped
+Per-case timing + aggregate p50/p95 in the eval run (`--runs N` for median-of-N). One command → correctness **and** latency on a fixed set. `--runs N` also majority-votes correctness across the N runs, killing behavioral single-run variance so the recorded pass rate is trustworthy. `--baseline` appends a row (date, version, pass rate, p50/p95) to the committed [`docs/eval-baselines.md`](../eval-baselines.md), so git history shows which commit moved latency.
 
 ### Stage 3 — Optimize against a target (later)
 Set a target (e.g. p50 < 3s cited, < 1.5s conversational). Loop: change → `eval:query` → correctness held + latency down? → keep/revert.
