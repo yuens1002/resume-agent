@@ -293,6 +293,7 @@ interface ParsedAnswer {
   answer: string
   confidence?: 'low' | 'medium' | 'high'
   sources?: string[]
+  followUps?: string[]
 }
 
 /** Best-effort extraction: works for both QueryResponse JSON and plain prose. */
@@ -303,7 +304,43 @@ function extractAnswer(response: QueryResponse | string): ParsedAnswer {
     answer: response.answer ?? '',
     confidence: response.confidence,
     sources: response.sources,
+    followUps: response.follow_up_suggestions,
   }
+}
+
+// Signals that the answer disclosed progressively — named a bounded subset and
+// flagged that more exist — rather than silently enumerating everything. These
+// describe the *shape* of progressive disclosure, not spec example phrasings.
+const DISCLOSES_MORE_RE = [
+  /\b\d+\s+(other|more|additional|further)\s+projects?\b/i,
+  /\b(other|more|additional|remaining)\s+projects?\b/i,
+  /\b(three|four|five|3|4|5)\s+most\s+recent\b/i,
+  /\bin\s+total\b/i,
+  /\bhas\s+\d+\s+projects?\b/i,
+]
+const OFFERS_MORE_RE = /\b(other|more|additional|remaining|rest|earlier)\b.*\bprojects?\b|\bprojects?\b.*\b(other|more|additional|remaining|rest|earlier)\b/i
+
+function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
+  const discloses = DISCLOSES_MORE_RE.some((re) => re.test(parsed.answer))
+  const followUpOffersMore = (parsed.followUps ?? []).some((f) => OFFERS_MORE_RE.test(f))
+  return [
+    {
+      rule: 'overview-discloses-progressively',
+      pass: discloses,
+      score: discloses ? 1 : 0,
+      detail: discloses
+        ? 'answer names a bounded subset and signals more exist (count / "other projects" / "most recent")'
+        : 'answer does not signal a larger set — appears to exhaust the list instead of leading with the most recent and offering the rest',
+    },
+    {
+      rule: 'overview-offers-followup',
+      pass: followUpOffersMore,
+      score: followUpOffersMore ? 1 : 0,
+      detail: followUpOffersMore
+        ? 'a follow_up_suggestion offers the remaining projects (the "show more")'
+        : `no follow_up_suggestion offers the rest: ${JSON.stringify(parsed.followUps ?? [])}`,
+    },
+  ]
 }
 
 // ── Public API ───────────────────────────────────────────────
@@ -339,6 +376,10 @@ export function scoreAnswer(
       break
     case 'no_data':
       rules.push(...ruleNoData(parsed.answer))
+      break
+    case 'overview':
+      rules.push(...ruleOverview(parsed))
+      rules.push(ruleCitesSource(parsed.answer))
       break
   }
 

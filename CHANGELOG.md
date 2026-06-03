@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-03 — feat(query): progressive disclosure for enumeration questions — `RULE_PROGRESSIVE_DISCLOSURE` leads with the 3 most-recent projects + names the total + offers the rest via a follow-up ("show more"); projects pre-sorted by `git_evidence.last_push_at` (then `started`). New `overview` eval category (17/17, 28/28). Measured: "all projects" answer 2,613→1,361 chars, llm ~10s→~7s, with quality held — and stays bounded as project count grows
+
 - 2026-06-03 — feat(query): instrument phase timings — persist `llm_ms` + `retrieval_ms` to observed_queries; Stage 1 of the query-latency plan (docs/plans/query-latency.md). Initial assessment: "recent projects" query is ~90% LLM generation (output length), ~10% retrieval, ~0 framework overhead
 
 - 2026-06-03 — docs(roadmap): rewrite ROADMAP.md — current through v0.4.42, Next and Exploring sections updated

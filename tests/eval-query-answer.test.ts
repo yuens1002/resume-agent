@@ -487,3 +487,38 @@ describe('AC-8: no-data-offers-contact rule is gone', () => {
     }
   })
 })
+
+// ── overview / breadth rule ─────────────────────────────────
+
+describe('overview rule — progressive disclosure', () => {
+  const overviewCase = {
+    id: 'overview-projects',
+    category: 'overview' as const,
+    question: 'What are all the projects you have worked on?',
+    expect: { category: 'overview' as const },
+  }
+
+  function overviewResponse(answer: string, followUps: string[]) {
+    return { answer, confidence: 'high' as const, sources: ['projects.resume-agent'], follow_up_suggestions: followUps }
+  }
+
+  it('passes when the answer names a count + leads with recent + offers more via follow-up', () => {
+    const answer = 'Sunny has 7 projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web'
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, ['Want to hear about Sunny\'s other 4 projects?']))
+    assert.ok(score.pass, JSON.stringify(score.rules.map(r => [r.rule, r.pass]), null, 2))
+  })
+
+  it('fails the discloses-progressively rule when the answer exhausts the list with no count or "more" signal', () => {
+    const answer = 'Sunny built resume-agent [1], brew-guide [2], artisan-roast [3], and artisan-roast-platform [4].\n\nSources:\n[1] a\n[2] b\n[3] c\n[4] d'
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, []))
+    const r = score.rules.find(x => x.rule === 'overview-discloses-progressively')!
+    assert.equal(r.pass, false)
+  })
+
+  it('fails the offers-followup rule when no follow-up offers the rest', () => {
+    const answer = 'Sunny has 7 projects; the three most recent are A [1], B [2], C [3].\n\nSources:\n[1] a\n[2] b\n[3] c'
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, ['What tech stack does A use?']))
+    const r = score.rules.find(x => x.rule === 'overview-offers-followup')!
+    assert.equal(r.pass, false)
+  })
+})

@@ -12,6 +12,7 @@ export type EvalCategory =
   | 'off_topic'
   | 'adversarial'
   | 'no_data'
+  | 'overview'
 
 export interface BinaryExpect {
   category: 'binary'
@@ -46,6 +47,15 @@ export interface NoDataExpect {
   category: 'no_data'
 }
 
+/**
+ * Overview / breadth questions ("what are your projects?") — the answer should
+ * progressively disclose (lead with a bounded subset, signal more exist, offer
+ * the rest) rather than exhaust the list. See RULE_PROGRESSIVE_DISCLOSURE.
+ */
+export interface OverviewExpect {
+  category: 'overview'
+}
+
 export type EvalExpect =
   | BinaryExpect
   | CapabilityExpect
@@ -53,6 +63,7 @@ export type EvalExpect =
   | OffTopicExpect
   | AdversarialExpect
   | NoDataExpect
+  | OverviewExpect
 
 export interface EvalCase {
   id: string

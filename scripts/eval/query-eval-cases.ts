@@ -158,4 +158,15 @@ export const EVAL_CASES: EvalCase[] = [
     question: 'Where did you grow up?',
     expect: { category: 'no_data' },
   },
+
+  // ── overview / breadth ───────────────────────────────────
+  // Progressive disclosure: a "list everything" question should lead with the
+  // most recent few, name how many more exist, and offer the rest via a
+  // follow-up — not exhaust the list (which also balloons latency).
+  {
+    id: 'overview-projects',
+    category: 'overview',
+    question: 'What are all the projects you have worked on?',
+    expect: { category: 'overview' },
+  },
 ]

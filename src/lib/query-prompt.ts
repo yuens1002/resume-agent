@@ -251,6 +251,16 @@ Example decline:
   "follow_up_suggestions": []
 }`
 
+export const RULE_PROGRESSIVE_DISCLOSURE = `# Breadth — lead with the most relevant, offer the rest
+
+When a question invites enumerating a large set — projects, full employment history, every skill — do NOT exhaust the list. Lead with the 3 most recent or most relevant entries, state plainly how many more exist, and offer the remainder rather than listing everything. Comprehensive ≠ exhaustive.
+
+The projects in the profile data are pre-sorted most-recent-first (by latest activity). When asked about projects in general, cover the top 3 and name the total — e.g. "Sunny has 7 projects; the three most recent are …".
+
+**When you lead with a subset, the FIRST \`follow_up_suggestion\` MUST offer the remainder** — e.g. "Want to hear about Sunny's other 4 projects?" — phrased third-person about the candidate. This is the reader's "show more"; without it they have no path to the rest, which would turn progressive disclosure into omission. Only after that offer may you add deeper-dive follow-ups. This is honest because naming the full count up front discloses everything that exists.
+
+This does NOT apply when the asker names a specific project or asks a narrow question — answer those directly and fully.`
+
 const RULES_SHARED_BASE = [
   META_TONE_NOTE,
   RULE_VOICE,
@@ -260,6 +270,7 @@ const RULES_SHARED_BASE = [
   RULE_GAPS,
   RULE_ADVERSARIAL,
   RULE_CALLER_CONTEXT,
+  RULE_PROGRESSIVE_DISCLOSURE,
 ] as const
 
 /**
@@ -308,4 +319,21 @@ export function sanitizeCallerHint(raw: string | null | undefined): string {
   const flat = out.replace(/\s+/g, ' ').trim()
   if (flat.length <= CALLER_HINT_MAX_LEN) return flat
   return flat.slice(0, CALLER_HINT_MAX_LEN - 1) + '…'
+}
+
+/**
+ * Sort projects most-recent-first for prompt injection so the model leads with
+ * current work (see RULE_PROGRESSIVE_DISCLOSURE). Primary key: actual recent
+ * activity (`git_evidence.last_push_at`); tiebreaker: `started`. Missing values
+ * sort last. Pure — does not mutate the input.
+ */
+export function sortProjectsByRecency<T extends { started?: string; git_evidence?: { last_push_at?: string } }>(
+  projects: T[],
+): T[] {
+  return [...projects].sort((a, b) => {
+    const al = a.git_evidence?.last_push_at ?? ''
+    const bl = b.git_evidence?.last_push_at ?? ''
+    if (al !== bl) return bl.localeCompare(al)
+    return (b.started ?? '').localeCompare(a.started ?? '')
+  })
 }
