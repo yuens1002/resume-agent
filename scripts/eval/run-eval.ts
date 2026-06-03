@@ -90,7 +90,9 @@ function median(xs: number[]): number {
 function percentile(xs: number[], p: number): number {
   if (!xs.length) return 0
   const s = [...xs].sort((a, b) => a - b)
-  return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))]
+  // Nearest-rank: rank = ceil(p/100 * n), index = rank - 1, clamped to [0, n-1].
+  const rank = Math.ceil((p / 100) * s.length)
+  return s[Math.min(s.length - 1, Math.max(0, rank - 1))]
 }
 
 function avg(xs: number[]): number {
@@ -219,8 +221,14 @@ async function main(): Promise<void> {
     }
 
     const rules = judgeRule ? [...lastScore.rules, judgeRule] : lastScore.rules
-    const total = lastScore.total
-    const maxTotal = lastScore.maxTotal
+    // Compute the additive total over the *displayed* rules (including judge-llm,
+    // which is non-blocking) so the printed "(additive X/Y)" matches the rule list.
+    const additive = rules.filter((r) => !r.blocking)
+    const total = additive.reduce((sum, r) => sum + r.score, 0)
+    const maxTotal = additive.length
+    // Verdict: the majority-voted deterministic pass, with the judge (if enabled)
+    // as a semantic gate on top — it's a yes/no spot-check, so it gates rather
+    // than merely nudging the additive threshold.
     const pass = detPass && (judgeRule ? judgeRule.pass : true)
 
     process.stdout.write(`  A: ${result.answer.slice(0, 180).replace(/\s+/g, ' ')}${result.answer.length > 180 ? '…' : ''}\n`)
@@ -269,12 +277,19 @@ async function main(): Promise<void> {
   }
 
   // Baseline append — deliberate, only on --baseline. Records the current run so
-  // git history shows which commit moved latency.
-  if (flags.baseline && latencyByCase.length) {
-    const date = new Date().toISOString().slice(0, 10)
-    const row = `| ${date} | ${readVersion()} | ${flags.runs} | ${overallPass}/${overallTotal} | ${percentile(totals, 50)} | ${percentile(totals, 95)} | ${percentile(llms, 50)} | ${percentile(retrievals, 50)} |`
-    appendBaseline(row)
-    process.stdout.write(`\n  baseline recorded → ${BASELINE_PATH}\n`)
+  // git history shows which commit moved latency. Refuse to record if any case
+  // errored: those are counted in the pass column but excluded from the latency
+  // percentiles, which would make the row internally inconsistent / non-comparable.
+  if (flags.baseline) {
+    if (latencyByCase.length !== scores.length) {
+      const errored = scores.length - latencyByCase.length
+      process.stdout.write(`\n  baseline NOT recorded — ${errored} case(s) errored (no latency captured). Fix and re-run before baselining.\n`)
+    } else {
+      const date = new Date().toISOString().slice(0, 10)
+      const row = `| ${date} | ${readVersion()} | ${flags.runs} | ${overallPass}/${overallTotal} | ${percentile(totals, 50)} | ${percentile(totals, 95)} | ${percentile(llms, 50)} | ${percentile(retrievals, 50)} |`
+      appendBaseline(row)
+      process.stdout.write(`\n  baseline recorded → ${BASELINE_PATH}\n`)
+    }
   }
 
   process.exit(overallPass === overallTotal ? 0 : 1)
