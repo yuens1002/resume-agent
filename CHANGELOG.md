@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-03 — docs(roadmap): rewrite ROADMAP.md — current through v0.4.42, Next and Exploring sections updated
+
 - 2026-06-03 — docs(readme): link resume-agent-web companion repo; fix architecture diagram; correct homepage to agent.yuens.me; roadmap updated to current state
 
 - 2026-06-02 — ci(sync): upgrade GitHub Actions runner to Node.js 24 (20 deprecated June 16)
