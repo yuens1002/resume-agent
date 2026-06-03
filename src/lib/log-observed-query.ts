@@ -56,22 +56,35 @@ function hashIp(ip: string | undefined): string | null {
   return createHash('sha256').update(`${ip}:${IP_SALT}`).digest('hex')
 }
 
+/**
+ * Build the observed_queries row from a log input. Pure and exported so the
+ * column mapping — including the phase-timing fields (`llm_ms`, `retrieval_ms`)
+ * — is unit-testable without a live DB. `latency_ms` is the wall-clock total;
+ * `llm_ms` / `retrieval_ms` come from the response meta and are null when absent
+ * (e.g. streaming callers log a partial payload with no meta).
+ */
+export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
+  return {
+    source: input.source,
+    question: input.question,
+    caller_hint: input.caller_hint ?? null,
+    answer: input.response.answer ?? null,
+    confidence: input.response.confidence ?? null,
+    sources: input.response.sources ?? null,
+    model: input.response.meta?.model ?? null,
+    latency_ms: input.latency_ms,
+    llm_ms: input.response.meta?.latency_ms ?? null,
+    retrieval_ms: input.response.meta?.retrieval_ms ?? null,
+    ip_hash: ipHash,
+    user_agent: input.user_agent ?? null,
+  }
+}
+
 export async function logObservedQuery(input: LogInput): Promise<void> {
   try {
-    const { error } = await supabase.from('observed_queries').insert({
-      source: input.source,
-      question: input.question,
-      caller_hint: input.caller_hint ?? null,
-      answer: input.response.answer ?? null,
-      confidence: input.response.confidence ?? null,
-      sources: input.response.sources ?? null,
-      model: input.response.meta?.model ?? null,
-      latency_ms: input.latency_ms,
-      llm_ms: input.response.meta?.latency_ms ?? null,
-      retrieval_ms: input.response.meta?.retrieval_ms ?? null,
-      ip_hash: hashIp(input.ip),
-      user_agent: input.user_agent ?? null,
-    })
+    const { error } = await supabase
+      .from('observed_queries')
+      .insert(buildObservedQueryRow(input, hashIp(input.ip)))
     if (error) {
       // Supabase returns { error } without throwing for most failures; capture it.
       console.warn('[log-observed-query] insert returned error:', error.message)

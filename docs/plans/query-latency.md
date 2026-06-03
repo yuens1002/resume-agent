@@ -12,7 +12,7 @@ Optimize latency **subject to correctness held constant.** Same fixtures, two me
 We log wall-clock total but throw away the phase breakdown. Persist it:
 - `llm_ms` — `generateText` time (already computed in `meta.latency_ms`, just not stored)
 - `retrieval_ms` — the data-fetch phase (profile + thoughts `Promise.all`)
-- Overhead = `total − llm − retrieval` (framework / network / cold start), derivable
+- Overhead = `total − llm − retrieval` — prompt construction, JSON parse/serialize, framework, network, cold start (local CPU *and* infra, not just infra), derivable
 
 Migration adds two columns to `observed_queries`; `queryProfile` surfaces `retrieval_ms` in `meta`; logger persists both. Non-streaming only for now (streaming logs a partial payload — acceptable gap).
 
