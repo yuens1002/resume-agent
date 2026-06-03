@@ -121,10 +121,12 @@ export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
   const skipThoughts = isBinaryQuestion(args.question)
+  const retrievalStart = Date.now()
   const [{ data: profile, error }, thoughts] = await Promise.all([
     fetchProfile(),
     skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
   ])
+  const retrieval_ms = Date.now() - retrievalStart
 
   if (error || !profile) {
     return { kind: 'profile_not_found' }
@@ -154,7 +156,7 @@ export async function queryProfile(
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,
     },
-    meta: { model: MODEL, latency_ms },
+    meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 }
 

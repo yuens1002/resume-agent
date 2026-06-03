@@ -127,7 +127,7 @@ export interface QueryResponse {
   sources: string[]
   follow_up_suggestions: string[]
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
-  meta: { model: string; latency_ms: number }
+  meta: { model: string; latency_ms: number; retrieval_ms?: number }
 }
 
 export interface MatchRequest {
