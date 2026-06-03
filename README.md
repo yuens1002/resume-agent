@@ -1,14 +1,24 @@
 # resume-agent
 
-[![Agent QR Code](https://agent.yuens.me/qr)](https://agent.yuens.me)
-
-> Scan to open the agent — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me).
-
-A machine-queryable AI agent that represents a professional profile. **This repo is the backend layer — API, MCP servers, OEP verification, and job-hunt pipeline.** The human-facing web UI lives in the companion repo [resume-agent-web](https://github.com/yuens1002/resume-agent-web) (live at [yuens.me](https://yuens.me)).
+A fork-ready, machine-queryable AI agent you deploy to represent your professional profile. **This repo is the backend layer — API, MCP servers, OEP verification, and job-hunt pipeline.** The human-facing web UI lives in the companion repo [resume-agent-web](https://github.com/yuens1002/resume-agent-web).
 
 Three access tiers: a public HTTP API for employer AI systems, a public MCP server (`ask_candidate` tool) that any MCP-aware AI client can add as a custom connector, and a private MCP server for personal interaction.
 
 Built on top of [OB1 (Open Brain)](https://github.com/NateBJones-Projects/OB1) by Nate B. Jones — OB1 handles the knowledge capture and storage layer; this project handles the public-facing agentic interface and job match methodology.
+
+> **Reference instance:** [agent.yuens.me](https://agent.yuens.me) — scan the [QR](https://agent.yuens.me/qr) or paste the URL into any AI to see it in action before you fork.
+
+---
+
+## What you get when you fork
+
+Three problems this project solves out of the box — the work is done; you inherit it.
+
+**Identity** — Your deployed instance is tied to your domain via DNS fingerprint + Ed25519 key (OEP Phase 1). A fork at a different domain can't reproduce your proof. Verifiable by anyone: `npx tsx scripts/verify-oep-domain.ts your-domain.com`. Full chain: [Fork the code. Your identity is yours.](#fork-the-code-your-identity-is-yours)
+
+**Trust** — The agent card, public key, and verification scripts are independently auditable. No third party required — verifiers run the scripts themselves against your domain and either get a cryptographic PASS or they don't. Full chain: [Fork the code. Your identity is yours.](#fork-the-code-your-identity-is-yours)
+
+**Truth** — Every factual claim is cited inline and grounded in data you publish. The agent declines rather than fabricates, and a deterministic eval harness enforces this — run `npm run eval:query` and watch it pass or fail case-by-case. Full spec: [Truth contract — we walk the talk](#truth-contract--we-walk-the-talk)
 
 ---
 
@@ -65,15 +75,13 @@ The full stack for a self-sovereign professional agent: **OB1** captures your no
 
 ## Truth contract — we walk the talk
 
-The agent's whole job is to tell the truth about the candidate and to make that truth auditable. We don't just talk about it — we walk it, and we wrote the tests.
-
-Four concrete commitments — enforced by code, prompt, and rubric, not aspirations:
+When you fork this, your agent inherits four concrete commitments — enforced by code, prompt, and rubric, not aspirations:
 
 1. **Every factual claim is cited inline.** Every claim about a project, capability, accomplishment, or employer carries a footnote-style marker (`[1]`, `[2]`, …). Every claim-bearing answer ends with a `Sources:` block mapping each marker to a specific corpus entry — `projects.<slug>`, `observations: "<excerpt>"`, `experience.<company>.bullets[N]`. The reader can audit which corpus entry backs which sentence without leaving the answer. Owned spec: [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md).
 
 2. **No fabrication — low confidence is the safe choice.** If the corpus doesn't directly answer the question, the agent says so. When evidence is partial, the agent picks `low` confidence and *names the gap*, never pads the gap with confident-sounding inference. The rubric in [`src/lib/eval-query-answer.ts`](src/lib/eval-query-answer.ts) catches the common failure modes — declines that trail into `Sunny led …` after saying `team size is not documented`, capability claims that overclaim the adjacent layer, binary answers that ship false claims.
 
-3. **Third-person factual narration, not impersonation.** The agent reads from the candidate's documented work history and reports what it finds. It refers to the candidate by name (e.g., "Sunny") or as "the candidate". It does not pretend to be the candidate. The asker is talking to an interface over a corpus, and the interface says so.
+3. **Third-person factual narration, not impersonation.** The agent reads from the candidate's documented work history and reports what it finds. It refers to the candidate by name or as "the candidate". It does not pretend to be the candidate. The asker is talking to an interface over a corpus, and the interface says so.
 
 4. **Verifiable, not just claimed.** Every rule above is enforced in two places: the system prompt is composed from named `RULE_*` constants in [`src/lib/query-prompt.ts`](src/lib/query-prompt.ts), and the human-readable spec [`docs/query-engagement-rules.md`](docs/query-engagement-rules.md) mirrors those constants section-by-section (a unit test asserts they stay in sync). On top of that, the on-demand eval harness (`npm run eval:query`) runs ~16 fixture cases against a deterministic rubric with optional LLM-as-judge. Fork the repo, run the eval, watch the agent honor — or violate — each rule case-by-case. The truth claim is not on the honor system.
 
@@ -96,7 +104,7 @@ Four concrete commitments — enforced by code, prompt, and rubric, not aspirati
             │ Supabase JS client
             │
    ┌────────┴────────────────────┐
-   │   Railway (Hono app)        │  ← runtime tier — single deploy, agent.yuens.me
+   │   Railway (Hono app)        │  ← runtime tier — single deploy, your-agent-domain.com
    │                             │
    │   /mcp (PRIVATE)            │  Your AI tools: Claude Desktop, Cursor, etc.
    │   - Open Brain tools        │  - x-brain-key header or OAuth (claude.ai connector)
@@ -115,7 +123,7 @@ Four concrete commitments — enforced by code, prompt, and rubric, not aspirati
             │ HTTP API (/info, /query, /match, etc.)
             │
    ┌─────────────────────────────┐
-   │   resume-agent-web          │  ← human UI tier — yuens.me (separate repo)
+   │   resume-agent-web          │  ← human UI tier — your-domain.com (separate repo)
    │   (React + Hono, Vercel)    │
    │                             │
    │   Conversation interface    │  Human visitors — plain language Q&A
@@ -205,7 +213,7 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 > **Note on `provider` field names:** The [official A2A proto spec](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto) uses `provider.name` and `provider.homepage`. The a2aregistry.org validator requires `provider.organization` and `provider.url` (both required). This card uses the registry's schema. See [Schema discrepancies](#schema-discrepancies) below.
 
 ### `GET /`
-Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). `agent.yuens.me` is the short-form discovery URL.
+Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). Your root domain becomes your short-form discovery URL once deployed.
 
 ### `GET /health`
 Health check. Returns `{ "status": "ok" }` with `Cache-Control: no-store`. Exempt from rate limiting — safe to poll from uptime monitors.
@@ -235,10 +243,12 @@ Browsable list of the candidate's **public-eligible OB1 observations** — the d
 Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Filters: `?topic=` (OB1 tag, **case-insensitive** so casing variants resolve to one trail), `?type=` (override the default; e.g. `reference`), `?since=YYYY-MM-DD`, `?limit=` (1–100, default 25). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated, case-insensitive) when set, otherwise the most recent public observations. *Note: topic matching normalizes case but not synonyms — `OEP` and `Open Employment Protocol` are distinct tags; list both in `OBSERVATIONS_TOPICS` to union them in the default view.*
 
 ```bash
-curl "https://agent.yuens.me/observations?topic=OEP&limit=5"          # authored OEP trail
-curl "https://agent.yuens.me/observations?type=reference&topic=resume-agent"  # the changelog ledger
-curl "https://agent.yuens.me/observations/<id>"                       # one premise, by stable id
+curl "https://your-agent-domain.com/observations?topic=OEP&limit=5"          # authored OEP trail
+curl "https://your-agent-domain.com/observations?type=reference&topic=resume-agent"  # the changelog ledger
+curl "https://your-agent-domain.com/observations/<id>"                       # one premise, by stable id
 ```
+
+> Reference instance: `https://agent.yuens.me/observations` — live example to compare against.
 
 ### `GET /try`
 Demo shortcut — redirects to `/query?question=Tell+me+about+yourself&stream=true`. Shareable CTA for humans and AI systems to see the agent in action.
@@ -338,7 +348,7 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 ## Add as a custom connector in Claude
 
-The public MCP endpoint lets any AI client with custom-connector support (claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about this candidate directly.
+The public MCP endpoint lets any AI client with custom-connector support (claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about your candidate profile directly.
 
 **Connector URL:** `https://<your-agent-domain>/public-mcp`
 
@@ -484,12 +494,12 @@ This is the "self-signed cert" moment — no third-party certificate authority, 
 
 3. Publish the printed TXT record at `_oep.<your-root-domain>` in your DNS provider. Example:
    ```
-   _oep.yuens.me.  300  IN  TXT  "v=oep1; alg=ed25519; fp=<base64url-fingerprint>"
+   _oep.your-domain.com.  300  IN  TXT  "v=oep1; alg=ed25519; fp=<base64url-fingerprint>"
    ```
 
 4. Once Railway has redeployed with the env vars and DNS has propagated, verify:
    ```bash
-   npx tsx scripts/verify-oep-domain.ts yuens.me
+   npx tsx scripts/verify-oep-domain.ts your-domain.com
    ```
    The script does a DNS lookup, fetches `https://agent.<domain>/.well-known/oep-public-key.json`, recomputes the fingerprint from the raw key bytes, and confirms all three values agree. Exit 0 on PASS, exit 1 on FAIL with a one-line reason.
 
@@ -671,7 +681,7 @@ This card uses `provider.organization` and `provider.url` to satisfy the registr
 
 ## Project status
 
-Live at [agent.yuens.me](https://agent.yuens.me). All public endpoints are operational.
+Reference instance live at [agent.yuens.me](https://agent.yuens.me) — all public endpoints operational. Fork and deploy your own: [Setup](#setup).
 
 See [ROADMAP.md](ROADMAP.md) for what's shipped and what's in progress. Design docs for in-flight work live in [docs/plans/](docs/plans/).
 
