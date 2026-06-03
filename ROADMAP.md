@@ -9,6 +9,10 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | Version | Feature | PR |
 | --- | --- | --- |
 | v0.2.12 | Dual-gen + rubric scorer pipeline for resume generation | [#59](https://github.com/yuens1002/resume-agent/pull/59) |
+| v0.2.13 | `/.well-known/agent-card` extensionless redirect; MCP session TTL + keepalive fixes | [#61](https://github.com/yuens1002/resume-agent/pull/61) |
+| v0.2.14 | Stateless MCP transport — session map removed, mid-conversation drops eliminated | [#62](https://github.com/yuens1002/resume-agent/pull/62) |
+| v0.2.15 | System prompt refactor — drop length + employment-trim rules | [#63](https://github.com/yuens1002/resume-agent/pull/63) |
+| v0.2.16 | Retire Supabase Edge Function artifacts; clarify Railway as runtime tier | [#65](https://github.com/yuens1002/resume-agent/pull/65) |
 | v0.3.0 | Public MCP endpoint — `ask_candidate` tool, logged to `observed_queries`, advertised in agent card | [#66](https://github.com/yuens1002/resume-agent/pull/66) |
 | v0.4.4 | OEP Phase 1 — Ed25519 domain verification (DNS TXT fingerprint, `/.well-known/oep-public-key.json`, CLI verifier) | [#90](https://github.com/yuens1002/resume-agent/pull/90) |
 | v0.4.7 | Thoughts-grounded `/query` — semantic search over OB1 thoughts layers lived experience above structured profile; behavioral questions answered from observations | [#93](https://github.com/yuens1002/resume-agent/pull/93) |
