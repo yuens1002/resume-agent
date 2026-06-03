@@ -112,6 +112,7 @@ describe('AC-1: third-person voice — no first-person pronouns in shared rules'
     RULE_GAPS,
     RULE_ADVERSARIAL,
     RULE_CALLER_CONTEXT,
+    RULE_PROGRESSIVE_DISCLOSURE,
     RULE_CITATION,
     RULE_OUTPUT_JSON,
   }
