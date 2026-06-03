@@ -67,6 +67,8 @@ export async function logObservedQuery(input: LogInput): Promise<void> {
       sources: input.response.sources ?? null,
       model: input.response.meta?.model ?? null,
       latency_ms: input.latency_ms,
+      llm_ms: input.response.meta?.latency_ms ?? null,
+      retrieval_ms: input.response.meta?.retrieval_ms ?? null,
       ip_hash: hashIp(input.ip),
       user_agent: input.user_agent ?? null,
     })

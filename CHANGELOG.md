@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-03 — feat(query): instrument phase timings — persist `llm_ms` + `retrieval_ms` to observed_queries; Stage 1 of the query-latency plan (docs/plans/query-latency.md). Initial assessment: "recent projects" query is ~90% LLM generation (output length), ~10% retrieval, ~0 framework overhead
+
 - 2026-06-03 — docs(roadmap): rewrite ROADMAP.md — current through v0.4.42, Next and Exploring sections updated
 
 - 2026-06-03 — docs(readme): link resume-agent-web companion repo; fix architecture diagram; correct homepage to agent.yuens.me; roadmap updated to current state
