@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-03 — docs(readme): link resume-agent-web companion repo; fix architecture diagram; correct homepage to agent.yuens.me; roadmap updated to current state
+
 - 2026-06-02 — ci(sync): upgrade GitHub Actions runner to Node.js 24 (20 deprecated June 16)
 
 - 2026-06-02 — ci(sync): pass EMPLOYMENT_SYNC_* and OEP signing vars to GitHub Actions — consolidation and git_evidence signing were silently skipped in nightly runs

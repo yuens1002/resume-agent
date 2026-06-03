@@ -4,7 +4,9 @@
 
 > Scan to open the agent — then paste it into any AI and start asking questions, or [open it directly](https://agent.yuens.me).
 
-A machine-queryable AI agent that represents a professional profile. No UI. Three access tiers: a public HTTP API for employer AI systems, a public MCP server (`ask_candidate` tool) that any MCP-aware AI client can add as a custom connector, and a private MCP server for personal interaction.
+A machine-queryable AI agent that represents a professional profile. **This repo is the backend layer — API, MCP servers, OEP verification, and job-hunt pipeline.** The human-facing web UI lives in the companion repo [resume-agent-web](https://github.com/yuens1002/resume-agent-web) (live at [yuens.me](https://yuens.me)).
+
+Three access tiers: a public HTTP API for employer AI systems, a public MCP server (`ask_candidate` tool) that any MCP-aware AI client can add as a custom connector, and a private MCP server for personal interaction.
 
 Built on top of [OB1 (Open Brain)](https://github.com/NateBJones-Projects/OB1) by Nate B. Jones — OB1 handles the knowledge capture and storage layer; this project handles the public-facing agentic interface and job match methodology.
 
@@ -43,10 +45,21 @@ The code is for everyone. The proof chain is yours alone.
 
 ## What it is not
 
-- No web UI. No dashboard. No frontend.
+- No bundled web UI — the human-facing front is [resume-agent-web](https://github.com/yuens1002/resume-agent-web), a separate repo you can also fork
 - Not a resume builder SaaS.
 - Not a static JSON file served from a CDN.
 - Not a wrapper around a PDF.
+
+---
+
+## Companion projects
+
+| Repo | What it is | Fork? |
+|---|---|---|
+| **[resume-agent-web](https://github.com/yuens1002/resume-agent-web)** | Human-facing web UI — conversational interface, job fit scorer, AI-readable JSON-LD + llms.txt. Points at `resume-agent` as its backend. | ✅ Yes — point two env vars at your own agent |
+| **[OB1 (Open Brain)](https://github.com/NateBJones-Projects/OB1)** | Knowledge capture and storage layer — thoughts, embeddings, semantic search. Powers the `/query` grounding. | ✅ Yes |
+
+The full stack for a self-sovereign professional agent: **OB1** captures your notes → **resume-agent** exposes them to AI systems → **resume-agent-web** gives humans a conversation surface.
 
 ---
 
@@ -98,7 +111,20 @@ Four concrete commitments — enforced by code, prompt, and rubric, not aspirati
    │   /resume (owner-only)      │  - /try → /query demo
    │   /.well-known/agent-card.* │  - A2A v1.0 autodiscovery (lists /public-mcp first)
    └─────────────────────────────┘
+            ▲
+            │ HTTP API (/info, /query, /match, etc.)
+            │
+   ┌─────────────────────────────┐
+   │   resume-agent-web          │  ← human UI tier — yuens.me (separate repo)
+   │   (React + Hono, Vercel)    │
+   │                             │
+   │   Conversation interface    │  Human visitors — plain language Q&A
+   │   Job fit scorer            │  Paste a JD, get a fit score
+   │   JSON-LD + llms.txt        │  AI crawlers read profile directly from page
+   └─────────────────────────────┘
 ```
+
+> **This repo** is the backend (Railway). **[resume-agent-web](https://github.com/yuens1002/resume-agent-web)** is the frontend (Vercel). Both are independently forkable.
 
 ### Data tiers
 
