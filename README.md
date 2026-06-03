@@ -213,7 +213,7 @@ A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent
 > **Note on `provider` field names:** The [official A2A proto spec](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto) uses `provider.name` and `provider.homepage`. The a2aregistry.org validator requires `provider.organization` and `provider.url` (both required). This card uses the registry's schema. See [Schema discrepancies](#schema-discrepancies) below.
 
 ### `GET /`
-Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). Your root domain becomes your short-form discovery URL once deployed.
+Serves the agent card JSON directly (alias for `/.well-known/agent-card.json`). Your deployed agent URL (e.g., `https://your-agent-domain.com`) becomes the short-form discovery URL once deployed.
 
 ### `GET /health`
 Health check. Returns `{ "status": "ok" }` with `Cache-Control: no-store`. Exempt from rate limiting — safe to poll from uptime monitors.
@@ -350,7 +350,7 @@ The private `/resume` endpoint uses the same match methodology as context, then 
 
 The public MCP endpoint lets any AI client with custom-connector support (claude.ai web + mobile, Claude Desktop, Cursor, etc.) ask natural-language questions about your candidate profile directly.
 
-**Connector URL:** `https://<your-agent-domain>/public-mcp`
+**Connector URL:** `https://your-agent-domain.com/public-mcp`
 
 No authentication required. Rate-limited to 30 req/min per IP (shared bucket with the HTTP `/query` endpoint).
 
