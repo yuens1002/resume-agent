@@ -187,7 +187,7 @@ export function aggregateObservedQueries(rows: ObservedQuery[], input: Summarize
   )
 
   const phaseLatency = instrumented.length > 0 ? (() => {
-    const pct = (arr: number[], p: number) => arr[Math.floor((p / 100) * (arr.length - 1))] ?? 0
+    const pct = (arr: number[], p: number) => arr[Math.min(Math.floor(arr.length * (p / 100)), arr.length - 1)] ?? 0
     const avg = (arr: number[]) => Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)
 
     const llms       = [...instrumented.map(r => r.llm_ms)].sort((a, b) => a - b)

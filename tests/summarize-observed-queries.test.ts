@@ -300,6 +300,29 @@ describe('AC-9: text format is human-readable', () => {
     assert.match(text, /retrieval/, 'Should show retrieval row')
   })
 
+  it('computes correct phase latency values from INSTRUMENTED_ROWS', () => {
+    // llms sorted: [3600, 4300, 6400] — avg=4767, p50=idx1=4300, p75=idx2=6400, p95=idx2=6400
+    // retrievals sorted: [180, 800, 1200] — avg=727, p50=idx1=800, p75=idx2=1200, p95=idx2=1200
+    // overheads: [0, 20, 100] — avg=40
+    // avg_split: llm=86%, retrieval=13%, overhead=1%
+    const { phase_latency: pl } = aggregateObservedQueries(INSTRUMENTED_ROWS, {})
+    assert.ok(pl, 'phase_latency should be present')
+    if (!pl) return
+    assert.equal(pl.instrumented_count, 3, 'all 3 rows are instrumented')
+    assert.equal(pl.coverage_pct, 100)
+    assert.equal(pl.llm.avg_ms, 4767)
+    assert.equal(pl.llm.p50_ms, 4300)
+    assert.equal(pl.llm.p75_ms, 6400)
+    assert.equal(pl.llm.p95_ms, 6400)
+    assert.equal(pl.retrieval.avg_ms, 727)
+    assert.equal(pl.retrieval.p50_ms, 800)
+    assert.equal(pl.retrieval.p75_ms, 1200)
+    assert.equal(pl.retrieval.p95_ms, 1200)
+    assert.equal(pl.avg_split.llm_pct, 86)
+    assert.equal(pl.avg_split.retrieval_pct, 13)
+    assert.equal(pl.avg_split.overhead_pct, 1)
+  })
+
   it('omits phase breakdown when no instrumented rows', () => {
     const envelope = aggregateObservedQueries(SAMPLE_ROWS, {})
     const text = formatEnvelopeToText(envelope)
