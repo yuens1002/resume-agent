@@ -144,6 +144,24 @@ When you fork this, your agent inherits four concrete commitments — enforced b
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
+### Latency optimization
+
+`/query` is the hot path — a retrieval step plus LLM generation. Both phases are instrumented and surfaced via `summarize_observed_queries`:
+
+| Phase | What it measures | Typical share |
+|---|---|---|
+| `retrieval_ms` | `Promise.all` fetching `public_profile` + pgvector semantic search over OB1 thoughts | ~19% |
+| `llm_ms` | `generateText` time — dominated by **output length**, not model speed | ~81% |
+| overhead | Hono framework + JSON serialization | ~0% |
+
+The key insight: **LLM output length drives latency, not model speed.** Cited mode generates prose + inline `[N]` markers + `Sources:` block + follow-up suggestions. More words in the answer = more time, linearly. This is the primary lever for improvement.
+
+**The optimization discipline — correctness and latency on the same pass:**
+
+`npm run eval:query --runs 3` measures both on a fixed fixture set. `--baseline` records a row to [`docs/eval-baselines.md`](docs/eval-baselines.md) so git history shows which commit moved latency. You can't win on speed by quietly degrading answers — the eval catches it. `summarize_observed_queries` exposes the phase breakdown on real traffic so gains measured in the eval validate (or don't) against production.
+
+**The eval/production gap:** Controlled fixtures are shorter than real-world questions, so eval p50 (~2.5s) runs ~3× faster than production p50 (~6.9s). The fixture set includes progressively harder behavioral questions drawn from real production traffic to close this gap over time. See [`docs/plans/query-latency.md`](docs/plans/query-latency.md) for the full optimization plan and [`docs/eval-baselines.md`](docs/eval-baselines.md) for recorded snapshots.
+
 ---
 
 ## Public API endpoints

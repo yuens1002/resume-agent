@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-04 — docs(readme): add latency optimization section to architecture — phase breakdown table, optimization discipline, eval/production gap explanation; add long-output behavioral eval fixture drawn from real production traffic
+
 - 2026-06-04 — feat(observability): expose llm_ms/retrieval_ms phase breakdown in summarize_observed_queries — avg split %, p50/p75/p95 per phase, coverage count; updates ObservedQuery type and DB select; fixed small-sample percentile formula; 3 new tests (335 pass)
 
 - 2026-06-03 — docs(readme): reframe README for forkers — add identity/trust/truth blurb section, replace personal instance references with placeholders, forker-first voice throughout
