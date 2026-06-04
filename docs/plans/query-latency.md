@@ -24,8 +24,9 @@ Set a target (e.g. p50 < 3s cited, < 1.5s conversational). Loop: change → `eva
 
 ## Key areas to investigate
 1. **LLM output length** — cited mode generates long answers (prose + `[N]` + Sources + follow-ups, ≤1024 tokens). Output length, not model speed, dominates latency. Prime suspect.
-2. **OpenRouter hop** — hot path routes through OpenRouter to reach Anthropic. Direct Anthropic could cut latency + p95 variance.
-3. **Cold starts** — Railway container spin-up would show in p95/max tail, not p50.
+2. **Response caching for deterministic queries** — enumeration questions ("show all projects", "what are your skills?") are answered from `public_profile`, which changes rarely. A response cache keyed on `(question_hash, public_profile.updated_at)` would serve repeats in milliseconds — `updated_at` is already stamped by every `update_profile` and `upsert_project` call, so it's a free invalidation signal. Production data shows "Show recent work" is ~25% of all traffic — the highest-value single cache candidate.
+3. **OpenRouter hop** — hot path routes through OpenRouter to reach Anthropic. Direct Anthropic could cut latency + p95 variance.
+4. **Cold starts** — Railway container spin-up would show in p95/max tail, not p50.
 
 ## Cautions
 - **Upstream variance is real** — same query swings seconds run-to-run. Run fixtures N times, compare medians, treat sub-second deltas as noise.
