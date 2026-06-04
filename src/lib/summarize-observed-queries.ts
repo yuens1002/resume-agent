@@ -11,6 +11,8 @@ export interface ObservedQuery {
   ip_hash: string | null
   model: string | null
   latency_ms: number | null
+  llm_ms: number | null
+  retrieval_ms: number | null
   created_at: string
 }
 
@@ -26,6 +28,13 @@ export const SummarizeInputSchema = z.object({
 
 export type SummarizeInput = z.infer<typeof SummarizeInputSchema>
 
+interface PhaseStats {
+  avg_ms: number
+  p50_ms: number
+  p75_ms: number
+  p95_ms: number
+}
+
 export interface SummarizeEnvelope {
   window: { since: string; until: string; days: number }
   totals: {
@@ -39,6 +48,14 @@ export interface SummarizeEnvelope {
     p50_ms: number
     p95_ms: number
     max_ms: number
+  }
+  phase_latency?: {
+    instrumented_count: number
+    coverage_pct: number
+    llm: PhaseStats
+    retrieval: PhaseStats
+    overhead: PhaseStats
+    avg_split: { llm_pct: number; retrieval_pct: number; overhead_pct: number }
   }
   top_caller_hints: { caller_hint: string | null; count: number }[]
   top_user_agents: { user_agent: string | null; count: number }[]
@@ -164,6 +181,41 @@ export function aggregateObservedQueries(rows: ObservedQuery[], input: Summarize
 
   const days = Math.round((until.getTime() - since.getTime()) / (24 * 60 * 60 * 1000))
 
+  // Phase breakdown — only rows where llm_ms is present (post-Stage-1 instrumentation)
+  const instrumented = filtered.filter((r): r is ObservedQuery & { llm_ms: number; retrieval_ms: number } =>
+    r.llm_ms != null && r.retrieval_ms != null
+  )
+
+  const phaseLatency = instrumented.length > 0 ? (() => {
+    const pct = (arr: number[], p: number) => arr[Math.min(Math.floor(arr.length * (p / 100)), arr.length - 1)] ?? 0
+    const avg = (arr: number[]) => Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)
+
+    const llms       = [...instrumented.map(r => r.llm_ms)].sort((a, b) => a - b)
+    const retrievals = [...instrumented.map(r => r.retrieval_ms)].sort((a, b) => a - b)
+    const overheads  = instrumented
+      .map(r => r.latency_ms != null ? r.latency_ms - r.llm_ms - r.retrieval_ms : null)
+      .filter((v): v is number => v != null && v >= 0)
+      .sort((a, b) => a - b)
+
+    const llmAvg = avg(llms)
+    const retAvg = avg(retrievals)
+    const ohAvg  = overheads.length ? avg(overheads) : 0
+    const total  = llmAvg + retAvg + ohAvg || 1
+
+    return {
+      instrumented_count: instrumented.length,
+      coverage_pct: Math.round((instrumented.length / filtered.length) * 100),
+      llm:       { avg_ms: llmAvg, p50_ms: pct(llms, 50), p75_ms: pct(llms, 75), p95_ms: pct(llms, 95) },
+      retrieval: { avg_ms: retAvg, p50_ms: pct(retrievals, 50), p75_ms: pct(retrievals, 75), p95_ms: pct(retrievals, 95) },
+      overhead:  { avg_ms: ohAvg,  p50_ms: overheads.length ? pct(overheads, 50) : 0, p75_ms: overheads.length ? pct(overheads, 75) : 0, p95_ms: overheads.length ? pct(overheads, 95) : 0 },
+      avg_split: {
+        llm_pct:       Math.round((llmAvg / total) * 100),
+        retrieval_pct: Math.round((retAvg / total) * 100),
+        overhead_pct:  Math.round((ohAvg  / total) * 100),
+      },
+    }
+  })() : undefined
+
   return {
     window: { since: since.toISOString(), until: until.toISOString(), days },
     totals: {
@@ -173,6 +225,7 @@ export function aggregateObservedQueries(rows: ObservedQuery[], input: Summarize
       distinct_ip_hashes: ipHashes.size,
     },
     latency: { avg_ms: avgMs, p50_ms: p50Ms, p95_ms: p95Ms, max_ms: maxMs },
+    ...(phaseLatency && { phase_latency: phaseLatency }),
     top_caller_hints: topCallerHints,
     top_user_agents: topUserAgents,
     top_questions: topQuestions,
@@ -195,8 +248,19 @@ export function formatEnvelopeToText(envelope: SummarizeEnvelope): string {
   ]
 
   if (envelope.latency.avg_ms > 0) {
-    lines.push('', 'Latency:')
+    lines.push('', 'Latency (total):')
     lines.push(`  avg: ${envelope.latency.avg_ms}ms, p50: ${envelope.latency.p50_ms}ms, p95: ${envelope.latency.p95_ms}ms, max: ${envelope.latency.max_ms}ms`)
+  }
+
+  if (envelope.phase_latency) {
+    const pl = envelope.phase_latency
+    const s = pl.avg_split
+    lines.push('', `Phase breakdown (${pl.instrumented_count} instrumented, ${pl.coverage_pct}% coverage):`)
+    lines.push(`  avg split: llm ${s.llm_pct}%  retrieval ${s.retrieval_pct}%  overhead ${s.overhead_pct}%`)
+    lines.push(`             ${'avg'.padStart(6)}  ${'p50'.padStart(6)}  ${'p75'.padStart(6)}  ${'p95'.padStart(6)}`)
+    lines.push(`  llm        ${String(pl.llm.avg_ms).padStart(6)}  ${String(pl.llm.p50_ms).padStart(6)}  ${String(pl.llm.p75_ms).padStart(6)}  ${String(pl.llm.p95_ms).padStart(6)}`)
+    lines.push(`  retrieval  ${String(pl.retrieval.avg_ms).padStart(6)}  ${String(pl.retrieval.p50_ms).padStart(6)}  ${String(pl.retrieval.p75_ms).padStart(6)}  ${String(pl.retrieval.p95_ms).padStart(6)}`)
+    lines.push(`  overhead   ${String(pl.overhead.avg_ms).padStart(6)}  ${String(pl.overhead.p50_ms).padStart(6)}  ${String(pl.overhead.p75_ms).padStart(6)}  ${String(pl.overhead.p95_ms).padStart(6)}`)
   }
 
   if (envelope.top_caller_hints.length) {
@@ -268,7 +332,7 @@ export async function summarizeObservedQueries(input: SummarizeInput): Promise<{
     // Fetch 10001 to detect truncation, then slice to 10000
     let query = supabase
       .from('observed_queries')
-      .select('source, question, caller_hint, user_agent, ip_hash, model, latency_ms, created_at')
+      .select('source, question, caller_hint, user_agent, ip_hash, model, latency_ms, llm_ms, retrieval_ms, created_at')
       .gte('created_at', effectiveSince)
       .lte('created_at', effectiveUntil)
       .order('created_at', { ascending: false })
