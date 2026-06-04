@@ -88,6 +88,18 @@ export const EVAL_CASES: EvalCase[] = [
     question: 'Tell me about a time you stopped iterating because you knew it was good enough.',
     expect: { category: 'behavioral', confidenceAtLeast: 'medium', groundsInObservations: true },
   },
+  // This question appears in real production traffic and generates the longest
+  // answers in the corpus — grounded in OB1 observations about resume-agent's
+  // truth contract, eval harness, and OEP. Included to close the eval/production
+  // latency gap: real users ask broad conceptual questions that cited mode
+  // answers at length; short fixtures underestimate production p50 by ~3×.
+  {
+    id: 'behavioral-ai-hallucination-approach',
+    category: 'behavioral',
+    question: "What's your approach to preventing AI hallucination in production systems?",
+    expect: { category: 'behavioral', confidenceAtLeast: 'medium', groundsInObservations: true },
+  },
+
   // ── no_data: thin-evidence / fabrication-bait cases ─────
   //
   // Questions that sound behavioral but have no direct corpus evidence. The
