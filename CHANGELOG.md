@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-04 — feat(observability): expose llm_ms/retrieval_ms phase breakdown in summarize_observed_queries — avg split %, p50/p75/p95 per phase, coverage count; updates ObservedQuery type and DB select; 3 new tests (334 pass)
+
 - 2026-06-03 — docs(readme): reframe README for forkers — add identity/trust/truth blurb section, replace personal instance references with placeholders, forker-first voice throughout
 
 - 2026-06-03 — feat(eval): Stage 2 of query-latency plan — `--runs N` (median-of-N latency + majority-vote correctness) and `--baseline` (append date/version/pass/p50/p95 to committed docs/eval-baselines.md); per-case + aggregate latency report. First baseline recorded. Surfaced behavioral-hard-tradeoff cites-source flake (#140)

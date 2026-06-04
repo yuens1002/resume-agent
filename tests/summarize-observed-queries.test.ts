@@ -103,13 +103,13 @@ describe('Window validation (handler logic)', () => {
 // Test truncation logic
 describe('Truncation detection', () => {
   it('detects truncation when rows > 10000', () => {
-    const rows = Array.from({ length: 10001 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, created_at: '2026-04-28T10:00:00Z' }))
+    const rows = Array.from({ length: 10001 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, llm_ms: null, retrieval_ms: null, created_at: '2026-04-28T10:00:00Z' }))
     const isTruncated = (rows?.length ?? 0) > 10000
     assert.equal(isTruncated, true)
   })
 
   it('does not truncate when rows <= 10000', () => {
-    const rows = Array.from({ length: 10000 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, created_at: '2026-04-28T10:00:00Z' }))
+    const rows = Array.from({ length: 10000 }, (_, i) => ({ source: 'mcp' as const, question: `q${i}`, caller_hint: null, user_agent: null, ip_hash: null, model: null, latency_ms: null, llm_ms: null, retrieval_ms: null, created_at: '2026-04-28T10:00:00Z' }))
     const isTruncated = (rows?.length ?? 0) > 10000
     assert.equal(isTruncated, false)
   })
@@ -130,12 +130,19 @@ describe('Truncation detection', () => {
 // ── Test fixtures ───────────────────────────────────────────
 
 const SAMPLE_ROWS: ObservedQuery[] = [
-  { source: 'mcp', question: 'What are your skills?', caller_hint: 'ATS', user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 1200, created_at: '2026-04-25T10:00:00Z' },
-  { source: 'mcp', question: 'Tell me about yourself', caller_hint: 'ATS', user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 1100, created_at: '2026-04-25T11:00:00Z' },
-  { source: 'http', question: 'What is your experience?', caller_hint: 'recruiter', user_agent: 'curl/7.68', ip_hash: 'def456', model: 'gpt-4o-mini', latency_ms: 800, created_at: '2026-04-26T09:00:00Z' },
-  { source: 'http', question: 'What is your experience?', caller_hint: 'recruiter', user_agent: 'curl/7.68', ip_hash: 'def456', model: 'gpt-4o-mini', latency_ms: 850, created_at: '2026-04-26T10:00:00Z' },
-  { source: 'mcp', question: 'What projects have you built?', caller_hint: 'ai-agent', user_agent: 'Claude/1.0', ip_hash: 'ghi789', model: 'gpt-4o', latency_ms: 1500, created_at: '2026-04-27T14:00:00Z' },
-  { source: 'mcp', question: 'What is your availability?', caller_hint: null, user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 900, created_at: '2026-04-28T16:00:00Z' },
+  { source: 'mcp', question: 'What are your skills?', caller_hint: 'ATS', user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 1200, llm_ms: null, retrieval_ms: null, created_at: '2026-04-25T10:00:00Z' },
+  { source: 'mcp', question: 'Tell me about yourself', caller_hint: 'ATS', user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 1100, llm_ms: null, retrieval_ms: null, created_at: '2026-04-25T11:00:00Z' },
+  { source: 'http', question: 'What is your experience?', caller_hint: 'recruiter', user_agent: 'curl/7.68', ip_hash: 'def456', model: 'gpt-4o-mini', latency_ms: 800, llm_ms: null, retrieval_ms: null, created_at: '2026-04-26T09:00:00Z' },
+  { source: 'http', question: 'What is your experience?', caller_hint: 'recruiter', user_agent: 'curl/7.68', ip_hash: 'def456', model: 'gpt-4o-mini', latency_ms: 850, llm_ms: null, retrieval_ms: null, created_at: '2026-04-26T10:00:00Z' },
+  { source: 'mcp', question: 'What projects have you built?', caller_hint: 'ai-agent', user_agent: 'Claude/1.0', ip_hash: 'ghi789', model: 'gpt-4o', latency_ms: 1500, llm_ms: null, retrieval_ms: null, created_at: '2026-04-27T14:00:00Z' },
+  { source: 'mcp', question: 'What is your availability?', caller_hint: null, user_agent: 'Mozilla/5.0', ip_hash: 'abc123', model: 'gpt-4o', latency_ms: 900, llm_ms: null, retrieval_ms: null, created_at: '2026-04-28T16:00:00Z' },
+]
+
+// Rows with phase data (post-Stage-1 instrumentation)
+const INSTRUMENTED_ROWS: ObservedQuery[] = [
+  { source: 'http', question: 'Show recent work', caller_hint: null, user_agent: 'Chrome', ip_hash: 'aaa', model: 'haiku', latency_ms: 4800, llm_ms: 3600, retrieval_ms: 1200, created_at: '2026-04-28T10:00:00Z' },
+  { source: 'http', question: 'Experience with AI?', caller_hint: null, user_agent: 'Chrome', ip_hash: 'bbb', model: 'haiku', latency_ms: 7300, llm_ms: 6400, retrieval_ms: 800, created_at: '2026-04-28T11:00:00Z' },
+  { source: 'mcp', question: 'Did you build resume-agent?', caller_hint: null, user_agent: 'Claude', ip_hash: 'ccc', model: 'haiku', latency_ms: 4500, llm_ms: 4300, retrieval_ms: 180, created_at: '2026-04-28T12:00:00Z' },
 ]
 
 // ── AC-1: Empty window returns friendly message ────────────
@@ -281,7 +288,22 @@ describe('AC-9: text format is human-readable', () => {
     assert.match(text, /Query Traffic Summary/, 'Should have header')
     assert.match(text, /Total queries:/, 'Should show total')
     assert.match(text, /by source:/, 'Should show source breakdown')
-    assert.match(text, /Latency:/, 'Should show latency when present')
+    assert.match(text, /Latency \(total\):/, 'Should show latency when present')
+  })
+
+  it('renders phase breakdown when instrumented rows are present', () => {
+    const envelope = aggregateObservedQueries(INSTRUMENTED_ROWS, {})
+    const text = formatEnvelopeToText(envelope)
+    assert.match(text, /Phase breakdown/, 'Should show phase breakdown section')
+    assert.match(text, /avg split:/, 'Should show avg split percentages')
+    assert.match(text, /llm/, 'Should show llm row')
+    assert.match(text, /retrieval/, 'Should show retrieval row')
+  })
+
+  it('omits phase breakdown when no instrumented rows', () => {
+    const envelope = aggregateObservedQueries(SAMPLE_ROWS, {})
+    const text = formatEnvelopeToText(envelope)
+    assert.doesNotMatch(text, /Phase breakdown/, 'Should not show phase section without instrumented rows')
   })
 })
 
