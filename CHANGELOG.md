@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-05 — chore(eval): record baseline with 18 cases — 18/18 pass, p50 3183ms, p95 11888ms; previous flake (behavioral-hard-tradeoff cites-source) resolved by majority-vote; p50/p95 now honest with long-output behavioral fixtures included
+
 - 2026-06-04 — docs(latency): add response caching as Stage 3 investigation area — deterministic queries (~25% of traffic) keyed on question_hash + profile_version, bust on profile mutations
 
 - 2026-06-04 — docs(readme): add latency optimization section to architecture — phase breakdown table, optimization discipline, eval/production gap explanation; add long-output behavioral eval fixture drawn from real production traffic
