@@ -229,7 +229,9 @@ export async function queryProfile(
   // Cache if the answer didn't draw on OB1 observations — those can change
   // independently of public_profile, so profile.updated_at alone isn't a
   // sufficient invalidation signal for observation-grounded answers.
-  const usedObservations = parsed.sources.some((s: string) => s.startsWith('observations'))
+  // Conservatively skip caching when sources is missing or not a string array.
+  const usedObservations = !Array.isArray(parsed.sources) ||
+    parsed.sources.some((s: unknown) => typeof s === 'string' && s.startsWith('observations'))
   if (!usedObservations) {
     responseCacheSet(args.question, updatedAt, response)
   }
