@@ -43,9 +43,10 @@ async function fetchProfile() {
 // Caches full LLM responses for question types that are fully deterministic
 // from public_profile alone (skipThoughts === true — binary questions).
 // Key: normalized(question) + ":" + profile.updated_at
-// Invalidation is automatic: profile.updated_at changes on every profile mutation,
-// so stale cache entries are never served — they just become unreachable keys.
-// No TTL needed. Capped at 200 entries; oldest entry evicted when full.
+// Staleness bound: profile.updated_at only reflects in the key after the profile
+// cache (PROFILE_CACHE_TTL_MS = 5 min) refreshes, so responses may be up to 5
+// minutes stale after a profile mutation — same bound as the profile cache itself.
+// Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
 // Streaming path is not cached (returns a live streamText handle).
 
 const RESPONSE_CACHE_MAX = 200
@@ -56,15 +57,23 @@ function responseCacheKey(question: string, updatedAt: string): string {
 }
 
 function responseCacheGet(question: string, updatedAt: string): import('../types.js').QueryResponse | undefined {
-  return responseCache.get(responseCacheKey(question, updatedAt))
+  const key = responseCacheKey(question, updatedAt)
+  const value = responseCache.get(key)
+  if (value !== undefined) {
+    // Move to end to refresh LRU recency
+    responseCache.delete(key)
+    responseCache.set(key, value)
+  }
+  return value
 }
 
 function responseCacheSet(question: string, updatedAt: string, response: import('../types.js').QueryResponse): void {
-  if (responseCache.size >= RESPONSE_CACHE_MAX) {
+  const key = responseCacheKey(question, updatedAt)
+  if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
     const firstKey = responseCache.keys().next().value
     if (firstKey !== undefined) responseCache.delete(firstKey)
   }
-  responseCache.set(responseCacheKey(question, updatedAt), response)
+  responseCache.set(key, response)
 }
 
 // ── Question-type heuristics ─────────────────────────────
@@ -184,11 +193,12 @@ export async function queryProfile(
     return { kind: 'profile_not_found' }
   }
 
-  // Cache hit — binary questions answered purely from public_profile
+  // Cache hit — binary questions answered purely from public_profile.
+  // Stamp fresh meta: latency_ms=0 (no LLM call), retrieval_ms reflects this request.
   if (skipThoughts) {
     const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
     const cached = responseCacheGet(args.question, updatedAt)
-    if (cached) return cached
+    if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms } }
   }
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
