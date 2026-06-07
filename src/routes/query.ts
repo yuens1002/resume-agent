@@ -39,25 +39,76 @@ async function fetchProfile() {
   return result
 }
 
+// ── Thoughts version cache ───────────────────────────────
+// A lightweight version token for OB1 public thoughts: MAX(updated_at) across
+// all thoughts rows. Changes whenever any thought is added or updated, which
+// is the signal needed to invalidate observation-grounded cached responses.
+// TTL: 60s — fast enough to pick up new captures within a minute.
+// Note: thoughts.updated_at is not indexed by default; this query does an
+// ORDER BY … LIMIT 1 which may scan/sort as the table grows. Add an
+// updated_at DESC index if thoughts volume becomes large.
+
+interface ThoughtsVersionCache { version: string; expiresAt: number }
+let thoughtsVersionCache: ThoughtsVersionCache | null = null
+const THOUGHTS_VERSION_TTL_MS = 60 * 1000
+
+async function fetchThoughtsVersion(): Promise<string> {
+  const now = Date.now()
+  if (thoughtsVersionCache && now < thoughtsVersionCache.expiresAt) {
+    return thoughtsVersionCache.version
+  }
+  const { data, error } = await supabase
+    .from('thoughts')
+    .select('updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    // On failure: return a volatile value so no cached response is served
+    // (volatile key = cache miss on every request until the query recovers).
+    // Don't persist to thoughtsVersionCache — keep retrying each request.
+    return `error:${now}`
+  }
+  const version = (data as { updated_at?: string } | null)?.updated_at ?? ''
+  thoughtsVersionCache = { version, expiresAt: now + THOUGHTS_VERSION_TTL_MS }
+  return version
+}
+
 // ── Response cache ───────────────────────────────────────
-// Caches full LLM responses for question types that are fully deterministic
-// from public_profile alone (skipThoughts === true — binary questions).
-// Key: normalized(question) + ":" + profile.updated_at
-// Staleness bound: profile.updated_at only reflects in the key after the profile
-// cache (PROFILE_CACHE_TTL_MS = 5 min) refreshes, so responses may be up to 5
-// minutes stale after a profile mutation — same bound as the profile cache itself.
+// Key: normalized(question) + style + callerHint[:80] + profile.updated_at + thoughts_version
+// Dimensions:
+//   - style       — cited vs conversational changes the system prompt format
+//   - callerHint  — affects tone; truncated to 80 chars to bound key size while
+//                   still separating major caller types (ATS, human, interviewer)
+//   - profile.updated_at — changes on every profile mutation
+//   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
+// Staleness bound: max(profile cache TTL 5min, thoughts version TTL 60s) = 5min.
 // Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
 // Streaming path is not cached (returns a live streamText handle).
 
 const RESPONSE_CACHE_MAX = 200
 const responseCache = new Map<string, import('../types.js').QueryResponse>()
 
-function responseCacheKey(question: string, updatedAt: string): string {
-  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${updatedAt}`
+function responseCacheKey(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+): string {
+  const q = question.toLowerCase().trim().replace(/\s+/g, ' ')
+  const hint = callerHint.toLowerCase().trim().slice(0, 80)
+  return `${q}:${style}:${hint}:${profileUpdatedAt}:${thoughtsVersion}`
 }
 
-function responseCacheGet(question: string, updatedAt: string): import('../types.js').QueryResponse | undefined {
-  const key = responseCacheKey(question, updatedAt)
+function responseCacheGet(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+): import('../types.js').QueryResponse | undefined {
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
   const value = responseCache.get(key)
   if (value !== undefined) {
     // Move to end to refresh LRU recency
@@ -67,8 +118,15 @@ function responseCacheGet(question: string, updatedAt: string): import('../types
   return value
 }
 
-function responseCacheSet(question: string, updatedAt: string, response: import('../types.js').QueryResponse): void {
-  const key = responseCacheKey(question, updatedAt)
+function responseCacheSet(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+  response: import('../types.js').QueryResponse,
+): void {
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
   if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
     const firstKey = responseCache.keys().next().value
     if (firstKey !== undefined) responseCache.delete(firstKey)
@@ -181,16 +239,22 @@ export interface ParseError {
 export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
-  // Fetch profile first — usually synchronous from the in-process profile cache.
-  // Must precede the response cache check so we have profile.updated_at for the key.
-  const { data: profile, error } = await fetchProfile()
+  // Fetch profile + OB1 version token in parallel — both are in-process cached
+  // and usually synchronous; parallel fetch keeps cold-start cost minimal.
+  const [{ data: profile, error }, thoughtsVersion] = await Promise.all([
+    fetchProfile(),
+    fetchThoughtsVersion(),
+  ])
   if (error || !profile) return { kind: 'profile_not_found' }
 
-  const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+  const profileUpdatedAt = (profile as { updated_at?: string }).updated_at ?? ''
 
-  // Response cache check — all question types.
-  // On hit: skip retrieval + LLM entirely; stamp fresh meta (latency_ms=0, retrieval_ms=0).
-  const cached = responseCacheGet(args.question, updatedAt)
+  const style = args.style ?? 'cited'
+
+  // Response cache check — all question types. Key covers both data dimensions
+  // plus style and callerHint to prevent cross-caller response bleed.
+  // On hit: skip retrieval + LLM entirely; stamp fresh meta.
+  const cached = responseCacheGet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion)
   if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms: 0 } }
 
   // Retrieval — only on cache miss, skipped entirely for binary questions.
@@ -205,7 +269,7 @@ export async function queryProfile(
   const { text: raw } = await generateText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
-    system: buildSystemPrompt('json', args.style ?? 'cited'),
+    system: buildSystemPrompt('json', style),
     prompt,
   })
   const latency_ms = Date.now() - start
@@ -226,15 +290,9 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Cache if the answer didn't draw on OB1 observations — those can change
-  // independently of public_profile, so profile.updated_at alone isn't a
-  // sufficient invalidation signal for observation-grounded answers.
-  // Conservatively skip caching when sources is missing or not a string array.
-  const usedObservations = !Array.isArray(parsed.sources) ||
-    parsed.sources.some((s: unknown) => typeof s === 'string' && s.startsWith('observations'))
-  if (!usedObservations) {
-    responseCacheSet(args.question, updatedAt, response)
-  }
+  // Always cache — key covers all prompt dimensions (question, style, callerHint,
+  // profile version, OB1 version).
+  responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
 
   return response
 }
