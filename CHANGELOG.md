@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-06 — perf(query): per-category maxTokens (300 binary / 1024 behavioral / 600 all else) + reduce follow_up_suggestions to 1–2; eval p50 −24% (3183→2407ms), p95 flat at 11780ms, 18/18 pass
+
 - 2026-06-05 — chore(eval): record baseline with 18 cases — 18/18 pass, p50 3183ms, p95 11888ms; previous flake (behavioral-hard-tradeoff cites-source) resolved by majority-vote; p50/p95 now honest with long-output behavioral fixtures included
 
 - 2026-06-04 — docs(latency): add response caching as Stage 3 investigation area — deterministic queries (~25% of traffic) keyed on question_hash + profile_version, bust on profile mutations

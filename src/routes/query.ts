@@ -39,10 +39,12 @@ async function fetchProfile() {
   return result
 }
 
-// ── Binary question detection ────────────────────────────
-// Binary questions (did/does/has/is/can + short) are answered from structured
-// profile data alone — OB1 thoughts add noise, not signal, and the embedding
-// call costs ~150ms. Skip thoughts for these to cut one OpenRouter hop.
+// ── Question-type heuristics ─────────────────────────────
+// Used for two optimizations:
+//   1. Skip thoughts retrieval for binary questions (embedding call costs ~150ms)
+//   2. Set per-category maxTokens — behavioral answers hit the 1024 ceiling;
+//      binary/decline answers never come close. Smaller caps cut LLM generation
+//      time while keeping enough headroom for the JSON structure to close cleanly.
 
 function isBinaryQuestion(question: string): boolean {
   const q = question.toLowerCase().trim()
@@ -50,6 +52,22 @@ function isBinaryQuestion(question: string): boolean {
   if (!/^(did|does|has|have|is|was|were|will|can|could|would|should)\b/.test(q)) return false
   // Behavioral signals indicate the model needs observations context
   return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff)\b/.test(q)
+}
+
+function isBehavioralQuestion(question: string): boolean {
+  const q = question.toLowerCase().trim()
+  return /\b(how do you|walk me through|tell me about|describe (a |your )|what.s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
+}
+
+// cited mode: 300 binary | 1024 behavioral | 600 everything else
+// conversational mode: 512 flat (unchanged)
+// Behavioral answers can hit the 1024 ceiling on broad questions — trimming
+// risks JSON truncation; all savings come from the non-behavioral fast path.
+function maxTokensForQuestion(question: string, style: 'cited' | 'conversational'): number {
+  if (style === 'conversational') return 512
+  if (isBinaryQuestion(question)) return 300
+  if (isBehavioralQuestion(question)) return 1024
+  return 600
 }
 
 const schema = z.object({
@@ -143,7 +161,7 @@ export async function queryProfile(
   const start = Date.now()
   const { text: raw } = await generateText({
     model: getModel(),
-    maxTokens: args.style === 'conversational' ? 512 : 1024,
+    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('json', args.style ?? 'cited'),
     prompt,
   })
@@ -184,7 +202,7 @@ export async function queryProfileStream(
 
   return streamText({
     model: getModel(),
-    maxTokens: args.style === 'conversational' ? 512 : 1024,
+    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('stream', args.style ?? 'cited'),
     prompt,
   })
