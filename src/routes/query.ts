@@ -39,6 +39,43 @@ async function fetchProfile() {
   return result
 }
 
+// ── Response cache ───────────────────────────────────────
+// Caches full LLM responses for question types that are fully deterministic
+// from public_profile alone (skipThoughts === true — binary questions).
+// Key: normalized(question) + ":" + profile.updated_at
+// Staleness bound: profile.updated_at only reflects in the key after the profile
+// cache (PROFILE_CACHE_TTL_MS = 5 min) refreshes, so responses may be up to 5
+// minutes stale after a profile mutation — same bound as the profile cache itself.
+// Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
+// Streaming path is not cached (returns a live streamText handle).
+
+const RESPONSE_CACHE_MAX = 200
+const responseCache = new Map<string, import('../types.js').QueryResponse>()
+
+function responseCacheKey(question: string, updatedAt: string): string {
+  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${updatedAt}`
+}
+
+function responseCacheGet(question: string, updatedAt: string): import('../types.js').QueryResponse | undefined {
+  const key = responseCacheKey(question, updatedAt)
+  const value = responseCache.get(key)
+  if (value !== undefined) {
+    // Move to end to refresh LRU recency
+    responseCache.delete(key)
+    responseCache.set(key, value)
+  }
+  return value
+}
+
+function responseCacheSet(question: string, updatedAt: string, response: import('../types.js').QueryResponse): void {
+  const key = responseCacheKey(question, updatedAt)
+  if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
+    const firstKey = responseCache.keys().next().value
+    if (firstKey !== undefined) responseCache.delete(firstKey)
+  }
+  responseCache.set(key, response)
+}
+
 // ── Question-type heuristics ─────────────────────────────
 // Used for two optimizations:
 //   1. Skip thoughts retrieval for binary questions (embedding call costs ~150ms)
@@ -156,6 +193,14 @@ export async function queryProfile(
     return { kind: 'profile_not_found' }
   }
 
+  // Cache hit — binary questions answered purely from public_profile.
+  // Stamp fresh meta: latency_ms=0 (no LLM call), retrieval_ms reflects this request.
+  if (skipThoughts) {
+    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+    const cached = responseCacheGet(args.question, updatedAt)
+    if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms } }
+  }
+
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
@@ -174,7 +219,7 @@ export async function queryProfile(
     return { kind: 'parse_error', raw }
   }
 
-  return {
+  const response: QueryResponse = {
     ...parsed,
     contact: {
       email: profile.contact?.email,
@@ -182,6 +227,14 @@ export async function queryProfile(
     },
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
+
+  // Cache successful binary responses for future identical questions
+  if (skipThoughts) {
+    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+    responseCacheSet(args.question, updatedAt, response)
+  }
+
+  return response
 }
 
 /** Streaming variant — returns the streamText result for caller-controlled consumption. */
