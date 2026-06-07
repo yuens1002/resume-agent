@@ -39,25 +39,53 @@ async function fetchProfile() {
   return result
 }
 
+// ── Thoughts version cache ───────────────────────────────
+// A lightweight version token for OB1 public thoughts: MAX(updated_at) across
+// all thoughts rows. Changes whenever any thought is added or updated, which
+// is the signal needed to invalidate observation-grounded cached responses.
+// TTL: 60s — fast enough to pick up new captures within a minute, cheap enough
+// to query on every cache-cold request (it's a single-row index scan).
+
+interface ThoughtsVersionCache { version: string; expiresAt: number }
+let thoughtsVersionCache: ThoughtsVersionCache | null = null
+const THOUGHTS_VERSION_TTL_MS = 60 * 1000
+
+async function fetchThoughtsVersion(): Promise<string> {
+  const now = Date.now()
+  if (thoughtsVersionCache && now < thoughtsVersionCache.expiresAt) {
+    return thoughtsVersionCache.version
+  }
+  const { data } = await supabase
+    .from('thoughts')
+    .select('updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const version = (data as { updated_at?: string } | null)?.updated_at ?? ''
+  thoughtsVersionCache = { version, expiresAt: now + THOUGHTS_VERSION_TTL_MS }
+  return version
+}
+
 // ── Response cache ───────────────────────────────────────
-// Caches full LLM responses for question types that are fully deterministic
-// from public_profile alone (skipThoughts === true — binary questions).
-// Key: normalized(question) + ":" + profile.updated_at
-// Staleness bound: profile.updated_at only reflects in the key after the profile
-// cache (PROFILE_CACHE_TTL_MS = 5 min) refreshes, so responses may be up to 5
-// minutes stale after a profile mutation — same bound as the profile cache itself.
+// Key: normalized(question) + ":" + profile.updated_at + ":" + thoughts_version
+// Two-dimensional invalidation:
+//   - profile.updated_at — changes on every update_profile / upsert_project call
+//   - thoughts_version   — changes on every thought add/update (60s TTL)
+// All responses are cached — the key captures both data sources so no
+// post-hoc usedObservations check is needed.
+// Staleness bound: max(profile cache TTL 5min, thoughts version TTL 60s) = 5min.
 // Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
 // Streaming path is not cached (returns a live streamText handle).
 
 const RESPONSE_CACHE_MAX = 200
 const responseCache = new Map<string, import('../types.js').QueryResponse>()
 
-function responseCacheKey(question: string, updatedAt: string): string {
-  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${updatedAt}`
+function responseCacheKey(question: string, profileUpdatedAt: string, thoughtsVersion: string): string {
+  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${profileUpdatedAt}:${thoughtsVersion}`
 }
 
-function responseCacheGet(question: string, updatedAt: string): import('../types.js').QueryResponse | undefined {
-  const key = responseCacheKey(question, updatedAt)
+function responseCacheGet(question: string, profileUpdatedAt: string, thoughtsVersion: string): import('../types.js').QueryResponse | undefined {
+  const key = responseCacheKey(question, profileUpdatedAt, thoughtsVersion)
   const value = responseCache.get(key)
   if (value !== undefined) {
     // Move to end to refresh LRU recency
@@ -67,8 +95,8 @@ function responseCacheGet(question: string, updatedAt: string): import('../types
   return value
 }
 
-function responseCacheSet(question: string, updatedAt: string, response: import('../types.js').QueryResponse): void {
-  const key = responseCacheKey(question, updatedAt)
+function responseCacheSet(question: string, profileUpdatedAt: string, thoughtsVersion: string, response: import('../types.js').QueryResponse): void {
+  const key = responseCacheKey(question, profileUpdatedAt, thoughtsVersion)
   if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
     const firstKey = responseCache.keys().next().value
     if (firstKey !== undefined) responseCache.delete(firstKey)
@@ -181,16 +209,19 @@ export interface ParseError {
 export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
-  // Fetch profile first — usually synchronous from the in-process profile cache.
-  // Must precede the response cache check so we have profile.updated_at for the key.
-  const { data: profile, error } = await fetchProfile()
+  // Fetch profile + OB1 version token in parallel — both are in-process cached
+  // and usually synchronous; parallel fetch keeps cold-start cost minimal.
+  const [{ data: profile, error }, thoughtsVersion] = await Promise.all([
+    fetchProfile(),
+    fetchThoughtsVersion(),
+  ])
   if (error || !profile) return { kind: 'profile_not_found' }
 
-  const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+  const profileUpdatedAt = (profile as { updated_at?: string }).updated_at ?? ''
 
-  // Response cache check — all question types.
-  // On hit: skip retrieval + LLM entirely; stamp fresh meta (latency_ms=0, retrieval_ms=0).
-  const cached = responseCacheGet(args.question, updatedAt)
+  // Response cache check — all question types. Key covers both data dimensions.
+  // On hit: skip retrieval + LLM entirely; stamp fresh meta.
+  const cached = responseCacheGet(args.question, profileUpdatedAt, thoughtsVersion)
   if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms: 0 } }
 
   // Retrieval — only on cache miss, skipped entirely for binary questions.
@@ -226,15 +257,8 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Cache if the answer didn't draw on OB1 observations — those can change
-  // independently of public_profile, so profile.updated_at alone isn't a
-  // sufficient invalidation signal for observation-grounded answers.
-  // Conservatively skip caching when sources is missing or not a string array.
-  const usedObservations = !Array.isArray(parsed.sources) ||
-    parsed.sources.some((s: unknown) => typeof s === 'string' && s.startsWith('observations'))
-  if (!usedObservations) {
-    responseCacheSet(args.question, updatedAt, response)
-  }
+  // Always cache — two-dimensional key handles both profile and OB1 invalidation.
+  responseCacheSet(args.question, profileUpdatedAt, thoughtsVersion, response)
 
   return response
 }

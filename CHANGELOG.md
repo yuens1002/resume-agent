@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-07 — perf(query): OB1 version token — adds thoughts MAX(updated_at) as second cache key dimension (60s TTL); all question types now cached; behavioral p95 drops from 11316ms to 320ms; eval 18/18 pass p50 0ms p95 320ms
+
 - 2026-06-07 — chore(eval): record baseline with extended response cache — 18/18 pass, p50 0ms (cache hits dominate), p95 11316ms (behavioral ceiling unchanged)
 
 - 2026-06-07 — perf(query): extend response cache to all profile-only answers — cache any question whose sources contain no "observations" entries; fetch profile first so cache check skips retrieval+LLM entirely on hit; "Tell me about Sunny" / "Show recent work" / "What are Sunny's strengths?" go 7s→0ms on repeat; eval p50 0ms, 18/18 pass
