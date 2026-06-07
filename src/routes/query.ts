@@ -43,8 +43,10 @@ async function fetchProfile() {
 // A lightweight version token for OB1 public thoughts: MAX(updated_at) across
 // all thoughts rows. Changes whenever any thought is added or updated, which
 // is the signal needed to invalidate observation-grounded cached responses.
-// TTL: 60s — fast enough to pick up new captures within a minute, cheap enough
-// to query on every cache-cold request (it's a single-row index scan).
+// TTL: 60s — fast enough to pick up new captures within a minute.
+// Note: thoughts.updated_at is not indexed by default; this query does an
+// ORDER BY … LIMIT 1 which may scan/sort as the table grows. Add an
+// updated_at DESC index if thoughts volume becomes large.
 
 interface ThoughtsVersionCache { version: string; expiresAt: number }
 let thoughtsVersionCache: ThoughtsVersionCache | null = null
@@ -55,24 +57,31 @@ async function fetchThoughtsVersion(): Promise<string> {
   if (thoughtsVersionCache && now < thoughtsVersionCache.expiresAt) {
     return thoughtsVersionCache.version
   }
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('thoughts')
     .select('updated_at')
     .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+  if (error) {
+    // On failure: return a volatile value so no cached response is served
+    // (volatile key = cache miss on every request until the query recovers).
+    // Don't persist to thoughtsVersionCache — keep retrying each request.
+    return `error:${now}`
+  }
   const version = (data as { updated_at?: string } | null)?.updated_at ?? ''
   thoughtsVersionCache = { version, expiresAt: now + THOUGHTS_VERSION_TTL_MS }
   return version
 }
 
 // ── Response cache ───────────────────────────────────────
-// Key: normalized(question) + ":" + profile.updated_at + ":" + thoughts_version
-// Two-dimensional invalidation:
-//   - profile.updated_at — changes on every update_profile / upsert_project call
-//   - thoughts_version   — changes on every thought add/update (60s TTL)
-// All responses are cached — the key captures both data sources so no
-// post-hoc usedObservations check is needed.
+// Key: normalized(question) + style + callerHint[:80] + profile.updated_at + thoughts_version
+// Dimensions:
+//   - style       — cited vs conversational changes the system prompt format
+//   - callerHint  — affects tone; truncated to 80 chars to bound key size while
+//                   still separating major caller types (ATS, human, interviewer)
+//   - profile.updated_at — changes on every profile mutation
+//   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
 // Staleness bound: max(profile cache TTL 5min, thoughts version TTL 60s) = 5min.
 // Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
 // Streaming path is not cached (returns a live streamText handle).
@@ -80,12 +89,26 @@ async function fetchThoughtsVersion(): Promise<string> {
 const RESPONSE_CACHE_MAX = 200
 const responseCache = new Map<string, import('../types.js').QueryResponse>()
 
-function responseCacheKey(question: string, profileUpdatedAt: string, thoughtsVersion: string): string {
-  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${profileUpdatedAt}:${thoughtsVersion}`
+function responseCacheKey(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+): string {
+  const q = question.toLowerCase().trim().replace(/\s+/g, ' ')
+  const hint = callerHint.toLowerCase().trim().slice(0, 80)
+  return `${q}:${style}:${hint}:${profileUpdatedAt}:${thoughtsVersion}`
 }
 
-function responseCacheGet(question: string, profileUpdatedAt: string, thoughtsVersion: string): import('../types.js').QueryResponse | undefined {
-  const key = responseCacheKey(question, profileUpdatedAt, thoughtsVersion)
+function responseCacheGet(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+): import('../types.js').QueryResponse | undefined {
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
   const value = responseCache.get(key)
   if (value !== undefined) {
     // Move to end to refresh LRU recency
@@ -95,8 +118,15 @@ function responseCacheGet(question: string, profileUpdatedAt: string, thoughtsVe
   return value
 }
 
-function responseCacheSet(question: string, profileUpdatedAt: string, thoughtsVersion: string, response: import('../types.js').QueryResponse): void {
-  const key = responseCacheKey(question, profileUpdatedAt, thoughtsVersion)
+function responseCacheSet(
+  question: string,
+  style: string,
+  callerHint: string,
+  profileUpdatedAt: string,
+  thoughtsVersion: string,
+  response: import('../types.js').QueryResponse,
+): void {
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
   if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
     const firstKey = responseCache.keys().next().value
     if (firstKey !== undefined) responseCache.delete(firstKey)
@@ -219,9 +249,12 @@ export async function queryProfile(
 
   const profileUpdatedAt = (profile as { updated_at?: string }).updated_at ?? ''
 
-  // Response cache check — all question types. Key covers both data dimensions.
+  const style = args.style ?? 'cited'
+
+  // Response cache check — all question types. Key covers both data dimensions
+  // plus style and callerHint to prevent cross-caller response bleed.
   // On hit: skip retrieval + LLM entirely; stamp fresh meta.
-  const cached = responseCacheGet(args.question, profileUpdatedAt, thoughtsVersion)
+  const cached = responseCacheGet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion)
   if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms: 0 } }
 
   // Retrieval — only on cache miss, skipped entirely for binary questions.
@@ -236,7 +269,7 @@ export async function queryProfile(
   const { text: raw } = await generateText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
-    system: buildSystemPrompt('json', args.style ?? 'cited'),
+    system: buildSystemPrompt('json', style),
     prompt,
   })
   const latency_ms = Date.now() - start
@@ -257,8 +290,9 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Always cache — two-dimensional key handles both profile and OB1 invalidation.
-  responseCacheSet(args.question, profileUpdatedAt, thoughtsVersion, response)
+  // Always cache — key covers all prompt dimensions (question, style, callerHint,
+  // profile version, OB1 version).
+  responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
 
   return response
 }
