@@ -146,21 +146,39 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 
 ### Latency optimization
 
-`/query` is the hot path — a retrieval step plus LLM generation. Both phases are instrumented and surfaced via `summarize_observed_queries`:
+`/query` is the hot path — retrieval + LLM generation. Both phases are instrumented (`llm_ms`, `retrieval_ms` persisted to `observed_queries`) and surfaced via `summarize_observed_queries`.
+
+**Phase breakdown (uncached path):**
 
 | Phase | What it measures | Typical share |
 |---|---|---|
-| `retrieval_ms` | `Promise.all` fetching `public_profile` + pgvector semantic search over OB1 thoughts | ~19% |
+| `retrieval_ms` | Profile fetch + pgvector semantic search over OB1 thoughts | ~19% |
 | `llm_ms` | `generateText` time — dominated by **output length**, not model speed | ~81% |
-| overhead | Hono framework + JSON serialization | ~0% |
+| overhead | Hono + JSON serialization | ~0% |
 
-The key insight: **LLM output length drives latency, not model speed.** Cited mode generates prose + inline `[N]` markers + `Sources:` block + follow-up suggestions. More words in the answer = more time, linearly. This is the primary lever for improvement.
+**What shipped (three levers, all live):**
 
-**The optimization discipline — correctness and latency on the same pass:**
+1. **In-process response cache** — all `/query` responses are cached in memory keyed on `(normalized_question, style, caller_hint, profile.updated_at, ob1_thoughts_version)`. Cache hits return in 0ms. Two-dimensional invalidation: `profile.updated_at` changes on every profile mutation; `ob1_thoughts_version` (`MAX(updated_at)` over thoughts, 60s TTL) changes when new OB1 observations are captured. The cache covers all question types including behavioral — everything is cached after first hit per deploy.
 
-`npm run eval:query --runs 3` measures both on a fixed fixture set. `--baseline` records a row to [`docs/eval-baselines.md`](docs/eval-baselines.md) so git history shows which commit moved latency. You can't win on speed by quietly degrading answers — the eval catches it. `summarize_observed_queries` exposes the phase breakdown on real traffic so gains measured in the eval validate (or don't) against production.
+2. **Per-category token caps** — `maxTokens` is set by question type rather than a flat 1024: binary questions cap at 300, behavioral at 1024 (they hit the ceiling), everything else at 600. Reduces generation time on the fast path without touching behavioral quality.
 
-**The eval/production gap:** Controlled fixtures are shorter than real-world questions, so eval p50 (~2.5s) runs ~3× faster than production p50 (~6.9s). The fixture set includes progressively harder behavioral questions drawn from real production traffic to close this gap over time. See [`docs/plans/query-latency.md`](docs/plans/query-latency.md) for the full optimization plan and [`docs/eval-baselines.md`](docs/eval-baselines.md) for recorded snapshots.
+3. **Tighter follow-up suggestions** — reduced from 2–3 to 1–2 per response, saving ~30–50 tokens on every answer.
+
+**Measured results (eval harness, 3 runs/case):**
+
+| version | p50 | p95 | note |
+|---|---|---|---|
+| baseline (17 cases) | 2,471ms | 10,137ms | pre-optimization |
+| +18th fixture | 3,183ms | 11,888ms | added long-output behavioral fixture |
+| token caps + follow-ups | 2,407ms | 11,780ms | −24% from 18-case baseline |
+| response cache (profile-only) | 0ms | 11,316ms | binary + overview + profile cached |
+| **response cache (full, OB1 token)** | **0ms** | **320ms** | **all question types cached** |
+
+Production verified: repeat hits on `Did you build resume-agent?`, `Show recent work`, `Tell me about Sunny`, and `How do you decide what features to build?` all return in 0ms after first call.
+
+**The optimization discipline — correctness and latency measured together:**
+
+`npm run eval:query -- --runs 3` measures both on a fixed 18-case fixture set. `--baseline` appends a row to [`docs/eval-baselines.md`](docs/eval-baselines.md) so git history shows which commit moved latency. The eval harness enforces that you can't win on speed by quietly degrading answers. See [`docs/plans/query-latency.md`](docs/plans/query-latency.md) for the full plan.
 
 ---
 

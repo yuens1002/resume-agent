@@ -330,9 +330,9 @@ describe('buildSystemPrompt — conversational style', () => {
     )
   })
 
-  it('uses the conversational output rule with 2-4 sentence prose', () => {
+  it('uses the conversational output rule with Markdown formatting guidance', () => {
     assert.ok(prompt.includes(RULE_OUTPUT_JSON_CONVERSATIONAL))
-    assert.match(RULE_OUTPUT_JSON_CONVERSATIONAL, /2[–-]4 sentences|2 to 4 sentences/i)
+    assert.match(RULE_OUTPUT_JSON_CONVERSATIONAL, /Markdown string|Single-topic answers|Multi-item answers/i)
   })
 
   it('still populates the sources[] JSON array', () => {

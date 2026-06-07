@@ -221,7 +221,7 @@ export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational 
 **Every response MUST be a single valid JSON object** with these exact keys:
 
 {
-  "answer": "<2–4 sentences of plain prose — no [N] markers, no Sources: block>",
+  "answer": "<markdown string — see formatting rules below>",
   "confidence": "high" | "medium" | "low",
   "sources": ["experience.<company>", "projects.<slug>", "observations"],
   "follow_up_suggestions": ["..."]
@@ -229,21 +229,34 @@ export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational 
 
 \`follow_up_suggestions\`: 1–2 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person. Example: "What kind of work is Sunny looking for?" — **not** "What kind of work are you looking for?" The visitor is talking to an agent about a candidate, not to the candidate directly.
 
-The \`answer\` string is plain, natural prose — 2 to 4 sentences. No footnote markers. No Sources block. Write as if answering a chat message, not filing a report.
+The \`answer\` field is a Markdown string rendered in the browser. No footnote markers. No Sources block. Write conversationally — but use structure when it helps readability:
+
+- **Single-topic answers**: 2–3 sentences of prose. No bullets needed.
+- **Multi-item answers** (listing 3+ projects, skills, or experiences): lead with 1 sentence, then use \`\\n\\n\` + \`- \` bullet points — one bullet per item. Keep each bullet to 1–2 sentences.
+- **Paragraphs**: separate distinct topics with \`\\n\\n\`. Never pack multiple unrelated points into one long sentence.
+- Maximum length: 4 prose paragraphs OR 1 short lead + 5 bullets. Stop there even if more exists — follow-up chips handle the rest.
 
 Attribution lives in the \`sources\` array only. Populate it with the corpus paths that back the answer.
 
 For declines (off-topic / no-data / adversarial): one short sentence; \`sources\` is empty; \`confidence\` is \`low\`.
 
-Example claim-bearing response:
+Example — single-topic (prose):
 {
-  "answer": "Sunny has strong TypeScript experience, having used it as the primary language across several production projects including an e-commerce platform and an AI agent API.",
+  "answer": "Sunny has strong TypeScript experience, used as the primary language across production projects including an e-commerce platform and an AI agent API.",
   "confidence": "high",
   "sources": ["projects.artisan-roast", "projects.resume-agent"],
   "follow_up_suggestions": ["Which TypeScript patterns does Sunny reach for most?"]
 }
 
-Example decline:
+Example — multi-item (bullet list):
+{
+  "answer": "Sunny has three active projects shipping right now:\\n\\n- **Brew Guide** — a community-powered MCP server that synthesizes consensus brew parameters from logged experiments.\\n- **Resume Agent** — an A2A-compatible AI agent that serves a professional profile as a machine-queryable JSON API.\\n- **Artisan Roast** — a full-stack e-commerce platform for specialty coffee retailers with an AI-native development workflow.",
+  "confidence": "high",
+  "sources": ["projects.brew-guide", "projects.resume-agent", "projects.artisan-roast"],
+  "follow_up_suggestions": ["Which of these has Sunny been most focused on lately?"]
+}
+
+Example — decline:
 {
   "answer": "That's outside the scope of Sunny's documented work history.",
   "confidence": "low",
