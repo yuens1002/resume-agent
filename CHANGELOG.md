@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-06-07 — perf(query): extend response cache to all profile-only answers — cache any question whose sources contain no "observations" entries; fetch profile first so cache check skips retrieval+LLM entirely on hit; "Tell me about Sunny" / "Show recent work" / "What are Sunny's strengths?" go 7s→0ms on repeat; eval p50 0ms, 18/18 pass
+
 - 2026-06-07 — perf(query): in-process response cache for binary questions — key (normalized_question, profile.updated_at), auto-invalidates on profile mutations, capped at 200 entries; eval binary cases hit 0ms median on runs 2+, full suite 18/18 pass
 
 - 2026-06-06 — perf(query): per-category maxTokens (300 binary / 1024 behavioral / 600 all else) + reduce follow_up_suggestions to 1–2; eval p50 −24% (3183→2407ms), p95 flat at 11780ms, 18/18 pass

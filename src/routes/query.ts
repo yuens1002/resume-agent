@@ -181,25 +181,23 @@ export interface ParseError {
 export async function queryProfile(
   args: QueryProfileArgs,
 ): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
+  // Fetch profile first — usually synchronous from the in-process profile cache.
+  // Must precede the response cache check so we have profile.updated_at for the key.
+  const { data: profile, error } = await fetchProfile()
+  if (error || !profile) return { kind: 'profile_not_found' }
+
+  const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+
+  // Response cache check — all question types.
+  // On hit: skip retrieval + LLM entirely; stamp fresh meta (latency_ms=0, retrieval_ms=0).
+  const cached = responseCacheGet(args.question, updatedAt)
+  if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms: 0 } }
+
+  // Retrieval — only on cache miss, skipped entirely for binary questions.
   const skipThoughts = isBinaryQuestion(args.question)
   const retrievalStart = Date.now()
-  const [{ data: profile, error }, thoughts] = await Promise.all([
-    fetchProfile(),
-    skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
-  ])
+  const thoughts = skipThoughts ? [] : await queryRelevantThoughtsForQuestion(args.question)
   const retrieval_ms = Date.now() - retrievalStart
-
-  if (error || !profile) {
-    return { kind: 'profile_not_found' }
-  }
-
-  // Cache hit — binary questions answered purely from public_profile.
-  // Stamp fresh meta: latency_ms=0 (no LLM call), retrieval_ms reflects this request.
-  if (skipThoughts) {
-    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
-    const cached = responseCacheGet(args.question, updatedAt)
-    if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms } }
-  }
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
@@ -228,9 +226,11 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Cache successful binary responses for future identical questions
-  if (skipThoughts) {
-    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+  // Cache if the answer didn't draw on OB1 observations — those can change
+  // independently of public_profile, so profile.updated_at alone isn't a
+  // sufficient invalidation signal for observation-grounded answers.
+  const usedObservations = parsed.sources.some((s: string) => s.startsWith('observations'))
+  if (!usedObservations) {
     responseCacheSet(args.question, updatedAt, response)
   }
 
