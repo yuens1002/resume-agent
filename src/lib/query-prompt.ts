@@ -232,11 +232,9 @@ export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational 
 The \`answer\` field is a Markdown string rendered in the browser. No footnote markers. No Sources block. Write conversationally — but use structure when it helps readability:
 
 - **Single-topic answers**: 2–3 sentences of prose. No bullets needed.
-- **Multi-item answers** (listing 3+ projects, skills, or experiences): lead with 1 sentence, then use `\\n\\n` + `- ` bullet points — one bullet per item. Keep each bullet to 1–2 sentences.
-- **Paragraphs**: separate distinct topics with `\\n\\n`. Never pack multiple unrelated points into one long sentence.
+- **Multi-item answers** (listing 3+ projects, skills, or experiences): lead with 1 sentence, then use \`\\n\\n\` + \`- \` bullet points — one bullet per item. Keep each bullet to 1–2 sentences.
+- **Paragraphs**: separate distinct topics with \`\\n\\n\`. Never pack multiple unrelated points into one long sentence.
 - Maximum length: 4 prose paragraphs OR 1 short lead + 5 bullets. Stop there even if more exists — follow-up chips handle the rest.
-
-Attribution lives in the \`sources\` array only. Populate it with the corpus paths that back the answer.
 
 Attribution lives in the \`sources\` array only. Populate it with the corpus paths that back the answer.
 

@@ -168,8 +168,9 @@ Row Level Security in Supabase enforces the boundary. The public API has no know
 
 | version | p50 | p95 | note |
 |---|---|---|---|
-| baseline | 2,471ms | 10,137ms | pre-optimization |
-| token caps + follow-ups | 2,407ms | 11,780ms | −24% p50 |
+| baseline (17 cases) | 2,471ms | 10,137ms | pre-optimization |
+| +18th fixture | 3,183ms | 11,888ms | added long-output behavioral fixture |
+| token caps + follow-ups | 2,407ms | 11,780ms | −24% from 18-case baseline |
 | response cache (profile-only) | 0ms | 11,316ms | binary + overview + profile cached |
 | **response cache (full, OB1 token)** | **0ms** | **320ms** | **all question types cached** |
 
@@ -177,7 +178,7 @@ Production verified: repeat hits on `Did you build resume-agent?`, `Show recent 
 
 **The optimization discipline — correctness and latency measured together:**
 
-`npm run eval:query --runs 3` measures both on a fixed 18-case fixture set. `--baseline` appends a row to [`docs/eval-baselines.md`](docs/eval-baselines.md) so git history shows which commit moved latency. The eval harness enforces that you can't win on speed by quietly degrading answers. See [`docs/plans/query-latency.md`](docs/plans/query-latency.md) for the full plan.
+`npm run eval:query -- --runs 3` measures both on a fixed 18-case fixture set. `--baseline` appends a row to [`docs/eval-baselines.md`](docs/eval-baselines.md) so git history shows which commit moved latency. The eval harness enforces that you can't win on speed by quietly degrading answers. See [`docs/plans/query-latency.md`](docs/plans/query-latency.md) for the full plan.
 
 ---
 
