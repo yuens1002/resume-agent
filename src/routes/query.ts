@@ -39,6 +39,34 @@ async function fetchProfile() {
   return result
 }
 
+// ── Response cache ───────────────────────────────────────
+// Caches full LLM responses for question types that are fully deterministic
+// from public_profile alone (skipThoughts === true — binary questions).
+// Key: normalized(question) + ":" + profile.updated_at
+// Invalidation is automatic: profile.updated_at changes on every profile mutation,
+// so stale cache entries are never served — they just become unreachable keys.
+// No TTL needed. Capped at 200 entries; oldest entry evicted when full.
+// Streaming path is not cached (returns a live streamText handle).
+
+const RESPONSE_CACHE_MAX = 200
+const responseCache = new Map<string, import('../types.js').QueryResponse>()
+
+function responseCacheKey(question: string, updatedAt: string): string {
+  return `${question.toLowerCase().trim().replace(/\s+/g, ' ')}:${updatedAt}`
+}
+
+function responseCacheGet(question: string, updatedAt: string): import('../types.js').QueryResponse | undefined {
+  return responseCache.get(responseCacheKey(question, updatedAt))
+}
+
+function responseCacheSet(question: string, updatedAt: string, response: import('../types.js').QueryResponse): void {
+  if (responseCache.size >= RESPONSE_CACHE_MAX) {
+    const firstKey = responseCache.keys().next().value
+    if (firstKey !== undefined) responseCache.delete(firstKey)
+  }
+  responseCache.set(responseCacheKey(question, updatedAt), response)
+}
+
 // ── Question-type heuristics ─────────────────────────────
 // Used for two optimizations:
 //   1. Skip thoughts retrieval for binary questions (embedding call costs ~150ms)
@@ -156,6 +184,13 @@ export async function queryProfile(
     return { kind: 'profile_not_found' }
   }
 
+  // Cache hit — binary questions answered purely from public_profile
+  if (skipThoughts) {
+    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+    const cached = responseCacheGet(args.question, updatedAt)
+    if (cached) return cached
+  }
+
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
@@ -174,7 +209,7 @@ export async function queryProfile(
     return { kind: 'parse_error', raw }
   }
 
-  return {
+  const response: QueryResponse = {
     ...parsed,
     contact: {
       email: profile.contact?.email,
@@ -182,6 +217,14 @@ export async function queryProfile(
     },
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
+
+  // Cache successful binary responses for future identical questions
+  if (skipThoughts) {
+    const updatedAt = (profile as { updated_at?: string }).updated_at ?? ''
+    responseCacheSet(args.question, updatedAt, response)
+  }
+
+  return response
 }
 
 /** Streaming variant — returns the streamText result for caller-controlled consumption. */
