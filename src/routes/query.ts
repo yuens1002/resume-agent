@@ -56,7 +56,7 @@ function isBinaryQuestion(question: string): boolean {
 
 function isBehavioralQuestion(question: string): boolean {
   const q = question.toLowerCase().trim()
-  return /\b(how do you|walk me through|tell me about|describe (a |your )|what.s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
+  return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''’]?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
 }
 
 // cited mode: 300 binary | 1024 behavioral | 600 everything else
