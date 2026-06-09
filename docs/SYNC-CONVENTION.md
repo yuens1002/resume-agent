@@ -49,8 +49,11 @@ Add these fields to the project entry in `public_profile.projects` (via `upsert_
 |---|---|---|
 | `docsPath` | `string` | Path to architecture doc if not `README.md` (e.g. `docs/platform/architecture.md`) |
 | `featureDocsGlobs` | `string[]` | Directory prefixes to scan for additional `.md` feature docs (e.g. `["docs/features"]`) |
+| `skipChangelog` | `boolean` | Skip highlights reconciliation, changelog thought extraction, and version drift detection. Feature doc thoughts via `featureDocsGlobs` and architecture via `docsPath` are unaffected. |
 
 `docsPath` is especially useful for private repos whose README is boilerplate or contains business logic — point it at a curated architecture file instead.
+
+`skipChangelog: true` is the right choice for any private repo whose CHANGELOG contains business-sensitive content (customer details, pricing, internal ops) that should not flow into the public profile highlights or OB1 thoughts. Architecture and feature doc thoughts remain available via `docsPath` and `featureDocsGlobs`.
 
 ## When to use `manual` strategy
 
