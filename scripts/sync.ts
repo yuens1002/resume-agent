@@ -754,7 +754,10 @@ async function syncProject(
   }
 
   // ── Highlights reconciliation (now shipped-only) ──
-  if (changelog) {
+  const skipChangelog = !!(project as { skipChangelog?: boolean }).skipChangelog
+  if (skipChangelog) {
+    console.log(`  — changelog skipped (skipChangelog: true) — highlights and changelog thoughts preserved as-is`)
+  } else if (changelog) {
     const sections = splitChangelogSections(changelog)
     // Highlights only from shipped changelog (no ## [Unreleased])
     const hi = await reconcileHighlights(projectName, currentHighlights, sections.shipped)
