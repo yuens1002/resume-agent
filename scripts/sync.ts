@@ -323,16 +323,20 @@ function driftLabel(pkgV: string, logV: string, pkg: SemVer, log: SemVer): strin
 
 async function warnVersionDrift(slug: string, pkgVersion: string, logVersion: string, label: string): Promise<void> {
   const message = `VERSION DRIFT [${slug}]: package.json@${pkgVersion} is ahead of CHANGELOG@${logVersion} (${label}) — sync highlights and thoughts reflect ${logVersion} only until a versioned CHANGELOG entry is added`
-  const hash = contentHash(slug, `version-drift:${pkgVersion}:${logVersion}`)
-  const { data: existing } = await supabase.from('thoughts').select('id').eq('content_hash', hash).limit(1)
-  if (existing?.length) return
-  const { embedding } = await embed({ model: openrouter.embedding('openai/text-embedding-3-small'), value: message })
-  await supabase.from('thoughts').insert({
-    content: message,
-    embedding,
-    content_hash: hash,
-    metadata: { type: 'observation', source: 'sync', project: slug, topics: [slug, 'version_drift', 'sync_warning'] },
-  })
+  try {
+    const hash = contentHash(slug, `version-drift:${pkgVersion}:${logVersion}`)
+    const { data: existing } = await supabase.from('thoughts').select('id').eq('content_hash', hash).limit(1)
+    if (existing?.length) return
+    const { embedding } = await embed({ model: openrouter.embedding('openai/text-embedding-3-small'), value: message })
+    await supabase.from('thoughts').insert({
+      content: message,
+      embedding,
+      content_hash: hash,
+      metadata: { type: 'observation', source: 'sync', project: slug, topics: [slug, 'version_drift', 'sync_warning'] },
+    })
+  } catch (err) {
+    console.warn(`  ⚠ version drift thought write failed (non-fatal): ${(err as Error).message}`)
+  }
 }
 
 // ── Thought extraction + storage ─────────────────────────
