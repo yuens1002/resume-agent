@@ -293,6 +293,52 @@ export function splitChangelogSections(changelog: string): ChangelogSections {
   }
 }
 
+// ── Version drift detection ───────────────────────────────
+
+interface SemVer { major: number; minor: number; patch: number }
+
+function parseSemVer(v: string): SemVer | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(v.trim())
+  if (!m) return null
+  return { major: parseInt(m[1], 10), minor: parseInt(m[2], 10), patch: parseInt(m[3], 10) }
+}
+
+function latestChangelogVersion(changelog: string): string | null {
+  const m = /^##\s*\[?v?(\d+\.\d+\.\d+)/m.exec(changelog)
+  return m ? m[1] : null
+}
+
+function isDriftSignificant(pkg: SemVer, log: SemVer): boolean {
+  if (pkg.major > log.major) return true
+  if (pkg.major === log.major && pkg.minor > log.minor) return true
+  if (pkg.major === log.major && pkg.minor === log.minor && pkg.patch - log.patch > 1) return true
+  return false
+}
+
+function driftLabel(pkgV: string, logV: string, pkg: SemVer, log: SemVer): string {
+  if (pkg.major !== log.major) return `major: ${logV} → ${pkgV}`
+  if (pkg.minor !== log.minor) return `minor: ${logV} → ${pkgV}`
+  return `${pkg.patch - log.patch} unreleased patches: ${logV} → ${pkgV}`
+}
+
+async function warnVersionDrift(slug: string, pkgVersion: string, logVersion: string, label: string): Promise<void> {
+  const message = `VERSION DRIFT [${slug}]: package.json@${pkgVersion} is ahead of CHANGELOG@${logVersion} (${label}) — sync highlights and thoughts reflect ${logVersion} only until a versioned CHANGELOG entry is added`
+  try {
+    const hash = contentHash(slug, `version-drift:${pkgVersion}:${logVersion}`)
+    const { data: existing } = await supabase.from('thoughts').select('id').eq('content_hash', hash).limit(1)
+    if (existing?.length) return
+    const { embedding } = await embed({ model: openrouter.embedding('openai/text-embedding-3-small'), value: message })
+    await supabase.from('thoughts').insert({
+      content: message,
+      embedding,
+      content_hash: hash,
+      metadata: { type: 'observation', source: 'sync', project: slug, topics: [slug, 'version_drift', 'sync_warning'] },
+    })
+  } catch (err) {
+    console.warn(`  ⚠ version drift thought write failed (non-fatal): ${(err as Error).message}`)
+  }
+}
+
 // ── Thought extraction + storage ─────────────────────────
 
 interface ExtractedFact {
@@ -774,6 +820,20 @@ async function syncProject(
     console.log(`  ✔ tech merged (${newTech.length} entries)`)
   } else {
     console.log(`  — tech unchanged`)
+  }
+
+  // ── Version drift detection ───────────────────────────────
+  if (pkgJson && changelog) {
+    let pkgParsed: { version?: string } = {}
+    try { pkgParsed = JSON.parse(pkgJson) } catch { /* ignore */ }
+    const pkgVer = pkgParsed.version ? parseSemVer(pkgParsed.version) : null
+    const logVerStr = latestChangelogVersion(changelog)
+    const logVer = logVerStr ? parseSemVer(logVerStr) : null
+    if (pkgVer && logVer && isDriftSignificant(pkgVer, logVer)) {
+      const label = driftLabel(pkgParsed.version!, logVerStr!, pkgVer, logVer)
+      console.warn(`  ⚠ version drift: ${label}`)
+      await warnVersionDrift(r.slug, pkgParsed.version!, logVerStr!, label)
+    }
   }
 
   // ── Git evidence ──────────────────────────────────────────
