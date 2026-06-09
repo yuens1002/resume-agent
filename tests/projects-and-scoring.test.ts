@@ -131,4 +131,34 @@ describe("score_match + upsert_project MCP tools", () => {
     assert.equal(project.name, "Test Project", "Name should be preserved after merge");
     assert.equal(project.url, "https://example.com/test", "URL should be updated");
   });
+
+  it("upsert_project — persists sync escape hatch fields (skipChangelog, docsPath, featureDocsGlobs)", async () => {
+    const result = await callTool("upsert_project", {
+      slug: TEST_SLUG,
+      skipChangelog: true,
+      docsPath: "docs/architecture.md",
+      featureDocsGlobs: ["docs/features"],
+    });
+    const text = getText(result);
+    assert.ok(!result.isError, `Expected success, got error: ${text}`);
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data, error } = await supabase
+      .from("public_profile")
+      .select("projects")
+      .eq("id", PROFILE_ID)
+      .single();
+    assert.ok(!error && data, "Should be able to read profile");
+    const project = (data.projects as {
+      slug: string
+      skipChangelog?: boolean
+      docsPath?: string
+      featureDocsGlobs?: string[]
+    }[]).find((p) => p.slug === TEST_SLUG);
+    assert.ok(project, "Test project should still exist");
+    assert.equal(project.skipChangelog, true, "skipChangelog should be persisted");
+    assert.equal(project.docsPath, "docs/architecture.md", "docsPath should be persisted");
+    assert.deepEqual(project.featureDocsGlobs, ["docs/features"], "featureDocsGlobs should be persisted");
+  });
 });

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- 2026-06-09 — fix(sync): add skipChangelog, docsPath, featureDocsGlobs to upsert_project schema so sync escape hatches are actually stored in Supabase
+- 2026-06-09 — ci(sync): opt into Node.js 24 for actions runner via FORCE_JAVASCRIPT_ACTIONS_TO_NODE24
+
+## [0.4.60] - 2026-06-09
+
 - 2026-06-09 — feat(sync): add skipChangelog flag — gates highlights reconciliation, changelog thought extraction, and version drift detection per project; featureDocsGlobs thoughts and architecture sync unaffected; document in SYNC-CONVENTION.md
 
 - 2026-06-09 — fix(query): remove trailing CTA from answer prose — follow-up invitations belong exclusively in `follow_up_suggestions`, not the answer string; fixes #156
