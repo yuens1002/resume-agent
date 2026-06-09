@@ -55,7 +55,14 @@ const MODEL = 'google/gemini-3-flash-preview'
 // Default singleton profile row ID (UUID with trailing 1)
 const PROFILE_ID = ['00000000', '0000', '0000', '0000', '000000000001'].join('-')
 
-type RepoToSync = { slug: string; owner: string; repo: string }
+type RepoToSync = {
+  slug: string
+  owner: string
+  repo: string
+  docsPath?: string
+  featureDocsGlobs?: string[]
+  skipChangelog?: boolean
+}
 
 function reposFromProfile(projects: ProjectEntry[]): RepoToSync[] {
   const results = []
@@ -65,7 +72,15 @@ function reposFromProfile(projects: ProjectEntry[]): RepoToSync[] {
     const match = /github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/.exec(repoUrl)
     if (!match) continue
     const [, owner, repo] = match
-    results.push({ slug: p.slug, owner, repo })
+    const entry = p as { docsPath?: string; featureDocsGlobs?: string[]; skipChangelog?: boolean }
+    results.push({
+      slug: p.slug,
+      owner,
+      repo,
+      ...(entry.docsPath !== undefined && { docsPath: entry.docsPath }),
+      ...(entry.featureDocsGlobs !== undefined && { featureDocsGlobs: entry.featureDocsGlobs }),
+      ...(entry.skipChangelog !== undefined && { skipChangelog: entry.skipChangelog }),
+    })
   }
   return results
 }
@@ -754,7 +769,7 @@ async function syncProject(
   }
 
   // ── Highlights reconciliation (now shipped-only) ──
-  const skipChangelog = (project as { skipChangelog?: boolean }).skipChangelog === true
+  const skipChangelog = r.skipChangelog === true
   if (skipChangelog) {
     console.log(`  — changelog skipped (skipChangelog: true) — highlights and changelog thoughts preserved as-is`)
   } else if (changelog) {
@@ -879,7 +894,7 @@ async function syncProject(
   }
 
   // ── Extract thoughts from feature docs ──
-  const prefixes = (r as { featureDocsGlobs?: string[] }).featureDocsGlobs
+  const prefixes = r.featureDocsGlobs
   if (prefixes?.length) {
     console.log(`  Fetching feature docs (${prefixes.join(', ')})...`)
     const docs = await fetchFeatureDocs(r.owner, r.repo, prefixes, repoTree)
