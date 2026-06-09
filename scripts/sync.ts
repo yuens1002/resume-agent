@@ -754,7 +754,7 @@ async function syncProject(
   }
 
   // ── Highlights reconciliation (now shipped-only) ──
-  const skipChangelog = !!(project as { skipChangelog?: boolean }).skipChangelog
+  const skipChangelog = (project as { skipChangelog?: boolean }).skipChangelog === true
   if (skipChangelog) {
     console.log(`  — changelog skipped (skipChangelog: true) — highlights and changelog thoughts preserved as-is`)
   } else if (changelog) {
@@ -826,7 +826,7 @@ async function syncProject(
   }
 
   // ── Version drift detection ───────────────────────────────
-  if (pkgJson && changelog) {
+  if (!skipChangelog && pkgJson && changelog) {
     let pkgParsed: { version?: string } = {}
     try { pkgParsed = JSON.parse(pkgJson) } catch { /* ignore */ }
     const pkgVer = pkgParsed.version ? parseSemVer(pkgParsed.version) : null
