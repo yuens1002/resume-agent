@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- 2026-06-09 — fix(query): remove trailing CTA from answer prose — follow-up invitations belong exclusively in follow_up_suggestions, not the answer string; fixes #156
+- 2026-06-09 — fix(query): remove trailing CTA from answer prose — follow-up invitations belong exclusively in `follow_up_suggestions`, not the answer string; fixes #156
 - 2026-06-09 — fix(query): enumerate-then-count for progressive disclosure — state total after listing to prevent count/bullet divergence; fixes #156
 
 - 2026-06-07 — docs(readme): update latency optimization section — documents shipped cache (phase breakdown, 3 levers, baseline progression table, production verification), replaces pre-optimization numbers
