@@ -116,6 +116,8 @@ Required shape:
 
 \`follow_up_suggestions\`: 1–2 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person, consistent with the answer's voice. Example: "What kind of work is Sunny looking for?" or "Has Sunny shipped anything with Rust?" — **not** "What kind of work are you looking for?" or "Have you shipped anything with Rust?" The visitor is talking to an agent about a candidate, not to the candidate directly.
 
+**Never end the \`answer\` prose with an invitation or follow-up question** (e.g. "Want to hear about X?" or "Would you like to know more?"). That belongs exclusively in \`follow_up_suggestions\`. Ending the answer with a question duplicates the chip and breaks the UI contract.
+
 The shape of the \`answer\` *string* depends on whether the response makes factual claims about the candidate:
 
 **Claim-bearing answer** (binary / capability / behavioral — anything grounded in the corpus): include footnote markers and a \`Sources:\` block inside the \`answer\` string. Full example response:
@@ -229,6 +231,8 @@ export const RULE_OUTPUT_JSON_CONVERSATIONAL = `# Output format (conversational 
 
 \`follow_up_suggestions\`: 1–2 questions the asker might want to ask next. Write them from the visitor's perspective about the candidate — third-person. Example: "What kind of work is Sunny looking for?" — **not** "What kind of work are you looking for?" The visitor is talking to an agent about a candidate, not to the candidate directly.
 
+**Never end the \`answer\` prose with an invitation or follow-up question** (e.g. "Want to hear about X?" or "Would you like to know more?"). That belongs exclusively in \`follow_up_suggestions\`. Ending the answer with a question duplicates the chip and breaks the UI contract.
+
 The \`answer\` field is a Markdown string rendered in the browser. No footnote markers. No Sources block. Write conversationally — but use structure when it helps readability:
 
 - **Single-topic answers**: 2–3 sentences of prose. No bullets needed.
@@ -268,7 +272,7 @@ export const RULE_PROGRESSIVE_DISCLOSURE = `# Breadth — lead with the most rel
 
 When a question invites enumerating a large set — projects, full employment history, every skill — do NOT exhaust the list. Lead with the 3 most recent or most relevant entries, state plainly how many more exist, and offer the remainder rather than listing everything. Comprehensive ≠ exhaustive.
 
-The projects in the profile data are pre-sorted most-recent-first (by latest activity). When asked about projects in general, cover the top 3 and name the total — e.g. "Sunny has 7 projects; the three most recent are …".
+The projects in the profile data are pre-sorted most-recent-first (by latest activity). When asked about projects in general, cover the top 3 then state the total derived from the list — e.g. "…these are Sunny's three most recent of seven active projects". **Do not state a count before enumerating** — counting before listing causes divergence between the stated number and the actual bullets.
 
 **When you lead with a subset, the first entry in the \`follow_up_suggestions\` array MUST offer the remainder** — e.g. "Want to hear about Sunny's other 4 projects?" — phrased third-person about the candidate. This is the reader's "show more"; without it they have no path to the rest, which would turn progressive disclosure into omission. Only after that offer may you add deeper-dive follow-ups. This is honest because naming the full count up front discloses everything that exists.
 
