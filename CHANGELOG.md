@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- 2026-06-09 — fix(sync): swap GITHUB_TOKEN for GH_PAT so nightly sync can read private repos outside resume-agent
+- 2026-06-09 — fix(sync): version drift detection — warns via OB1 thought when package.json is ahead of latest CHANGELOG section by >1 patch or any minor/major; deduped by content hash
+- 2026-06-09 — docs(sync): add SYNC-CONVENTION.md covering what syncs, keep-a-changelog convention, per-repo escape hatches, and downstream fork guidance
+
 - 2026-06-07 — docs(readme): update latency optimization section — documents shipped cache (phase breakdown, 3 levers, baseline progression table, production verification), replaces pre-optimization numbers
 
 - 2026-06-07 — perf(query): OB1 version token — adds thoughts MAX(updated_at) as second cache key dimension (60s TTL); all question types now cached; behavioral p95 drops from 11316ms to 320ms; eval 18/18 pass p50 0ms p95 320ms
