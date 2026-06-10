@@ -199,6 +199,7 @@ export interface QueryResponseShape {
   answer: string
   confidence: 'high' | 'medium' | 'low'
   sources: string[]
+  project_slugs: string[]
   follow_up_suggestions: string[]
   contact?: {
     email?: string
@@ -219,6 +220,7 @@ export function isQueryResponseShape(obj: unknown): obj is QueryResponseShape {
     typeof o.confidence === 'string' &&
     ['high', 'medium', 'low'].includes(o.confidence as string) &&
     Array.isArray(o.sources) &&
+    Array.isArray(o.project_slugs) &&
     Array.isArray(o.follow_up_suggestions)
   )
 }
