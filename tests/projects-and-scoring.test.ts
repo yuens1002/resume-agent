@@ -161,4 +161,27 @@ describe("score_match + upsert_project MCP tools", () => {
     assert.equal(project.docsPath, "docs/architecture.md", "docsPath should be persisted");
     assert.deepEqual(project.featureDocsGlobs, ["docs/features"], "featureDocsGlobs should be persisted");
   });
+
+  it('upsert_project — skipChangelog accepts string "true"/"false" (MCP transport coercion)', async () => {
+    // MCP tool-call arguments arrive as strings; verify explicit mapping works
+    const setTrue = await callTool("upsert_project", { slug: TEST_SLUG, skipChangelog: "true" });
+    assert.ok(!setTrue.isError, `Expected success for "true", got: ${getText(setTrue)}`);
+
+    const setFalse = await callTool("upsert_project", { slug: TEST_SLUG, skipChangelog: "false" });
+    assert.ok(!setFalse.isError, `Expected success for "false", got: ${getText(setFalse)}`);
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data, error } = await supabase
+      .from("public_profile")
+      .select("projects")
+      .eq("id", PROFILE_ID)
+      .single();
+    assert.ok(!error && data, "Should be able to read profile");
+    const project = (data.projects as { slug: string; skipChangelog?: boolean }[]).find(
+      (p) => p.slug === TEST_SLUG
+    );
+    assert.ok(project, "Test project should still exist");
+    assert.equal(project.skipChangelog, false, 'skipChangelog: "false" should store false, not true');
+  });
 });
