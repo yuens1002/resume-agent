@@ -274,7 +274,7 @@ export async function queryProfile(
   })
   const latency_ms = Date.now() - start
 
-  let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'>
+  let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'> & { project_slugs?: string[] }
   try {
     parsed = parseJSON(raw)
   } catch {
@@ -283,6 +283,7 @@ export async function queryProfile(
 
   const response: QueryResponse = {
     ...parsed,
+    project_slugs: parsed.project_slugs ?? [],
     contact: {
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,

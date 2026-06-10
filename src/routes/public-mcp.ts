@@ -44,7 +44,11 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
         context: z
           .string()
           .optional()
-          .describe('Optional caller context: "ATS", "recruiter", "ai-agent", etc. Adjusts tone.'),
+          .describe(
+            'Optional caller context: "ATS", "recruiter", "ai-agent", etc. Adjusts tone. ' +
+            'To follow up on a prior response and see remaining projects, append "; shown_projects: slug1, slug2" ' +
+            'using the project_slugs from the previous response — the answer will cover only projects not already shown.',
+          ),
         stream: z
           .boolean()
           .optional()

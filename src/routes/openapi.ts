@@ -52,6 +52,7 @@ app.get('/', (c) => {
                       answer: { type: 'string' },
                       confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
                       sources: { type: 'array', items: { type: 'string' } },
+                      project_slugs: { type: 'array', items: { type: 'string' } },
                       follow_up_suggestions: { type: 'array', items: { type: 'string' } },
                     },
                   },
