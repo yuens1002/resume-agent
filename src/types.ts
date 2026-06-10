@@ -125,6 +125,7 @@ export interface QueryResponse {
   answer: string
   confidence: 'high' | 'medium' | 'low'
   sources: string[]
+  project_slugs: string[]
   follow_up_suggestions: string[]
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
   meta: { model: string; latency_ms: number; retrieval_ms?: number }

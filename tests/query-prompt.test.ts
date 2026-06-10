@@ -32,6 +32,7 @@ import {
   RULE_CITATION_CONVERSATIONAL,
   RULE_OUTPUT_JSON_CONVERSATIONAL,
   RULE_PROGRESSIVE_DISCLOSURE,
+  RULE_SHOWN_PROJECTS,
   sortProjectsByRecency,
 } from '../src/lib/query-prompt.js'
 
@@ -426,5 +427,73 @@ describe('sortProjectsByRecency', () => {
     const snapshot = input.map(p => p.git_evidence!.last_push_at)
     sortProjectsByRecency(input)
     assert.deepEqual(input.map(p => p.git_evidence!.last_push_at), snapshot)
+  })
+})
+
+// ── project_slugs field ───────────────────────────────────
+
+describe('RULE_OUTPUT_JSON — project_slugs field', () => {
+  it('includes project_slugs in the required shape', () => {
+    assert.ok(RULE_OUTPUT_JSON.includes('"project_slugs"'), 'project_slugs missing from JSON output shape')
+  })
+
+  it('describes project_slugs as the slugs the answer discusses', () => {
+    assert.match(RULE_OUTPUT_JSON, /discusses/i)
+  })
+
+  it('says empty array for answers that discuss no specific projects', () => {
+    assert.match(RULE_OUTPUT_JSON, /empty array|Empty array|\[\]/i)
+  })
+
+  it('few-shot examples carry project_slugs', () => {
+    assert.match(RULE_OUTPUT_JSON, /"project_slugs":\s*\[/)
+  })
+})
+
+describe('RULE_OUTPUT_JSON_CONVERSATIONAL — project_slugs field', () => {
+  it('includes project_slugs in the required shape', () => {
+    assert.ok(RULE_OUTPUT_JSON_CONVERSATIONAL.includes('"project_slugs"'))
+  })
+
+  it('few-shot examples carry project_slugs', () => {
+    assert.match(RULE_OUTPUT_JSON_CONVERSATIONAL, /"project_slugs":\s*\[/)
+  })
+})
+
+// ── RULE_SHOWN_PROJECTS ───────────────────────────────────
+
+describe('RULE_SHOWN_PROJECTS', () => {
+  it('is exported and non-empty', () => {
+    assert.ok(typeof RULE_SHOWN_PROJECTS === 'string' && RULE_SHOWN_PROJECTS.length > 0)
+  })
+
+  it('references shown_projects: field format', () => {
+    assert.match(RULE_SHOWN_PROJECTS, /shown_projects:/)
+  })
+
+  it('says to exclude already-shown projects from the response', () => {
+    assert.match(RULE_SHOWN_PROJECTS, /do not re-discuss|NOT in the|remainder/i)
+  })
+
+  it('says to still populate project_slugs with what is discussed in this response', () => {
+    assert.match(RULE_SHOWN_PROJECTS, /project_slugs/)
+  })
+
+  it('is included in the json system prompt', () => {
+    const prompt = buildSystemPrompt('json')
+    assert.ok(prompt.includes(RULE_SHOWN_PROJECTS))
+  })
+
+  it('is included in the conversational system prompt', () => {
+    const prompt = buildSystemPrompt('json', 'conversational')
+    assert.ok(prompt.includes(RULE_SHOWN_PROJECTS))
+  })
+})
+
+// ── RULE_CALLER_CONTEXT references shown_projects ─────────
+
+describe('RULE_CALLER_CONTEXT — shown_projects mention', () => {
+  it('mentions shown_projects as a recognized structured field', () => {
+    assert.match(RULE_CALLER_CONTEXT, /shown_projects/)
   })
 })
