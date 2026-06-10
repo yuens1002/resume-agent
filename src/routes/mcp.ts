@@ -322,7 +322,7 @@ function buildServer(): McpServer {
         repo:             z.string().optional().describe('Source repo URL'),
         docsPath:         z.string().optional().describe('Path to architecture doc if README.md is not the right source, e.g. "docs/platform/architecture.md"'),
         featureDocsGlobs: z.array(z.string()).optional().describe('Directory prefixes to scan for additional feature docs, e.g. ["docs/features"]'),
-        skipChangelog:    z.coerce.boolean().optional().describe('Skip changelog processing (highlights reconciliation, thought extraction, version drift detection) — use for private repos whose CHANGELOG contains business-sensitive content'),
+        skipChangelog:    z.union([z.boolean(), z.enum(['true', 'false']).transform(v => v === 'true')]).optional().describe('Skip changelog processing (highlights reconciliation, thought extraction, version drift detection) — use for private repos whose CHANGELOG contains business-sensitive content'),
       },
     },
     async (input) => {
