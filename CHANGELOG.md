@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-06-29 — refactor(config): simplify db:push to use psql directly instead of supabase CLI binary
 - 2026-06-29 — fix(config): db:push loads connection string from .env.local via tsx wrapper script
 - 2026-06-29 — feat(profile): add tagline field to public profile (nullable text column, MCP tool param, OpenAPI schema); fallback chain implemented in resume-agent-web
 - 2026-06-10 — feat(query): add project_slugs field and shown_projects context convention for stateless project disclosure
