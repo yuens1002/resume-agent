@@ -76,7 +76,7 @@ app.use('*', async (c, next) => {
 })
 
 app.onError((err, c) => {
-  console.error('[app] unhandled error:', err instanceof Error ? err.message : err)
+  console.error('[app] unhandled error:', err)
   return c.json({ error: 'Internal server error' }, 500)
 })
 

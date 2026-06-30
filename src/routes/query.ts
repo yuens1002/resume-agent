@@ -9,6 +9,7 @@ import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/de
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import { buildSystemPrompt, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
+import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -134,37 +135,6 @@ function responseCacheSet(
   responseCache.set(key, response)
 }
 
-// ── Question-type heuristics ─────────────────────────────
-// Used for two optimizations:
-//   1. Skip thoughts retrieval for binary questions (embedding call costs ~150ms)
-//   2. Set per-category maxTokens — behavioral answers hit the 1024 ceiling;
-//      binary/decline answers never come close. Smaller caps cut LLM generation
-//      time while keeping enough headroom for the JSON structure to close cleanly.
-
-function isBinaryQuestion(question: string): boolean {
-  const q = question.toLowerCase().trim()
-  if (q.split(/\s+/).length >= 15) return false
-  if (!/^(did|does|has|have|is|was|were|will|can|could|would|should)\b/.test(q)) return false
-  // Behavioral signals indicate the model needs observations context
-  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff)\b/.test(q)
-}
-
-function isBehavioralQuestion(question: string): boolean {
-  const q = question.toLowerCase().trim()
-  return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''’]?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
-}
-
-// binary: 300 | behavioral: 1024 | everything else: 600 cited / 512 conversational
-// Behavioral answers need the full 1024 ceiling regardless of style — conversational
-// JSON envelopes are nearly as large as cited ones (sources[], follow_up_suggestions[]
-// still present). Flat-capping conversational at 512 truncates mid-JSON for broad
-// behavioral questions ("Tell me about…") and causes silent parse failures.
-function maxTokensForQuestion(question: string, style: 'cited' | 'conversational'): number {
-  if (isBinaryQuestion(question)) return 300
-  if (isBehavioralQuestion(question)) return 1024
-  return style === 'conversational' ? 512 : 600
-}
-
 const schema = z.object({
   question: z.string().min(1),
   context: z.string().optional(),
@@ -277,8 +247,8 @@ export async function queryProfile(
   let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'> & { project_slugs?: string[] }
   try {
     parsed = parseJSON(raw)
-  } catch {
-    console.error('[query] parse_error — raw (first 500 chars):', raw.slice(0, 500))
+  } catch (err) {
+    console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
     return { kind: 'parse_error', raw }
   }
 
