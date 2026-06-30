@@ -154,15 +154,15 @@ function isBehavioralQuestion(question: string): boolean {
   return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''’]?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
 }
 
-// cited mode: 300 binary | 1024 behavioral | 600 everything else
-// conversational mode: 512 flat (unchanged)
-// Behavioral answers can hit the 1024 ceiling on broad questions — trimming
-// risks JSON truncation; all savings come from the non-behavioral fast path.
+// binary: 300 | behavioral: 1024 | everything else: 600 cited / 512 conversational
+// Behavioral answers need the full 1024 ceiling regardless of style — conversational
+// JSON envelopes are nearly as large as cited ones (sources[], follow_up_suggestions[]
+// still present). Flat-capping conversational at 512 truncates mid-JSON for broad
+// behavioral questions ("Tell me about…") and causes silent parse failures.
 function maxTokensForQuestion(question: string, style: 'cited' | 'conversational'): number {
-  if (style === 'conversational') return 512
   if (isBinaryQuestion(question)) return 300
   if (isBehavioralQuestion(question)) return 1024
-  return 600
+  return style === 'conversational' ? 512 : 600
 }
 
 const schema = z.object({
@@ -278,6 +278,7 @@ export async function queryProfile(
   try {
     parsed = parseJSON(raw)
   } catch {
+    console.error('[query] parse_error — raw (first 500 chars):', raw.slice(0, 500))
     return { kind: 'parse_error', raw }
   }
 

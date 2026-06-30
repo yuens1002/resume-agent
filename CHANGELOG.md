@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-06-29 — fix(query): raise token cap for conversational behavioral questions and add error logging
 - 2026-06-29 — refactor(config): simplify db:push to use psql directly instead of supabase CLI binary
 - 2026-06-29 — fix(config): db:push loads connection string from .env.local via tsx wrapper script
 - 2026-06-29 — feat(profile): add tagline field to public profile (nullable text column, MCP tool param, OpenAPI schema); fallback chain implemented in resume-agent-web
