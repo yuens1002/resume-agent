@@ -105,6 +105,7 @@ export interface PublicProfile {
   id: string
   contact: Contact
   summary: string
+  tagline?: string
   skills: Skill[]
   employment: Employment[]
   education: Education[]

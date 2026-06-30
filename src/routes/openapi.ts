@@ -120,6 +120,7 @@ app.get('/', (c) => {
                     properties: {
                       contact: { type: 'object' },
                       summary: { type: 'string' },
+                      tagline: { type: 'string', description: 'Short identity tagline shown under the candidate\'s name. Optional — falls back to preferred_roles when absent.' },
                       skills: { type: 'array' },
                       employment: { type: 'array' },
                       education: { type: 'array' },

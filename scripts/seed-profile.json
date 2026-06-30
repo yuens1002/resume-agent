@@ -78,6 +78,7 @@
       "cover": "https://your-supabase-url/storage/v1/object/public/project-covers/my-project.webp"
     }
   ],
+  "tagline": "Full systems. Every layer. One engineer.",
   "availability": {
     "seeking": true,
     "status": "actively-looking",
