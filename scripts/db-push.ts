@@ -11,6 +11,10 @@ const migrations = readdirSync('supabase/migrations')
 
 for (const file of migrations) {
   console.log(`→ ${file}`)
-  const r = spawnSync('psql', [url, '-f', resolve('supabase/migrations', file)], { stdio: 'inherit' })
-  if (r.status) process.exit(r.status)
+  const r = spawnSync('psql', ['-d', url, '-v', 'ON_ERROR_STOP=1', '-f', resolve('supabase/migrations', file)], { stdio: 'inherit' })
+  if (r.error) {
+    console.error(`Failed to launch psql: ${r.error.message}`)
+    process.exit(1)
+  }
+  if (r.status !== 0) process.exit(r.status ?? 1)
 }
