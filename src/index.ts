@@ -75,6 +75,11 @@ app.use('*', async (c, next) => {
   await next()
 })
 
+app.onError((err, c) => {
+  console.error('[app] unhandled error:', err)
+  return c.json({ error: 'Internal server error' }, 500)
+})
+
 app.route('/info', infoRoute)
 app.route('/availability', availabilityRoute)
 app.route('/query', queryRoute)

@@ -1,0 +1,91 @@
+/**
+ * Unit tests — src/lib/query-classify.ts
+ *
+ * Verifies the token-cap matrix so regressions like the "flat 512 for
+ * conversational" bug (which truncated behavioral JSON responses) are caught
+ * before they reach production.
+ *
+ * Run: npm run test:unit
+ */
+
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  isBinaryQuestion,
+  isBehavioralQuestion,
+  maxTokensForQuestion,
+} from '../src/lib/query-classify.js'
+
+describe('isBinaryQuestion', () => {
+  it('classifies modal-opener yes/no questions as binary', () => {
+    assert.equal(isBinaryQuestion('Is Sunny available?'), true)
+    assert.equal(isBinaryQuestion('Does Sunny work remotely?'), true)
+    assert.equal(isBinaryQuestion('Can Sunny work remotely?'), true)
+    assert.equal(isBinaryQuestion('Will Sunny relocate?'), true)
+    assert.equal(isBinaryQuestion('Has Sunny shipped to production?'), true)
+  })
+
+  it('rejects questions with behavioral keywords despite modal opener', () => {
+    // "experience" and "describe" are behavioral signals — need OB1 context
+    assert.equal(isBinaryQuestion('Does Sunny have React experience?'), false)
+    assert.equal(isBinaryQuestion('Can Sunny describe his approach?'), false)
+  })
+
+  it('rejects long questions even if they start with a modal verb', () => {
+    assert.equal(
+      isBinaryQuestion('Can Sunny describe a time when he had to make a difficult architectural tradeoff decision on a project?'),
+      false,
+    )
+  })
+
+  it('rejects behavioral signals even on short modal-opener questions', () => {
+    assert.equal(isBinaryQuestion('Can Sunny explain his approach?'), false)
+    assert.equal(isBinaryQuestion('Does Sunny describe his experience well?'), false)
+  })
+
+  it('rejects non-modal openers', () => {
+    assert.equal(isBinaryQuestion('Tell me about Sunny'), false)
+    assert.equal(isBinaryQuestion("What's Sunny's availability?"), false)
+    assert.equal(isBinaryQuestion('Show recent work'), false)
+  })
+})
+
+describe('isBehavioralQuestion', () => {
+  it('classifies tell-me-about and walk-me-through questions', () => {
+    assert.equal(isBehavioralQuestion('Tell me about Sunny'), true)
+    assert.equal(isBehavioralQuestion('Walk me through his last project'), true)
+  })
+
+  it('classifies how-do-you and approach questions', () => {
+    assert.equal(isBehavioralQuestion('How do you approach system design?'), true)
+    assert.equal(isBehavioralQuestion("What's Sunny's approach to testing?"), true)
+    assert.equal(isBehavioralQuestion('How would you handle a production incident?'), true)
+  })
+
+  it('does not classify simple availability or binary questions', () => {
+    assert.equal(isBehavioralQuestion('Is Sunny available?'), false)
+    assert.equal(isBehavioralQuestion('Show recent work'), false)
+  })
+})
+
+describe('maxTokensForQuestion', () => {
+  it('binary questions get 300 regardless of style', () => {
+    assert.equal(maxTokensForQuestion('Is Sunny available?', 'cited'), 300)
+    assert.equal(maxTokensForQuestion('Is Sunny available?', 'conversational'), 300)
+  })
+
+  it('behavioral questions get 1024 regardless of style', () => {
+    assert.equal(maxTokensForQuestion('Tell me about Sunny', 'cited'), 1024)
+    // regression guard: was 512 (flat conversational cap), causing truncated JSON
+    assert.equal(maxTokensForQuestion('Tell me about Sunny', 'conversational'), 1024)
+    assert.equal(maxTokensForQuestion("What's Sunny's approach to testing?", 'conversational'), 1024)
+    assert.equal(maxTokensForQuestion('Walk me through his last project', 'conversational'), 1024)
+  })
+
+  it('non-binary non-behavioral questions respect the style split', () => {
+    assert.equal(maxTokensForQuestion('Show recent work', 'cited'), 600)
+    assert.equal(maxTokensForQuestion('Show recent work', 'conversational'), 512)
+    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'cited'), 600)
+    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'conversational'), 512)
+  })
+})
