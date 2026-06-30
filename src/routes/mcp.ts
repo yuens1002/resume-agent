@@ -261,6 +261,7 @@ function buildServer(): McpServer {
         '(e.g., using a query about the candidate\'s tone or self-description) and then write the summary in the candidate\'s own voice based on that result.',
       inputSchema: {
         summary:      z.string().optional().describe('Updated professional summary'),
+        tagline:      z.string().optional().describe('Short identity tagline shown under the candidate\'s name (e.g. "Full systems. Every layer. One engineer."). Overrides preferred_roles display when set.'),
         skills:       z.array(z.unknown()).optional().describe('Full updated skills array (replaces existing)'),
         employment:   z.array(z.unknown()).optional().describe('Full updated employment array (replaces existing)'),
         projects:     z.array(z.unknown()).optional().describe('Full updated projects array (replaces existing)'),
