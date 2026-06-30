@@ -82,10 +82,12 @@ describe('maxTokensForQuestion', () => {
     assert.equal(maxTokensForQuestion('Walk me through his last project', 'conversational'), 1024)
   })
 
-  it('non-binary non-behavioral questions respect the style split', () => {
-    assert.equal(maxTokensForQuestion('Show recent work', 'cited'), 600)
-    assert.equal(maxTokensForQuestion('Show recent work', 'conversational'), 512)
-    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'cited'), 600)
-    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'conversational'), 512)
+  it('non-binary non-behavioral questions get 800 regardless of style', () => {
+    // regression guard: "Show recent work" was 512 in conversational mode — too tight for
+    // 3-project JSON + sources + slugs + follow-ups, causing parse errors on /query
+    assert.equal(maxTokensForQuestion('Show recent work', 'cited'), 800)
+    assert.equal(maxTokensForQuestion('Show recent work', 'conversational'), 800)
+    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'cited'), 800)
+    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'conversational'), 800)
   })
 })

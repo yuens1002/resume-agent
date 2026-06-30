@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-06-29 — fix(query): raise conversational token floor to 800 — fixes bookie card missing from multi-project responses
 - 2026-06-29 — fix(query): raise token cap for conversational behavioral questions and add error logging
 - 2026-06-29 — refactor(config): simplify db:push to use psql directly instead of supabase CLI binary
 - 2026-06-29 — fix(config): db:push loads connection string from .env.local via tsx wrapper script
