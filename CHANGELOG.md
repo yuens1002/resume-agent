@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-- 2026-06-29 — feat(profile): add tagline field to public profile with fallback chain
+- 2026-06-29 — feat(profile): add tagline field to public profile (nullable text column, MCP tool param, OpenAPI schema); fallback chain implemented in resume-agent-web
 - 2026-06-10 — feat(query): add project_slugs field and shown_projects context convention for stateless project disclosure
 - 2026-06-10 — fix(mcp): coerce skipChangelog to boolean for MCP string serialization
 - 2026-06-09 — fix(sync): add skipChangelog, docsPath, featureDocsGlobs to upsert_project schema so sync escape hatches are actually stored in Supabase
