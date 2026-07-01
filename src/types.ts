@@ -45,7 +45,7 @@ export interface Project {
   status: 'active' | 'in-progress' | 'archived'
   started?: string          // YYYY-MM
   url?: string              // live URL
-  urlLabel?: string         // custom text for the live URL button, e.g. "Deploy on Railway" — defaults to "Live demo"
+  urlLabel?: string         // custom text for the live URL button, e.g. "Deploy on Railway" — consumers fall back to "Live demo" when unset
   repo?: string             // source repo URL
   cover?: string            // public cover image URL
   git_evidence?: GitEvidence
