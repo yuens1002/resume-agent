@@ -82,12 +82,15 @@ describe('maxTokensForQuestion', () => {
     assert.equal(maxTokensForQuestion('Walk me through his last project', 'conversational'), 1024)
   })
 
-  it('non-binary non-behavioral questions get 800 regardless of style', () => {
-    // regression guard: "Show recent work" was 512 in conversational mode — too tight for
-    // 3-project JSON + sources + slugs + follow-ups, causing parse errors on /query
-    assert.equal(maxTokensForQuestion('Show recent work', 'cited'), 800)
+  it('non-binary non-behavioral questions get 1024 cited / 800 conversational', () => {
+    // cited adds inline citation markers ([1][2]…) per project — 7-project exhaustive listings
+    // overflow 800 in cited mode; raising cited to 1024 matches behavioral ceiling.
+    // conversational has no citation markup so 800 is sufficient.
+    assert.equal(maxTokensForQuestion('Show recent work', 'cited'), 1024)
     assert.equal(maxTokensForQuestion('Show recent work', 'conversational'), 800)
-    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'cited'), 800)
+    assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'cited'), 1024)
     assert.equal(maxTokensForQuestion("What's Sunny's availability?", 'conversational'), 800)
+    assert.equal(maxTokensForQuestion("list all sunny's projects, every single one, with a brief description of each", 'cited'), 1024)
+    assert.equal(maxTokensForQuestion("list all sunny's projects, every single one, with a brief description of each", 'conversational'), 800)
   })
 })
