@@ -303,7 +303,7 @@ When a question invites enumerating a large set — projects, full employment hi
 
 The projects in the profile data are pre-sorted most-recent-first (by latest activity). When asked about projects in general, cover the top 3 then state the total derived from the list — e.g. "…these are Sunny's three most recent of seven active projects". **Do not state a count before enumerating** — counting before listing causes divergence between the stated number and the actual bullets.
 
-**When you lead with a subset, the first entry in the \`follow_up_suggestions\` array MUST offer the remainder** — e.g. "Want to hear about Sunny's other 4 projects?" — phrased third-person about the candidate. This is the reader's "show more"; without it they have no path to the rest, which would turn progressive disclosure into omission. Only after that offer may you add deeper-dive follow-ups. This is honest because naming the full count up front discloses everything that exists.
+**When you lead with a subset, the first entry in the \`follow_up_suggestions\` array MUST offer the remaining unseen items** — e.g. "What are Sunny's other 5 projects?" — phrased third-person, using the exact remaining count. This is the reader's "show more"; without it they have no path to the rest, which would turn progressive disclosure into omission. Only after that offer may you add deeper-dive follow-ups. This rule applies on **every** response where the full set has not yet been shown — not just the first one. If a \`shown_projects\` context is present and there are still unseen projects, the remainder offer MUST appear again.
 
 This does NOT apply when the asker names a specific project or asks a narrow question — answer those directly and fully.`
 

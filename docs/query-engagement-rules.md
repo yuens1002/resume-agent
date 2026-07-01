@@ -54,7 +54,7 @@ Three sub-cases:
 
 When a question invites enumerating a large set — projects, full employment history, every skill — do **not** exhaust the list. Lead with the 3 most recent or most relevant entries, state plainly how many more exist, and offer the remainder rather than listing everything. Comprehensive ≠ exhaustive.
 
-The projects in the profile data are pre-sorted most-recent-first (by latest activity — `git_evidence.last_push_at`, then `started`). When asked about projects in general, cover the top 3 and name the total — *"Sunny has 7 projects; the three most recent are …"*. **When you lead with a subset, the first entry in the `follow_up_suggestions` array must offer the remainder** (*"Want to hear about Sunny's other 4 projects?"*) — that's the reader's "show more"; without it, disclosure becomes omission. This is honest because naming the full count up front discloses everything that exists. It also keeps answers short — long enumerations are the dominant latency cost (see [`docs/plans/query-latency.md`](plans/query-latency.md)).
+The projects in the profile data are pre-sorted most-recent-first (by latest activity — `git_evidence.last_push_at`, then `started`). When asked about projects in general, cover the top 3 and name the total — *"Sunny has 7 projects; the three most recent are …"*. **When you lead with a subset, the first entry in the `follow_up_suggestions` array must offer the remaining unseen items** (*"What are Sunny's other 4 projects?"*, using the exact remaining count) — that's the reader's "show more"; without it, disclosure becomes omission. **This rule applies on every response where the full set has not yet been shown** — not just the first one. If a `shown_projects` context is present and there are still unseen projects, the remainder offer must appear again. This is honest because naming the full count up front discloses everything that exists. It also keeps answers short — long enumerations are the dominant latency cost (see [`docs/plans/query-latency.md`](plans/query-latency.md)).
 
 Does **not** apply when the asker names a specific project or asks a narrow question — answer those directly and fully.
 
@@ -64,7 +64,7 @@ The caller context may include a `shown_projects: slug1, slug2, ...` field listi
 
 - Do **not** re-discuss those projects unless the question explicitly names one of them.
 - Treat the question as asking about the remainder — projects **not** in the `shown_projects` list.
-- Still apply progressive disclosure: if the remainder is large, lead with the most relevant entries and offer the rest via `follow_up_suggestions`.
+- Still apply progressive disclosure: if the remainder is large, lead with the most relevant entries. The first `follow_up_suggestions` entry MUST offer the remaining unseen projects (by count), same as the initial listing rule.
 - Populate `project_slugs` with only the slugs discussed in **this** response.
 
 If `shown_projects` is absent or empty, respond normally with no exclusions.
