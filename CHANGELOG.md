@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-06-30 — fix(query): raise cited token ceiling to 1024 — fixes parse error on exhaustive project listings
 - 2026-06-30 — fix(prompt): require remainder chip on every partial-listing response, not just the first
 - 2026-06-29 — fix(query): raise conversational token floor to 800 — fixes bookie card missing from multi-project responses
 - 2026-06-29 — fix(query): raise token cap for conversational behavioral questions and add error logging

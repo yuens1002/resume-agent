@@ -24,14 +24,13 @@ export function isBehavioralQuestion(question: string): boolean {
   return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''']?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
 }
 
-// binary: 300 | behavioral: 1024 | everything else: 800 cited / 800 conversational
-// Behavioral answers need the full 1024 ceiling regardless of style — conversational
-// JSON envelopes are nearly as large as cited ones (sources[], follow_up_suggestions[]
-// still present). Flat-capping conversational at 512 truncates mid-JSON for multi-project
-// listing queries ("Show recent work") that generate 3+ detailed bullets + JSON envelope
-// and causes silent parse failures. Conversational default raised to match cited (800).
+// binary: 300 | behavioral: 1024 | everything else: 1024 cited / 800 conversational
+// Cited responses include inline citation markers ([1], [2], …) for every project mentioned.
+// A 7-project exhaustive listing in cited style adds ~100+ tokens of citation overhead on top
+// of the prose, causing parse failures at 800. Raising cited to 1024 matches behavioral and
+// gives sufficient headroom. Conversational stays at 800 — no citation markup, shorter output.
 export function maxTokensForQuestion(question: string, style: 'cited' | 'conversational'): number {
   if (isBinaryQuestion(question)) return 300
   if (isBehavioralQuestion(question)) return 1024
-  return 800
+  return style === 'cited' ? 1024 : 800
 }
