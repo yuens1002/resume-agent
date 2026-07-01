@@ -320,6 +320,7 @@ function buildServer(): McpServer {
         status:           z.enum(['active', 'in-progress', 'archived']).optional().describe('Project status'),
         started:          z.string().optional().describe('Start month, e.g. "2024-01"'),
         url:              z.string().optional().describe('Live URL'),
+        urlLabel:         z.string().optional().describe('Custom text for the live URL button, e.g. "Deploy on Railway" — consumers fall back to "Live demo" when unset'),
         repo:             z.string().optional().describe('Source repo URL'),
         docsPath:         z.string().optional().describe('Path to architecture doc if README.md is not the right source, e.g. "docs/platform/architecture.md"'),
         featureDocsGlobs: z.array(z.string()).optional().describe('Directory prefixes to scan for additional feature docs, e.g. ["docs/features"]'),
