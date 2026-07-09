@@ -197,21 +197,35 @@ export const EVAL_CASES: EvalCase[] = [
   // Positive — clearly requesting the match/tailor action, phrased naturally
   // rather than as one of FIT_RE's known trigger phrases.
   {
+    // Earlier version used a bracket placeholder ("[job description pasted]")
+    // instead of real JD text. That's not how the real frontend would send
+    // it — a pasted JD becomes the message content, not an annotation — and
+    // it made the model's behavior on genuinely-empty implied content
+    // inconsistent across cases (some called the tool anyway, some fell
+    // into bare clarifying prose). Fixed to embed real JD-shaped text,
+    // matching how a real user message actually looks.
     id: 'action-intent-paste-jd',
     category: 'action_intent',
-    question: 'Here\'s a job posting — could you tailor Sunny\'s resume to it? [job description pasted]',
+    question:
+      'Here\'s a job posting — could you tailor Sunny\'s resume to it?\n\nSenior Full-Stack Engineer (Remote) — ' +
+      '5+ years with TypeScript, React, and Node.js. Own features end-to-end, from schema to UI. ' +
+      'Experience with Postgres and CI/CD pipelines is a plus.',
     expect: { category: 'action_intent', shouldOpenTool: true },
   },
   {
     id: 'action-intent-check-fit',
     category: 'action_intent',
-    question: 'Can you check if Sunny would be a good fit for this role? Here\'s the JD.',
+    question:
+      'Can you check if Sunny would be a good fit for this role? Staff Engineer, Platform team — deep experience ' +
+      'with distributed systems and Kubernetes required, plus mentoring junior engineers across a 20-person org.',
     expect: { category: 'action_intent', shouldOpenTool: true },
   },
   {
     id: 'action-intent-would-this-match',
     category: 'action_intent',
-    question: 'Would this position be a good match for Sunny\'s background?',
+    question:
+      'Would this position be a good match for Sunny\'s background? Frontend Lead at a Series B startup, ' +
+      'React/TypeScript heavy, need someone who can set technical direction and hire the first 3 engineers.',
     expect: { category: 'action_intent', shouldOpenTool: true },
   },
   // The exact phrasing named in #174 as a known FIT_RE miss — "show me
@@ -255,10 +269,15 @@ export const EVAL_CASES: EvalCase[] = [
     id: 'action-intent-near-miss-am-i-qualified',
     category: 'action_intent',
     // Reads like a capability/binary question on the surface ("am I
-    // qualified"), but "for this role" plus an implied JD is a fit-check
-    // request in practice — labeled as should-open until real usage data
-    // says otherwise.
-    question: 'Is Sunny qualified for this role? [job description follows]',
+    // qualified"), but a real JD attached makes it a fit-check request in
+    // practice — labeled as should-open until real usage data says
+    // otherwise. Earlier version used a bracketed placeholder instead of
+    // real JD text, which just tested "does the model ask for the JD when
+    // none was given" (a different, correct behavior) rather than the
+    // intended near-miss.
+    question:
+      'Is Sunny qualified for this role? Senior Frontend Engineer — 5+ years React/TypeScript, ' +
+      'experience with design systems, comfortable owning a codebase with minimal oversight, remote-friendly.',
     expect: { category: 'action_intent', shouldOpenTool: true },
   },
   {

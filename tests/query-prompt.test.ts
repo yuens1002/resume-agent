@@ -34,6 +34,7 @@ import {
   RULE_OUTPUT_JSON_CONVERSATIONAL,
   RULE_PROGRESSIVE_DISCLOSURE,
   RULE_SHOWN_PROJECTS,
+  RULE_ACTION_INTENT,
   sortProjectsByRecency,
 } from '../src/lib/query-prompt.js'
 
@@ -535,5 +536,45 @@ describe('RULE_SHOWN_PROJECTS', () => {
 describe('RULE_CALLER_CONTEXT — shown_projects mention', () => {
   it('mentions shown_projects as a recognized structured field', () => {
     assert.match(RULE_CALLER_CONTEXT, /shown_projects/)
+  })
+})
+
+// ── RULE_ACTION_INTENT (#174) ──────────────────────────────
+
+describe('RULE_ACTION_INTENT', () => {
+  it('is exported and non-empty', () => {
+    assert.ok(typeof RULE_ACTION_INTENT === 'string' && RULE_ACTION_INTENT.length > 0)
+  })
+
+  it('names the open_match_tool tool', () => {
+    assert.match(RULE_ACTION_INTENT, /open_match_tool/)
+  })
+
+  it('says to call the tool in addition to the JSON envelope, not instead of it', () => {
+    assert.match(RULE_ACTION_INTENT, /in addition to|do not omit the JSON/i)
+  })
+
+  it('draws the narrated-vs-action-request boundary', () => {
+    assert.match(RULE_ACTION_INTENT, /narrated question/i)
+  })
+
+  it('requires the JSON envelope even for a clarifying-question response (no bare prose fallback)', () => {
+    assert.match(RULE_ACTION_INTENT, /nothing to act on/i)
+    assert.match(RULE_ACTION_INTENT, /never correct/i)
+  })
+
+  it('is included in the json system prompt', () => {
+    const prompt = buildSystemPrompt('json')
+    assert.ok(prompt.includes(RULE_ACTION_INTENT))
+  })
+
+  it('is included in the json+conversational system prompt', () => {
+    const prompt = buildSystemPrompt('json', 'conversational')
+    assert.ok(prompt.includes(RULE_ACTION_INTENT))
+  })
+
+  it('is NOT included in the stream system prompt — no tool is passed to queryProfileStream', () => {
+    const prompt = buildSystemPrompt('stream')
+    assert.ok(!prompt.includes(RULE_ACTION_INTENT))
   })
 })

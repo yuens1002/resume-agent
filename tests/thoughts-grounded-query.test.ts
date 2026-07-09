@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { buildQueryPrompt } from '../src/routes/query.js'
+import { buildQueryPrompt, deriveActionIntent } from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -194,6 +194,27 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
       assert.ok(!prompt.includes(`"${slug}"`), `${slug} should be filtered out even though it's past the 200-char truncation point`)
     }
     assert.ok(prompt.includes('"project-hotel-not-yet-shown"'), 'the one genuinely unseen project should remain')
+  })
+})
+
+describe('deriveActionIntent (#174)', () => {
+  it('returns null when no tool calls are present', () => {
+    assert.equal(deriveActionIntent([]), null)
+  })
+
+  it('returns null when a tool call is present but not open_match_tool', () => {
+    assert.equal(deriveActionIntent([{ toolName: 'some_other_tool' }]), null)
+  })
+
+  it('returns { tool: "open_match_tool" } when the model called it', () => {
+    assert.deepEqual(deriveActionIntent([{ toolName: 'open_match_tool' }]), { tool: 'open_match_tool' })
+  })
+
+  it('finds open_match_tool among multiple tool calls', () => {
+    assert.deepEqual(
+      deriveActionIntent([{ toolName: 'some_other_tool' }, { toolName: 'open_match_tool' }]),
+      { tool: 'open_match_tool' },
+    )
   })
 })
 

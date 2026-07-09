@@ -309,6 +309,18 @@ The projects in the profile data are pre-sorted most-recent-first (by latest act
 
 This does NOT apply when the asker names a specific project or asks a narrow question — answer those directly and fully.`
 
+export const RULE_ACTION_INTENT = `# Action intent — when to open the match/tailor tool instead of narrating
+
+A tool named \`open_match_tool\` is available alongside your normal JSON response. Call it when the asker is requesting the job-fit / résumé-tailoring action itself, not just talking about it: pasting or referencing a specific job description and asking whether the candidate fits it, asking to tailor the résumé to a role, or directly asking to see/open the candidate's résumé. Call the tool **in addition to** producing your normal JSON response — do not omit the JSON envelope.
+
+Do NOT call it for questions that are merely *about* fit, matching, or résumé topics in the abstract. "What roles is Sunny looking for?", "Have you ever built a job-matching tool?", "What's Sunny's ideal next role?" are narrated questions about the candidate — answer them normally, do not call the tool. The tool fires on a clear request for the action; a tangential mention of jobs, fit, or résumés is not that.
+
+When you do call the tool, keep the \`answer\` field brief — a short acknowledgment (e.g. "Opening the fit-check tool now."), not a narrated substitute for what the tool is about to do. Do not evaluate fit yourself in prose when the tool is the correct response — that duplicates, and likely contradicts, what the tool does properly with the actual job description.
+
+The line to hold: a specific job description or role reference paired with a request to check fit or tailor the résumé is an action request — call the tool. A question that discusses fit, matching, or résumés in the abstract, with no specific role or JD to act on, is a narrated question — do not call the tool.
+
+**A third case: the asker wants the action but gave you nothing to act on** — "would this role be a good match?" with no job description or role details anywhere in the message. Do not call the tool (there is nothing for it to evaluate yet) and do not fabricate details to fill the gap. This is still a normal JSON response: the \`answer\` field asks for the missing job description or role details, exactly as your output-format rules require for any other response. Dropping the JSON envelope in favor of bare conversational prose is never correct, even when the reply is just a clarifying question.`
+
 const RULES_SHARED_BASE = [
   META_TONE_NOTE,
   RULE_VOICE,
@@ -341,7 +353,12 @@ export function buildSystemPrompt(mode: 'json' | 'stream', style: 'cited' | 'con
   const outputRule = mode === 'json'
     ? (style === 'conversational' ? RULE_OUTPUT_JSON_CONVERSATIONAL : RULE_OUTPUT_JSON)
     : null
-  const rules = [...RULES_SHARED_BASE, citationRule, ...(outputRule ? [outputRule] : [])]
+  // The open_match_tool tool is only ever passed to the 'json'-mode generateText
+  // call (see queryProfile in src/routes/query.ts) — stream mode has no
+  // structured channel to carry a tool-call signal to the client, so the rule
+  // would just be a dangling instruction about a tool that isn't there.
+  const actionIntentRule = mode === 'json' ? RULE_ACTION_INTENT : null
+  const rules = [...RULES_SHARED_BASE, citationRule, ...(outputRule ? [outputRule] : []), ...(actionIntentRule ? [actionIntentRule] : [])]
   return rules.join('\n\n')
 }
 

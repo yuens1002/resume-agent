@@ -129,6 +129,13 @@ export interface QueryResponse {
   sources: string[]
   project_slugs: string[]
   follow_up_suggestions: string[]
+  /**
+   * Action-intent routing signal (#174). Set server-side from an actual AI SDK
+   * tool call — never a free-text field the model writes and could contradict
+   * itself on. `null` when the question is a narrated answer, not a request
+   * to open a different flow (job-match / résumé-tailoring today).
+   */
+  action_intent: { tool: string } | null
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
   meta: { model: string; latency_ms: number; retrieval_ms?: number }
 }

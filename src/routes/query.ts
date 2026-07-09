@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
-import { generateText, streamText } from 'ai'
+import { generateText, streamText, tool } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
@@ -204,6 +204,34 @@ export function buildQueryPrompt(
   return parts.join('\n')
 }
 
+// ── Action-intent tool (#174) ────────────────────────────────
+//
+// Hoisted to module scope — never construct a Zod schema inside a handler.
+// `execute` is intentionally omitted: nothing runs server-side when the
+// model calls this. The call itself IS the signal — queryProfile reads
+// `result.toolCalls` and turns it into `response.action_intent`, a
+// first-class field the frontend consumes directly instead of re-deriving
+// intent from free text (see RULE_ACTION_INTENT for the exact boundary).
+
+const QUERY_TOOLS = {
+  open_match_tool: tool({
+    description:
+      'Call when the asker wants to check job fit against a specific job description, get the résumé ' +
+      'tailored to a role, or see/open the résumé — see your instructions for the narrated-vs-action-request boundary.',
+    parameters: z.object({}),
+  }),
+}
+
+/**
+ * Pure derivation of `QueryResponse.action_intent` from a `generateText` result's
+ * `toolCalls`. Extracted from `queryProfile` so the routing signal is unit-testable
+ * without a live model call — exported for that purpose.
+ */
+export function deriveActionIntent(toolCalls: readonly { toolName: string }[]): { tool: string } | null {
+  const match = toolCalls.find((c) => c.toolName === 'open_match_tool')
+  return match ? { tool: match.toolName } : null
+}
+
 // ── Shared core ─────────────────────────────────────────────
 //
 // queryProfile / queryProfileStream are pure functions — no Hono Context,
@@ -256,25 +284,37 @@ export async function queryProfile(
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
-  const { text: raw } = await generateText({
+  const { text: raw, toolCalls } = await generateText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('json', style),
     prompt,
+    tools: QUERY_TOOLS,
   })
   const latency_ms = Date.now() - start
+  const actionIntent = deriveActionIntent(toolCalls)
 
   let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'> & { project_slugs?: string[] }
   try {
     parsed = parseJSON(raw)
   } catch (err) {
-    console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
-    return { kind: 'parse_error', raw }
+    if (actionIntent) {
+      // The model called the tool but didn't also produce the JSON envelope
+      // RULE_ACTION_INTENT asks for alongside it. The tool call is
+      // unambiguous signal on its own — degrade to a minimal response
+      // rather than a parse_error the frontend can't recover anything
+      // useful from.
+      parsed = { answer: '', confidence: 'low', sources: [], follow_up_suggestions: [] }
+    } else {
+      console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
+      return { kind: 'parse_error', raw }
+    }
   }
 
   const response: QueryResponse = {
     ...parsed,
     project_slugs: parsed.project_slugs ?? [],
+    action_intent: actionIntent,
     contact: {
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,
