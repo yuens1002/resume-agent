@@ -60,16 +60,14 @@ Does **not** apply when the asker names a specific project or asks a narrow ques
 
 ## Shown projects — follow-up disclosure
 
-The caller context may include a `shown_projects: slug1, slug2, ...` field listing slugs already presented in a prior response. When present:
+A caller can pass `shown_projects: slug1, slug2, ...` (frontend/MCP client threads `project_slugs` from the previous response back in as `shown_projects` on the next call) to mark projects already presented. This is enforced in code, not by prompt instruction alone: `buildQueryPrompt` (`src/routes/query.ts`) parses the field via `parseShownProjectSlugs` and **removes those projects from the `projects` array before the prompt is built** — the model never sees the raw field or the excluded projects. An earlier version relied on the model to track what it had shown and compute the remainder itself; in practice it would both re-serve already-shown projects and drop unseen ones, and would sometimes fabricate detail about an excluded project from unrelated observations that happened to name it. Filtering server-side closes both failure modes — the model can only report what's in front of it.
 
-- Do **not** re-discuss those projects unless the question explicitly names one of them.
-- Treat the question as asking about the remainder — projects **not** in the `shown_projects` list.
+Consequences for the model's answer:
+
+- Every project that appears in the profile data **is** the remainder — there is nothing left to exclude.
+- Never reconstruct a project that isn't in the data, even if the caller context or a retrieved observation names it.
 - Still apply progressive disclosure: if the remainder is large, lead with the most relevant entries. The first `follow_up_suggestions` entry MUST offer the remaining unseen projects (by count), same as the initial listing rule.
-- Populate `project_slugs` with only the slugs discussed in **this** response.
-
-If `shown_projects` is absent or empty, respond normally with no exclusions.
-
-This rule enables stateless follow-up disclosure: the frontend passes `project_slugs` from the previous response back as `shown_projects` in the next call, and the agent covers only what hasn't been shown yet.
+- Populate `project_slugs` with only the slugs discussed in **this** response — necessarily a subset of what's present in the data.
 
 ## Adversarial input
 

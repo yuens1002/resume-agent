@@ -89,6 +89,114 @@ describe('buildQueryPrompt — pure function of inputs (AC-9, unit level)', () =
   })
 })
 
+describe('buildQueryPrompt — shown_projects filtering', () => {
+  const PROFILE_WITH_PROJECTS = {
+    contact: { name: 'Test Candidate', email: 'test@example.com' },
+    projects: [
+      { slug: 'brew-guide', name: 'Brew Guide', started: '2025-01' },
+      { slug: 'resume-agent', name: 'Resume Agent', started: '2025-06' },
+      { slug: 'artisan-roast', name: 'Artisan Roast', started: '2025-03' },
+    ],
+  }
+
+  it('drops projects whose slug is in shown_projects from the injected JSON', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else has Sunny built?',
+      'shown_projects: brew-guide, resume-agent',
+    )
+    assert.ok(!prompt.includes('"brew-guide"'), 'brew-guide should be filtered out of profile data')
+    assert.ok(!prompt.includes('"resume-agent"'), 'resume-agent should be filtered out of profile data')
+    assert.ok(prompt.includes('"artisan-roast"'), 'artisan-roast (not yet shown) should remain')
+  })
+
+  it('keeps all projects when shown_projects is absent', () => {
+    const prompt = buildQueryPrompt(PROFILE_WITH_PROJECTS, [], 'Tell me about the projects', 'recruiter')
+    assert.ok(prompt.includes('"brew-guide"'))
+    assert.ok(prompt.includes('"resume-agent"'))
+    assert.ok(prompt.includes('"artisan-roast"'))
+  })
+
+  it('filters correctly when shown_projects follows a caller-type prefix', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else?',
+      'recruiter; shown_projects: artisan-roast',
+    )
+    assert.ok(!prompt.includes('"artisan-roast"'))
+    assert.ok(prompt.includes('"brew-guide"'))
+    assert.ok(prompt.includes('"resume-agent"'))
+  })
+
+  it('never surfaces the raw shown_projects field to the model — the exclusion is enforced by omission, not instruction', () => {
+    // Regression test: leaving the raw slug list visible in the caller-context
+    // block let the model treat excluded slugs as topics to discuss, pulling
+    // in unrelated observations that happened to name them. Once the
+    // projects are actually removed from the data, the model has no need
+    // (and must not be given the means) to reconstruct them from the hint.
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else?',
+      'recruiter; shown_projects: brew-guide, resume-agent',
+    )
+    assert.ok(!prompt.includes('shown_projects'), 'raw shown_projects field must not reach the model')
+  })
+
+  it('keeps the rest of the caller-context hint when shown_projects is stripped', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else?',
+      'recruiter; shown_projects: brew-guide',
+    )
+    assert.ok(prompt.includes('recruiter'), 'non-shown_projects caller-context content should still reach the model')
+  })
+
+  it('omits the Caller context block entirely when shown_projects was the only content', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else?',
+      'shown_projects: brew-guide, resume-agent',
+    )
+    assert.ok(!prompt.includes('# Caller context'), 'no caller-context block needed once shown_projects is stripped to empty')
+  })
+
+  it('fully filters shown_projects even when the slug list exceeds sanitizeCallerHint\'s 200-char cap', () => {
+    // Regression test (Copilot review on PR #175): shownSlugs used to be parsed
+    // from the *sanitized* hint, which hard-truncates at 200 chars. A long
+    // enough slug list would get cut off mid-list, so slugs past the cutoff
+    // silently stopped being excluded — reintroducing the exact duplication
+    // bug this filtering exists to fix. Slugs must be parsed from the raw,
+    // untruncated callerHint instead.
+    const manyProjectsProfile = {
+      contact: { name: 'Test Candidate', email: 'test@example.com' },
+      projects: [
+        { slug: 'project-alpha-long-descriptive-name', started: '2025-01' },
+        { slug: 'project-bravo-long-descriptive-name', started: '2025-02' },
+        { slug: 'project-charlie-long-descriptive-name', started: '2025-03' },
+        { slug: 'project-delta-long-descriptive-name', started: '2025-04' },
+        { slug: 'project-echo-long-descriptive-name', started: '2025-05' },
+        { slug: 'project-foxtrot-long-descriptive-name', started: '2025-06' },
+        { slug: 'project-golf-long-descriptive-name', started: '2025-07' },
+        { slug: 'project-hotel-not-yet-shown', started: '2025-08' },
+      ],
+    }
+    const shown = manyProjectsProfile.projects.slice(0, 7).map((p) => p.slug)
+    const context = `human; shown_projects: ${shown.join(', ')}`
+    assert.ok(context.length > 200, `test fixture must exceed the 200-char cap to exercise the bug (got ${context.length})`)
+
+    const prompt = buildQueryPrompt(manyProjectsProfile, [], 'What else?', context)
+    for (const slug of shown) {
+      assert.ok(!prompt.includes(`"${slug}"`), `${slug} should be filtered out even though it's past the 200-char truncation point`)
+    }
+    assert.ok(prompt.includes('"project-hotel-not-yet-shown"'), 'the one genuinely unseen project should remain')
+  })
+})
+
 describe('match_thoughts_public migration (AC-1, AC-2)', () => {
   const migration = readFileSync(
     join(repoRoot, 'supabase', 'migrations', '20260512000000_match_thoughts_public.sql'),

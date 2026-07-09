@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   buildSystemPrompt,
+  parseShownProjectSlugs,
   sanitizeCallerHint,
   META_TONE_NOTE,
   RULE_VOICE,
@@ -427,6 +428,45 @@ describe('sortProjectsByRecency', () => {
     const snapshot = input.map(p => p.git_evidence!.last_push_at)
     sortProjectsByRecency(input)
     assert.deepEqual(input.map(p => p.git_evidence!.last_push_at), snapshot)
+  })
+})
+
+// ── parseShownProjectSlugs ────────────────────────────────
+
+describe('parseShownProjectSlugs', () => {
+  it('returns [] for undefined/null/empty hints', () => {
+    assert.deepEqual(parseShownProjectSlugs(undefined), [])
+    assert.deepEqual(parseShownProjectSlugs(null), [])
+    assert.deepEqual(parseShownProjectSlugs(''), [])
+  })
+
+  it('returns [] when no shown_projects field is present', () => {
+    assert.deepEqual(parseShownProjectSlugs('recruiter'), [])
+  })
+
+  it('parses a bare shown_projects field', () => {
+    assert.deepEqual(
+      parseShownProjectSlugs('shown_projects: brew-guide, resume-agent, artisan-roast'),
+      ['brew-guide', 'resume-agent', 'artisan-roast'],
+    )
+  })
+
+  it('parses shown_projects appended after a caller-type prefix', () => {
+    assert.deepEqual(
+      parseShownProjectSlugs('recruiter; shown_projects: bookie, open-employment-protocol'),
+      ['bookie', 'open-employment-protocol'],
+    )
+  })
+
+  it('trims whitespace and drops empty entries from trailing commas', () => {
+    assert.deepEqual(
+      parseShownProjectSlugs('shown_projects:  brew-guide ,  resume-agent ,'),
+      ['brew-guide', 'resume-agent'],
+    )
+  })
+
+  it('is case-insensitive on the field name', () => {
+    assert.deepEqual(parseShownProjectSlugs('Shown_Projects: brew-guide'), ['brew-guide'])
   })
 })
 
