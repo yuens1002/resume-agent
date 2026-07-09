@@ -224,6 +224,18 @@ Confidence — when in doubt, downgrade. `low` is the safe choice and the asker 
 - `medium` — honest inference from adjacent data; nothing claimed beyond what the data supports.
 - `low` — the corpus is thin, partial, or absent. A `low` answer should *read like* "the candidate does not appear to have documented work on X" or "the corpus does not directly address Y; the closest documented pattern is Z" — never a confident sentence with a quiet disclaimer. **When uncertain between `high`-with-inference and `low`-with-named-gap, always pick `low`.**
 
+## Action intent — the match/tailor tool (#174)
+
+`/query` also exposes an AI SDK tool, `open_match_tool` (`json` mode only — `queryProfile` in `src/routes/query.ts`), for routing a free-form question to the job-match/résumé-tailoring flow instead of a narrated answer. This replaces `resume-agent-web`'s client-side `FIT_RE` regex, which only matched a fixed list of trigger phrases and silently fell through to narration for anything phrased differently (e.g. "show me Sunny's resume").
+
+The model calls the tool **in addition to** producing the normal JSON envelope above — never instead of it. When called, `queryProfile` sets `response.action_intent = { tool: "open_match_tool" }`; otherwise it's `null`. This is a first-class field derived from an actual tool-call event, not a free-text field the model writes and could contradict itself on — the frontend reads `action_intent` directly rather than re-deriving intent from the answer prose.
+
+**When to call it:** a specific job description or role reference paired with a request to check fit or tailor the résumé — e.g. "here's a JD, am I a fit?", "can you tailor the résumé to this role?", "show me Sunny's resume." **When not to:** questions that discuss fit, matching, or résumés in the abstract, with no specific role or JD to act on — e.g. "what roles is Sunny looking for?", "have you built a job-matching tool?", "what's Sunny's ideal next role?" Those are narrated questions; answer them normally.
+
+When the tool is called, keep `answer` brief (a short acknowledgment, not a narrated substitute for what the tool is about to do) — evaluating fit in prose when the tool is the correct response duplicates, and risks contradicting, what the tool does properly with the actual job description.
+
+This is deliberately scoped: `action_intent` is not part of the required JSON shape above (a case with no matching intent just omits any tool call — the field defaults to `null` server-side). Full spec/rationale: GitHub issue #174.
+
 ---
 
 ## What this spec does *not* govern
