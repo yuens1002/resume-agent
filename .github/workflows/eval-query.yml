@@ -1,0 +1,104 @@
+name: Nightly query eval — regression watch
+
+# Closes the "observed on-demand, not observed over time" gap in the /query
+# eval harness (docs/eval-baselines.md notes the harness is run manually via
+# `npm run eval:query -- --baseline`). This job runs the same harness on a
+# schedule and turns a failure into a tracked, deduped GitHub issue — the
+# same shape as the nightly Claude Agent SDK + Playwright regression loop
+# used elsewhere in this ecosystem, applied to the eval rubric instead of
+# browser QA.
+#
+# `action_intent` is excluded deliberately: it's the acceptance spec for
+# #174 (real tool-calling for action-intent routing), and every case in it
+# fails by design until that feature ships (QueryResponse carries no
+# action-intent signal yet). Including it here would page on a known,
+# accepted gap every night instead of a real regression. Once #174 ships,
+# drop --exclude-category action_intent from the run step below.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 4am UTC daily — 2h after the 2am project sync, so profile data is fresh
+  workflow_dispatch:       # manual run from GitHub UI or `gh workflow run eval-query.yml`
+
+concurrency:
+  group: eval-query
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run query eval (stable categories — action_intent excluded, see #174)
+        id: eval
+        env:
+          SUPA_PROJECT_URL: ${{ secrets.SUPA_PROJECT_URL }}
+          SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set +e
+          npm run eval:query -- --exclude-category action_intent > eval-output.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat eval-output.log
+
+      - name: Open or update a regression issue on failure
+        if: steps.eval.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create eval-regression --color B60205 \
+            --description "Nightly /query eval caught a correctness regression" 2>/dev/null || true
+
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label eval-regression --state open \
+            --json number -q '.[0].number // empty')
+
+          BODY_FILE=$(mktemp)
+          {
+            echo "Nightly \`npm run eval:query -- --exclude-category action_intent\` failed on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo '```'
+            tail -c 60000 eval-output.log
+            echo '```'
+          } > "$BODY_FILE"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "chore(eval): nightly query eval regression — $(date -u +%Y-%m-%d)" \
+              --label eval-regression \
+              --body-file "$BODY_FILE"
+          fi
+
+      - name: Close the standing regression issue once green again
+        if: steps.eval.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label eval-regression --state open \
+            --json number -q '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+              --body "Passing again as of $(date -u +%Y-%m-%dT%H:%M:%SZ) — closing. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Fail the job if the eval run failed
+        if: steps.eval.outputs.exit_code != '0'
+        run: exit 1
