@@ -216,12 +216,13 @@ export function buildQueryPrompt(
 const QUERY_TOOLS = {
   open_match_tool: tool({
     description:
-      'Call ONLY when the message contains BOTH a specific job description or named role, AND a request to check fit ' +
-      'against it, tailor the résumé to it, or see/open the résumé document itself. If either half is missing, do NOT ' +
-      'call this — regardless of surface words like "work", "built", "worked on", "shipped", or "portfolio". Any request ' +
-      'to see or discuss the candidate\'s past projects/portfolio/work in general, with no job description or role ' +
-      'attached, is answered narratively via project_slugs, not this tool. See your instructions for the full ' +
-      'narrated-vs-action-request boundary.',
+      'Call ONLY when EITHER (1) the message pairs a specific job description or named role with a request to check ' +
+      'fit against it or tailor the résumé to it, OR (2) the message directly asks to see/open the résumé document ' +
+      'itself (no role or JD required for this branch — naming the résumé document is enough on its own). If neither ' +
+      'is true, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", or ' +
+      '"portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with no ' +
+      'job description or role attached and no mention of the résumé document, is answered narratively via ' +
+      'project_slugs, not this tool. See your instructions for the full narrated-vs-action-request boundary.',
     parameters: z.object({}),
   }),
 }
