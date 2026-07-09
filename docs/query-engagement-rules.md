@@ -232,6 +232,8 @@ The model calls the tool **in addition to** producing the normal JSON envelope a
 
 **When to call it:** a specific job description or role reference paired with a request to check fit or tailor the résumé — e.g. "here's a JD, am I a fit?", "can you tailor the résumé to this role?", "show me Sunny's resume." **When not to:** questions that discuss fit, matching, or résumés in the abstract, with no specific role or JD to act on — e.g. "what roles is Sunny looking for?", "have you built a job-matching tool?", "what's Sunny's ideal next role?" Those are narrated questions; answer them normally.
 
+**Regression (#180):** requests to browse the candidate's portfolio or project history — "show recent work" (also a homepage starter chip), "what projects has Sunny built?", "show me your recent projects" — must not call the tool either. "Work" here means "things built," not employment history or the fit action, and none of these phrasings mention a job description, a role, or the résumé document. These are ordinary project questions, answered via `project_slugs` like any other.
+
 When the tool is called, keep `answer` brief (a short acknowledgment, not a narrated substitute for what the tool is about to do) — evaluating fit in prose when the tool is the correct response duplicates, and risks contradicting, what the tool does properly with the actual job description.
 
 This is deliberately scoped: `action_intent` is not part of the required JSON shape above (a case with no matching intent just omits any tool call — the field defaults to `null` server-side). Full spec/rationale: GitHub issue #174.

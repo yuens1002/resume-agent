@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-07-09 — fix(query): tighten open_match_tool routing against work/project phrasing (#180)
 - 2026-07-09 — feat(query): real tool-calling for action-intent routing (#174 backend) — open_match_tool signal, action_intent response field
 - 2026-07-09 — feat(eval): add action_intent eval category (#174 acceptance spec) and nightly regression-watch cadence
 - 2026-07-09 — fix(query): enforce shown_projects exclusion server-side instead of trusting the model
