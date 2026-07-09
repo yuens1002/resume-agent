@@ -59,6 +59,7 @@ app.get('/', (c) => {
                         nullable: true,
                         description: 'Set when the question requested the job-match/résumé-tailoring action rather than a narrated answer. Null otherwise.',
                         properties: { tool: { type: 'string' } },
+                        required: ['tool'],
                       },
                     },
                   },

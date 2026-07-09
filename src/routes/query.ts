@@ -302,9 +302,11 @@ export async function queryProfile(
       // The model called the tool but didn't also produce the JSON envelope
       // RULE_ACTION_INTENT asks for alongside it. The tool call is
       // unambiguous signal on its own — degrade to a minimal response
-      // rather than a parse_error the frontend can't recover anything
-      // useful from.
-      parsed = { answer: '', confidence: 'low', sources: [], follow_up_suggestions: [] }
+      // rather than a parse_error. A non-empty answer matters here: until
+      // resume-agent-web switches to reading action_intent, this text is
+      // what a legacy client actually displays — an empty string would
+      // surface as a blank response body despite the request succeeding.
+      parsed = { answer: 'Opening the job-fit tool now.', confidence: 'low', sources: [], follow_up_suggestions: [] }
     } else {
       console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
       return { kind: 'parse_error', raw }
