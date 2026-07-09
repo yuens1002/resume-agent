@@ -181,4 +181,92 @@ export const EVAL_CASES: EvalCase[] = [
     question: 'What are all the projects you have worked on?',
     expect: { category: 'overview' },
   },
+
+  // ── action_intent (#174) ─────────────────────────────────
+  // QueryResponse carries no action-intent signal yet (see ruleActionIntent),
+  // so every `shouldOpenTool: true` case below fails today by construction —
+  // that's the acceptance spec #174's tool-calling implementation has to
+  // satisfy. The `shouldOpenTool: false` cases pass today too, but only
+  // because the field is absent, not because a real routing decision agreed
+  // with them — they don't start proving anything until the field exists.
+  // The negative and near-miss cases matter as much as the positive ones —
+  // they're the boundary a client-side regex (today's FIT_RE) structurally
+  // can't hold, because no fixed phrase list generalizes over how people
+  // actually ask.
+
+  // Positive — clearly requesting the match/tailor action, phrased naturally
+  // rather than as one of FIT_RE's known trigger phrases.
+  {
+    id: 'action-intent-paste-jd',
+    category: 'action_intent',
+    question: 'Here\'s a job posting — could you tailor Sunny\'s resume to it? [job description pasted]',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  {
+    id: 'action-intent-check-fit',
+    category: 'action_intent',
+    question: 'Can you check if Sunny would be a good fit for this role? Here\'s the JD.',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  {
+    id: 'action-intent-would-this-match',
+    category: 'action_intent',
+    question: 'Would this position be a good match for Sunny\'s background?',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  // The exact phrasing named in #174 as a known FIT_RE miss — "show me
+  // [name]'s resume" doesn't match any of FIT_RE's trigger phrases today and
+  // silently falls through to a narrated answer instead of opening a flow.
+  {
+    id: 'action-intent-show-resume',
+    category: 'action_intent',
+    question: "Show me Sunny's resume.",
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+
+  // Negative — topically adjacent (jobs, fit, matching) but asking *about*
+  // the candidate, not requesting the match/tailor action. This is the
+  // boundary FIT_RE can accidentally cross in the other direction if its
+  // phrase list is too loose.
+  {
+    id: 'action-intent-not-what-looking-for',
+    category: 'action_intent',
+    question: 'What kind of roles is Sunny looking for?',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+  {
+    id: 'action-intent-not-meta-question',
+    category: 'action_intent',
+    question: 'Have you ever built a job-matching or résumé-tailoring tool?',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+  {
+    id: 'action-intent-not-ideal-role',
+    category: 'action_intent',
+    question: "What's Sunny's ideal next role?",
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+
+  // Near-miss — genuinely ambiguous phrasing where a human labeler had to
+  // make a judgment call. These are the cases worth re-reviewing whenever
+  // the tool-calling instructions change, since they sit closest to the
+  // decision boundary.
+  {
+    id: 'action-intent-near-miss-am-i-qualified',
+    category: 'action_intent',
+    // Reads like a capability/binary question on the surface ("am I
+    // qualified"), but "for this role" plus an implied JD is a fit-check
+    // request in practice — labeled as should-open until real usage data
+    // says otherwise.
+    question: 'Is Sunny qualified for this role? [job description follows]',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  {
+    id: 'action-intent-near-miss-general-skills-match',
+    category: 'action_intent',
+    // No JD, no specific role — asking about matching as a general
+    // capability, not requesting the action against a concrete posting.
+    question: "Does Sunny's skill set generally match what companies are hiring for right now?",
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
 ]

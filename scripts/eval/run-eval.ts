@@ -8,6 +8,8 @@
  *   npm run eval:query -- --judge             # add the LLM-as-judge rule
  *   npm run eval:query -- --runs <n>          # run each case n times, report median latency (default 1)
  *   npm run eval:query -- --baseline          # append the run's aggregate to docs/eval-baselines.md
+ *   npm run eval:query -- --exclude-category <name>  # skip a category (e.g. one that's an acceptance
+ *                                                     # spec for an unshipped feature — see action_intent / #174)
  *
  * Runs each case against `queryProfile()` directly (no HTTP server required;
  * reuses the shared core), scores it with the deterministic rubric in
@@ -37,6 +39,7 @@ import { EVAL_CASES, type EvalCase } from './query-eval-cases.js'
 interface Flags {
   case?: string
   category?: string
+  excludeCategory?: string
   threshold?: number
   judge: boolean
   runs: number
@@ -49,6 +52,7 @@ function parseFlags(argv: string[]): Flags {
     const arg = argv[i]
     if (arg === '--case') flags.case = argv[++i]
     else if (arg === '--category') flags.category = argv[++i]
+    else if (arg === '--exclude-category') flags.excludeCategory = argv[++i]
     else if (arg === '--threshold') {
       const n = Number(argv[++i])
       if (Number.isFinite(n)) flags.threshold = n
@@ -62,7 +66,9 @@ function parseFlags(argv: string[]): Flags {
         'Usage: npm run eval:query [-- <flags>]',
         '',
         '  --case <id>          Run a single case by id',
-        '  --category <name>    Run one category (binary|capability|behavioral|off_topic|adversarial|no_data|overview)',
+        '  --category <name>    Run one category (binary|capability|behavioral|off_topic|adversarial|no_data|overview|action_intent)',
+        '  --exclude-category <name>  Run every category except this one (e.g. a category that\'s an acceptance',
+        '                             spec for an unshipped feature and is expected to fail — see action_intent)',
         '  --threshold <n>      Override QUERY_THOUGHTS_THRESHOLD for this run (e.g. 0.5)',
         '  --judge              Add an LLM-as-judge rule (one Haiku call per case)',
         '  --runs <n>           Run each case n times; report median latency (default 1)',
@@ -141,11 +147,12 @@ async function main(): Promise<void> {
   const selected = EVAL_CASES.filter((c) => {
     if (flags.case && c.id !== flags.case) return false
     if (flags.category && c.category !== flags.category) return false
+    if (flags.excludeCategory && c.category === flags.excludeCategory) return false
     return true
   })
 
   if (!selected.length) {
-    process.stderr.write(`No cases match filters: case=${flags.case ?? '*'} category=${flags.category ?? '*'}\n`)
+    process.stderr.write(`No cases match filters: case=${flags.case ?? '*'} category=${flags.category ?? '*'} exclude=${flags.excludeCategory ?? 'none'}\n`)
     process.exit(2)
   }
 

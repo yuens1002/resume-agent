@@ -522,3 +522,78 @@ describe('overview rule — progressive disclosure', () => {
     assert.equal(r.pass, false)
   })
 })
+
+// ── action_intent rule (#174 acceptance spec) ────────────────
+//
+// QueryResponse has no action_intent field yet, so these tests exercise the
+// rule against a hand-shaped response object standing in for the eventual
+// shape (`{ action_intent: { tool: string } | null }`) rather than a real
+// queryProfile() call. Matrix: field present/absent/null × expected true/false.
+
+describe('action_intent rule — routes-correctly matrix', () => {
+  const wantsTool: EvalCase = {
+    id: 'fixture-action-intent-true',
+    category: 'action_intent',
+    question: 'Can you tailor Sunny\'s resume to this job description?',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  }
+  const doesNotWantTool: EvalCase = {
+    id: 'fixture-action-intent-false',
+    category: 'action_intent',
+    question: 'What kind of roles is Sunny looking for?',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  }
+
+  function responseWithActionIntent(actionIntent: { tool: string } | null | undefined) {
+    return {
+      answer: 'placeholder',
+      confidence: 'high' as const,
+      sources: [],
+      follow_up_suggestions: [],
+      ...(actionIntent !== undefined ? { action_intent: actionIntent } : {}),
+    }
+  }
+
+  it('passes when shouldOpenTool=true and the response opened the tool', () => {
+    const score = scoreAnswer(wantsTool, responseWithActionIntent({ tool: 'open_match_tool' }))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, true)
+  })
+
+  it('fails when shouldOpenTool=true but the field is absent (today\'s reality — #174 unshipped)', () => {
+    const score = scoreAnswer(wantsTool, responseWithActionIntent(undefined))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, false)
+    assert.match(r.detail, /expected shouldOpenTool=true/)
+  })
+
+  it('fails when shouldOpenTool=true but the field is explicitly null', () => {
+    const score = scoreAnswer(wantsTool, responseWithActionIntent(null))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, false)
+  })
+
+  it('passes when shouldOpenTool=false and the field is absent', () => {
+    const score = scoreAnswer(doesNotWantTool, responseWithActionIntent(undefined))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, true)
+  })
+
+  it('passes when shouldOpenTool=false and the field is explicitly null', () => {
+    const score = scoreAnswer(doesNotWantTool, responseWithActionIntent(null))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, true)
+  })
+
+  it('fails when shouldOpenTool=false but the response opened a tool anyway', () => {
+    const score = scoreAnswer(doesNotWantTool, responseWithActionIntent({ tool: 'open_match_tool' }))
+    const r = score.rules.find((x) => x.rule === 'action-intent-routes-correctly')!
+    assert.equal(r.pass, false)
+    assert.match(r.detail, /expected shouldOpenTool=false/)
+  })
+
+  it('is blocking — a routing mismatch fails the case outright regardless of other rules', () => {
+    const score = scoreAnswer(wantsTool, responseWithActionIntent(undefined))
+    assert.equal(score.pass, false)
+  })
+})

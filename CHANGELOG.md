@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 2026-07-09 — feat(eval): add action_intent eval category (#174 acceptance spec) and nightly regression-watch cadence
 - 2026-07-09 — fix(query): enforce shown_projects exclusion server-side instead of trusting the model
 - 2026-07-01 — feat(projects): add urlLabel field for custom demo button text
 - 2026-06-30 — fix(query): raise cited token ceiling to 1024 — fixes parse error on exhaustive project listings
