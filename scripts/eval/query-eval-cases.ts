@@ -261,6 +261,29 @@ export const EVAL_CASES: EvalCase[] = [
     expect: { category: 'action_intent', shouldOpenTool: false },
   },
 
+  // #180 regression — these three exact phrasings over-triggered the tool in
+  // production because "work" and "projects" read as adjacent to job-fit/résumé
+  // language. "Show recent work" is also a homepage starter chip
+  // (resume-agent-web's Greeting.tsx), so a regression here is user-visible.
+  {
+    id: 'action-intent-not-show-recent-work',
+    category: 'action_intent',
+    question: 'Show recent work',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+  {
+    id: 'action-intent-not-what-projects-built',
+    category: 'action_intent',
+    question: 'What projects has Sunny built?',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+  {
+    id: 'action-intent-not-show-recent-projects',
+    category: 'action_intent',
+    question: 'Show me your recent projects',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
+
   // Near-miss — genuinely ambiguous phrasing where a human labeler had to
   // make a judgment call. These are the cases worth re-reviewing whenever
   // the tool-calling instructions change, since they sit closest to the

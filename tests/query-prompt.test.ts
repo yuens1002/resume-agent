@@ -558,6 +558,19 @@ describe('RULE_ACTION_INTENT', () => {
     assert.match(RULE_ACTION_INTENT, /narrated question/i)
   })
 
+  // Regression coverage for #180: "Show recent work" / "What projects has
+  // Sunny built?" were over-triggering the tool because "work" and "projects"
+  // read as adjacent to the tool's job-fit/résumé purpose.
+  it('excludes portfolio/project-browsing requests from the tool trigger', () => {
+    assert.match(RULE_ACTION_INTENT, /portfolio|project history/i)
+    assert.match(RULE_ACTION_INTENT, /show recent work/i)
+    assert.match(RULE_ACTION_INTENT, /what projects has sunny built/i)
+  })
+
+  it('clarifies "work" means things built, not employment or the fit action', () => {
+    assert.match(RULE_ACTION_INTENT, /things built/i)
+  })
+
   it('requires the JSON envelope even for a clarifying-question response (no bare prose fallback)', () => {
     assert.match(RULE_ACTION_INTENT, /nothing to act on/i)
     assert.match(RULE_ACTION_INTENT, /never correct/i)
