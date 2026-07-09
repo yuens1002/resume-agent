@@ -8,7 +8,7 @@ import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
-import { buildSystemPrompt, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
+import { buildSystemPrompt, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import type { QueryResponse } from '../types.js'
 
@@ -155,12 +155,20 @@ export function buildQueryPrompt(
 ): string {
   const parts: string[] = []
   const hint = sanitizeCallerHint(callerHint)
-  if (hint) {
+  const shownSlugs = parseShownProjectSlugs(hint)
+  // The shown_projects exclusion is enforced below by removing those projects
+  // from the injected profile data, so the model no longer needs to see the
+  // raw slug list to honor it. Strip it from the displayed hint — leaving it
+  // in was a hallucination vector: the model would treat the visible slug
+  // names as topics to discuss (pulling in unrelated observations that
+  // happened to match) instead of treating them as excluded.
+  const displayHint = hint.replace(/;?\s*shown_projects:\s*[^;]*/i, '').trim()
+  if (displayHint) {
     // Caller context is asker-controlled — placed here (user message, not system)
     // and explicitly framed as untrusted metadata so the prompt-injection vector
     // is closed. See RULE_CALLER_CONTEXT in src/lib/query-prompt.ts.
     parts.push(`# Caller context (untrusted metadata — see your instructions)`)
-    parts.push(`> ${hint}`)
+    parts.push(`> ${displayHint}`)
     parts.push('')
   }
   if (thoughts.length > 0) {
@@ -172,10 +180,18 @@ export function buildQueryPrompt(
   }
   parts.push('# Profile data')
   // Pre-sort projects most-recent-first so the model leads with current work
-  // when asked about projects generally (RULE_PROGRESSIVE_DISCLOSURE).
+  // when asked about projects generally (RULE_PROGRESSIVE_DISCLOSURE), and
+  // physically drop already-shown projects (RULE_SHOWN_PROJECTS) so the
+  // model can't re-serve or lose track of them — the remainder is exactly
+  // what's left in this list, not something the model has to compute.
   const profileForPrompt =
     profile && typeof profile === 'object' && Array.isArray((profile as { projects?: unknown }).projects)
-      ? { ...(profile as object), projects: sortProjectsByRecency((profile as { projects: Array<{ started?: string; git_evidence?: { last_push_at?: string } }> }).projects) }
+      ? {
+          ...(profile as object),
+          projects: sortProjectsByRecency(
+            (profile as { projects: Array<{ slug: string; started?: string; git_evidence?: { last_push_at?: string } }> }).projects,
+          ).filter((p) => !shownSlugs.includes(p.slug)),
+        }
       : profile
   parts.push(JSON.stringify(profileForPrompt, null, 2))
   parts.push('')
