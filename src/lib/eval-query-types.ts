@@ -66,9 +66,13 @@ export interface OverviewExpect {
  * hold, and is the reason #174 proposes real tool-calling instead.
  *
  * NOTE: `QueryResponse` does not carry an action-intent signal yet (see
- * `ruleActionIntent` in `eval-query-answer.ts`). Every case in this category
- * fails until #174 ships the real field — that failure is the point: it
- * makes #174 a falsifiable target instead of an abstract proposal.
+ * `ruleActionIntent` in `eval-query-answer.ts`). Concretely, that means every
+ * `shouldOpenTool: true` case fails today (nothing can open a tool that
+ * doesn't exist) while `shouldOpenTool: false` cases pass — coincidentally,
+ * by the field's absence rather than by a real routing decision. The
+ * positive cases are the falsifiable target #174 has to satisfy; the
+ * negative cases don't yet prove anything and will only become a real check
+ * once the field exists and can actually disagree with them.
  */
 export interface ActionIntentExpect {
   category: 'action_intent'

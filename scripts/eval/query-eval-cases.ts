@@ -183,13 +183,16 @@ export const EVAL_CASES: EvalCase[] = [
   },
 
   // ── action_intent (#174) ─────────────────────────────────
-  // Every case here fails today — QueryResponse carries no action-intent
-  // signal yet (see ruleActionIntent). That's the point: this corpus is the
-  // acceptance spec #174's tool-calling implementation has to satisfy, not a
-  // suite that happens to pass once written. The negative and near-miss
-  // cases matter as much as the positive ones — they're the boundary a
-  // client-side regex (today's FIT_RE) structurally can't hold, because no
-  // fixed phrase list generalizes over how people actually ask.
+  // QueryResponse carries no action-intent signal yet (see ruleActionIntent),
+  // so every `shouldOpenTool: true` case below fails today by construction —
+  // that's the acceptance spec #174's tool-calling implementation has to
+  // satisfy. The `shouldOpenTool: false` cases pass today too, but only
+  // because the field is absent, not because a real routing decision agreed
+  // with them — they don't start proving anything until the field exists.
+  // The negative and near-miss cases matter as much as the positive ones —
+  // they're the boundary a client-side regex (today's FIT_RE) structurally
+  // can't hold, because no fixed phrase list generalizes over how people
+  // actually ask.
 
   // Positive — clearly requesting the match/tailor action, phrased naturally
   // rather than as one of FIT_RE's known trigger phrases.

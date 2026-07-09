@@ -352,9 +352,13 @@ function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
  * a wrong routing decision isn't a partial-credit quality issue, it's a
  * correctness failure (same reasoning as `adversarial-no-compliance`).
  *
- * Every case in this category fails until that field exists. That's
- * intentional: this rule is the falsifiable target #174's implementation
- * has to satisfy, not a rule that quietly no-ops until the feature ships.
+ * Because the field doesn't exist yet, `actionIntent` is always `undefined`
+ * today — so every `shouldOpenTool: true` case fails (nothing can open a
+ * tool that isn't there) while `shouldOpenTool: false` cases pass, but only
+ * by the field's absence, not because a real routing decision was made. The
+ * positive cases are the falsifiable target #174's implementation has to
+ * satisfy; the negative cases start proving anything only once the field
+ * exists and can actually disagree with them.
  */
 function ruleActionIntent(response: QueryResponse | string, expect: ActionIntentExpect): RuleResult[] {
   const actionIntent =
