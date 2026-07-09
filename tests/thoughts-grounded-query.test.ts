@@ -164,6 +164,37 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
     )
     assert.ok(!prompt.includes('# Caller context'), 'no caller-context block needed once shown_projects is stripped to empty')
   })
+
+  it('fully filters shown_projects even when the slug list exceeds sanitizeCallerHint\'s 200-char cap', () => {
+    // Regression test (Copilot review on PR #175): shownSlugs used to be parsed
+    // from the *sanitized* hint, which hard-truncates at 200 chars. A long
+    // enough slug list would get cut off mid-list, so slugs past the cutoff
+    // silently stopped being excluded — reintroducing the exact duplication
+    // bug this filtering exists to fix. Slugs must be parsed from the raw,
+    // untruncated callerHint instead.
+    const manyProjectsProfile = {
+      contact: { name: 'Test Candidate', email: 'test@example.com' },
+      projects: [
+        { slug: 'project-alpha-long-descriptive-name', started: '2025-01' },
+        { slug: 'project-bravo-long-descriptive-name', started: '2025-02' },
+        { slug: 'project-charlie-long-descriptive-name', started: '2025-03' },
+        { slug: 'project-delta-long-descriptive-name', started: '2025-04' },
+        { slug: 'project-echo-long-descriptive-name', started: '2025-05' },
+        { slug: 'project-foxtrot-long-descriptive-name', started: '2025-06' },
+        { slug: 'project-golf-long-descriptive-name', started: '2025-07' },
+        { slug: 'project-hotel-not-yet-shown', started: '2025-08' },
+      ],
+    }
+    const shown = manyProjectsProfile.projects.slice(0, 7).map((p) => p.slug)
+    const context = `human; shown_projects: ${shown.join(', ')}`
+    assert.ok(context.length > 200, `test fixture must exceed the 200-char cap to exercise the bug (got ${context.length})`)
+
+    const prompt = buildQueryPrompt(manyProjectsProfile, [], 'What else?', context)
+    for (const slug of shown) {
+      assert.ok(!prompt.includes(`"${slug}"`), `${slug} should be filtered out even though it's past the 200-char truncation point`)
+    }
+    assert.ok(prompt.includes('"project-hotel-not-yet-shown"'), 'the one genuinely unseen project should remain')
+  })
 })
 
 describe('match_thoughts_public migration (AC-1, AC-2)', () => {

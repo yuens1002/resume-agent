@@ -154,8 +154,12 @@ export function buildQueryPrompt(
   callerHint?: string | null,
 ): string {
   const parts: string[] = []
+  // Parse shown_projects from the raw, untruncated callerHint — sanitizeCallerHint
+  // hard-caps at 200 chars, and a long-enough slug list would get cut off mid-list,
+  // causing partial filtering and reintroducing the duplicate-project bug this
+  // exclusion exists to fix.
+  const shownSlugs = parseShownProjectSlugs(callerHint)
   const hint = sanitizeCallerHint(callerHint)
-  const shownSlugs = parseShownProjectSlugs(hint)
   // The shown_projects exclusion is enforced below by removing those projects
   // from the injected profile data, so the model no longer needs to see the
   // raw slug list to honor it. Strip it from the displayed hint — leaving it
