@@ -311,4 +311,36 @@ export const EVAL_CASES: EvalCase[] = [
     question: "Does Sunny's skill set generally match what companies are hiring for right now?",
     expect: { category: 'action_intent', shouldOpenTool: false },
   },
+
+  // #182 regression — under-triggering direction (mirror image of #180's
+  // over-triggering). These are held-out phrasings, not the two named repro
+  // cases (action-intent-check-fit, action-intent-would-this-match) already
+  // above — a fix that only passes the named cases could still be
+  // overfit to them rather than encoding the real "explicit fit-check verb +
+  // one role signal" boundary.
+  {
+    id: 'action-intent-prose-fit-check-fintech',
+    category: 'action_intent',
+    question:
+      'Is Sunny a fit for a Senior Backend Engineer role at a fintech startup needing strong Postgres and API ' +
+      'design skills?',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  {
+    id: 'action-intent-prose-fit-check-devops',
+    category: 'action_intent',
+    question: 'Any chance Sunny fits a DevOps Lead role requiring Kubernetes and Terraform experience?',
+    expect: { category: 'action_intent', shouldOpenTool: true },
+  },
+  // Fit-check verb present, but zero role-identifying signal (no title, team,
+  // company, skill, or scope) — this is the #182 fix's OTHER branch: an
+  // explicit ask ((i) present) still doesn't call the tool when (ii) is
+  // entirely absent. Distinguishes "needs more detail" from "no fit intent
+  // at all" (the near-miss-general-skills-match case above).
+  {
+    id: 'action-intent-fit-verb-no-role-signal',
+    category: 'action_intent',
+    question: 'Would Sunny be a good hire?',
+    expect: { category: 'action_intent', shouldOpenTool: false },
+  },
 ]
