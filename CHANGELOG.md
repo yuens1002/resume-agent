@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-10 — fix(query): default all callers to cited style, closing the one reproducible open_match_tool misfire (conversational style + human caller-hint) found in #191 — resume-agent-web's sanitizeAnswer already strips citation markers unconditionally, so this changes reliability only, not visible output
+
 - 2026-07-10 — feat(observability): log OpenRouter provider + finish_reason on /query responses; add durable regression tests for #188's never-cache-action_intent behavior
 
 - 2026-07-10 — fix(query): never cache action_intent-bearing responses — a single non-deterministic bad roll was getting frozen and served to every visitor

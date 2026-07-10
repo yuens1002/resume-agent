@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
 import { generateText, streamText, tool } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
-import { detectCaller, callerContextFromQuery, type CallerType } from '../lib/detect-caller.js'
+import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import { buildSystemPrompt, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
@@ -472,8 +472,17 @@ function deriveStyle(
   explicitStyle: 'cited' | 'conversational' | undefined,
 ): 'cited' | 'conversational' {
   if (explicitStyle) return explicitStyle
-  const callerType = detectCaller(c).type as CallerType
-  return callerType === 'human' ? 'conversational' : 'cited'
+  // 'conversational' style used to default here for 'human' callers (a
+  // shorter, citation-marker-free prose format for the chat UI). Removed:
+  // that specific combination (conversational style + the real 'human'
+  // caller-hint) was the one reliably reproducible open_match_tool
+  // misfire found in #191's investigation — 'cited' style has never shown
+  // this failure anywhere it's used (public-mcp, ATS, recruiter,
+  // hiring-manager, personal-ai). resume-agent-web's sanitizeAnswer()
+  // already strips [N] markers and the Sources: block unconditionally
+  // (lib/answer.ts), so switching the default doesn't change what a
+  // visitor actually sees — only the model's internal reliability.
+  return 'cited'
 }
 
 async function handleQuery(
