@@ -571,6 +571,23 @@ describe('RULE_ACTION_INTENT', () => {
     assert.match(RULE_ACTION_INTENT, /things built/i)
   })
 
+  // Regression coverage for #182: branch (1)'s role-detail requirement was
+  // too strict (required a pasted, block-formatted JD), causing consistent
+  // false negatives on prose-style fit-check requests. The fix is a
+  // two-part gate — an explicit fit/tailor/match request, AND separately at
+  // least one loose role-identifying signal — never collapsed into a single
+  // signal count (that collapse is what reopened #180's false positives
+  // during this fix's development).
+  it('lowers the role-detail bar without requiring a fit/match/tailor verb', () => {
+    assert.match(RULE_ACTION_INTENT, /anonymized/i)
+    assert.match(RULE_ACTION_INTENT, /Series B startup/i)
+  })
+
+  it('keeps the fit/match/tailor request and the role signal as independent, non-substitutable requirements', () => {
+    assert.match(RULE_ACTION_INTENT, /never substitutes for/i)
+    assert.match(RULE_ACTION_INTENT, /what projects has sunny built/i)
+  })
+
   it('requires the JSON envelope even for a clarifying-question response (no bare prose fallback)', () => {
     assert.match(RULE_ACTION_INTENT, /nothing to act on/i)
     assert.match(RULE_ACTION_INTENT, /never correct/i)

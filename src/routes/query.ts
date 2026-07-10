@@ -218,10 +218,20 @@ const QUERY_TOOLS = {
     description:
       'Call ONLY when EITHER (1) the message pairs a specific job description or named role with a request to check ' +
       'fit against it or tailor the résumé to it, OR (2) the message directly asks to see/open the résumé document ' +
-      'itself (no role or JD required for this branch — naming the résumé document is enough on its own). If neither ' +
-      'is true, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", or ' +
-      '"portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with no ' +
-      'job description or role attached and no mention of the résumé document, is answered narratively via ' +
+      'itself (no role or JD required for this branch — naming the résumé document is enough on its own). Branch (1) ' +
+      'has TWO independent requirements — BOTH must hold, checked separately: (i) an explicit fit-check/tailor/match ' +
+      'request — "would this be a good fit", "check if Sunny fits/matches", "tailor the résumé to this role/this" — ' +
+      'without this, branch (1) fails regardless of how much role detail is present; and (ii) at least one role-' +
+      'identifying signal anywhere in the message (a job title, a team/org unit, a company descriptor — named OR ' +
+      'anonymized like "a Series B startup" — a technical skill/requirement, or a scope/responsibility phrase). ' +
+      'Requirement (ii) is loose — ONE signal, in plain prose, no pasted job-posting block, no named company ' +
+      'needed — but it never substitutes for requirement (i). "What projects has Sunny built?" has role-adjacent ' +
+      'words ("built") but ZERO fit/match/tailor request — that fails (i) and must NOT call the tool, regardless of ' +
+      '(ii). Only ask for more detail (rather than call the tool) when (i) is present but (ii) is entirely absent ' +
+      '(e.g. "would this role be a good match?" alone, no title/team/company/skill/scope anywhere). If neither ' +
+      'branch applies, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", ' +
+      'or "portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with ' +
+      'no job description or role attached and no mention of the résumé document, is answered narratively via ' +
       'project_slugs, not this tool. See your instructions for the full narrated-vs-action-request boundary.',
     parameters: z.object({}),
   }),
