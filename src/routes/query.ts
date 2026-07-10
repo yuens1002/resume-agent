@@ -468,7 +468,6 @@ function deriveCallerHint(c: Context, question: string, context: string | undefi
 }
 
 function deriveStyle(
-  c: Context,
   explicitStyle: 'cited' | 'conversational' | undefined,
 ): 'cited' | 'conversational' {
   if (explicitStyle) return explicitStyle
@@ -493,7 +492,7 @@ async function handleQuery(
   style?: 'cited' | 'conversational',
 ): Promise<Response> {
   const callerHint = deriveCallerHint(c, question, context)
-  const effectiveStyle = deriveStyle(c, style)
+  const effectiveStyle = deriveStyle(style)
   const requestIp = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
   const userAgent = c.req.header('user-agent')
   const overallStart = Date.now()
