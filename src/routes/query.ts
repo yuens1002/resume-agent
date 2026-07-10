@@ -135,11 +135,19 @@ function responseCacheGet(
 ): import('../types.js').QueryResponse | undefined {
   const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion, PROMPT_VERSION)
   const value = responseCache.get(key)
-  if (value !== undefined) {
-    // Move to end to refresh LRU recency
+  if (value === undefined) return undefined
+  // Guard the read side too, not just responseCacheSet: an action_intent-bearing
+  // entry can already be sitting in the Map from before this guard existed (this
+  // is exactly what happened in production — see the "never cache" comment
+  // below). Treat it as a miss and evict it, rather than trusting that nothing
+  // was ever written that shouldn't have been.
+  if (value.action_intent) {
     responseCache.delete(key)
-    responseCache.set(key, value)
+    return undefined
   }
+  // Move to end to refresh LRU recency
+  responseCache.delete(key)
+  responseCache.set(key, value)
   return value
 }
 
@@ -376,9 +384,19 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Always cache — key covers all prompt dimensions (question, style, callerHint,
-  // profile version, OB1 version).
-  responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
+  // Cache — key covers all prompt dimensions (question, style, callerHint,
+  // profile version, OB1 version, prompt version). EXCEPT: never cache a
+  // response that carries an action_intent. open_match_tool's routing
+  // decision is a model judgment call, not perfectly deterministic — a
+  // single unlucky (or lucky) roll caching itself here would freeze that
+  // one outcome and serve it to every subsequent visitor asking the same
+  // question, until something else invalidates the entry. Recomputing
+  // every time trades a latency win for correctness on exactly the
+  // decision where a stuck wrong answer does the most damage (redirecting,
+  // or failing to redirect, every visitor to the job-fit flow).
+  if (!response.action_intent) {
+    responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
+  }
 
   return response
 }
