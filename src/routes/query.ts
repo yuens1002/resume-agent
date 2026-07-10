@@ -216,9 +216,10 @@ export function buildQueryPrompt(
 const QUERY_TOOLS = {
   open_match_tool: tool({
     description:
-      'Call ONLY when EITHER (1) the message pairs a specific job description or named role with a request to check ' +
-      'fit against it or tailor the résumé to it, OR (2) the message directly asks to see/open the résumé document ' +
-      'itself (no role or JD required for this branch — naming the résumé document is enough on its own). Branch (1) ' +
+      'Call ONLY when EITHER (1) the message pairs a role reference (however brief — see below, no formal job ' +
+      'description required) with a request to check fit against it or tailor the résumé to it, OR (2) the message ' +
+      'directly asks to see/open the résumé document itself (no role or JD required for this branch — naming the ' +
+      'résumé document is enough on its own). Branch (1) ' +
       'has TWO independent requirements — BOTH must hold, checked separately: (i) an explicit fit-check/tailor/match ' +
       'request — "would this be a good fit", "check if Sunny fits/matches", "tailor the résumé to this role/this" — ' +
       'without this, branch (1) fails regardless of how much role detail is present; and (ii) at least one role-' +

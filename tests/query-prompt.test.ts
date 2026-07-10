@@ -578,7 +578,7 @@ describe('RULE_ACTION_INTENT', () => {
   // least one loose role-identifying signal — never collapsed into a single
   // signal count (that collapse is what reopened #180's false positives
   // during this fix's development).
-  it('lowers the role-detail bar without requiring a fit/match/tailor verb', () => {
+  it('lowers the role-detail bar while still requiring the fit/match/tailor verb separately', () => {
     assert.match(RULE_ACTION_INTENT, /anonymized/i)
     assert.match(RULE_ACTION_INTENT, /Series B startup/i)
   })
