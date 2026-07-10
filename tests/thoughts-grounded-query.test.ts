@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { buildQueryPrompt, deriveActionIntent } from '../src/routes/query.js'
+import { buildQueryPrompt, deriveActionIntent, computePromptVersion, responseCacheKey } from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -215,6 +215,41 @@ describe('deriveActionIntent (#174)', () => {
       deriveActionIntent([{ toolName: 'some_other_tool' }, { toolName: 'open_match_tool' }]),
       { tool: 'open_match_tool' },
     )
+  })
+})
+
+// Regression coverage for a live incident: a cached response for the exact
+// "Show recent work" starter-chip question kept serving pre-#181's broken
+// open_match_tool routing well after the prompt/tool-description fix shipped,
+// because nothing in the cache key changed when RULE_ACTION_INTENT or the
+// tool's description changed. computePromptVersion + the prompt_version
+// dimension on responseCacheKey close that gap — these tests verify the
+// mechanism itself, not real prompt content, so they don't need to change
+// every time a RULE_* constant is edited.
+describe('computePromptVersion — response cache invalidation on prompt-logic change', () => {
+  it('is deterministic: identical inputs produce identical output', () => {
+    assert.equal(computePromptVersion('a', 'b', 'c'), computePromptVersion('a', 'b', 'c'))
+  })
+
+  it('changes when any single input differs', () => {
+    const base = computePromptVersion('rule one', 'rule two', 'tool description')
+    assert.notEqual(base, computePromptVersion('rule ONE', 'rule two', 'tool description'))
+    assert.notEqual(base, computePromptVersion('rule one', 'rule TWO', 'tool description'))
+    assert.notEqual(base, computePromptVersion('rule one', 'rule two', 'tool DESCRIPTION'))
+  })
+})
+
+describe('responseCacheKey — prompt_version is a load-bearing cache dimension', () => {
+  it('produces a different key when only promptVersion differs, all else held equal', () => {
+    const keyOld = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
+    const keyNew = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v2')
+    assert.notEqual(keyOld, keyNew)
+  })
+
+  it('produces identical keys for identical inputs including promptVersion', () => {
+    const a = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
+    const b = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
+    assert.equal(a, b)
   })
 })
 

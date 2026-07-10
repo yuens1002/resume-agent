@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-10 — fix(query): add prompt-version dimension to response cache key — fixes stale pre-#181 cached responses still serving live
+
 - 2026-07-10 — fix(query): require independent role-signal and fit-request checks for open_match_tool (#182)
 - 2026-07-09 — fix(query): tighten open_match_tool routing against work/project phrasing (#180)
 - 2026-07-09 — feat(query): real tool-calling for action-intent routing (#174 backend) — open_match_tool signal, action_intent response field
