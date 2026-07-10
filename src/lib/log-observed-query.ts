@@ -59,9 +59,10 @@ function hashIp(ip: string | undefined): string | null {
 /**
  * Build the observed_queries row from a log input. Pure and exported so the
  * column mapping — including the phase-timing fields (`llm_ms`, `retrieval_ms`)
- * — is unit-testable without a live DB. `latency_ms` is the wall-clock total;
- * `llm_ms` / `retrieval_ms` come from the response meta and are null when absent
- * (e.g. streaming callers log a partial payload with no meta).
+ * and the provider/finish_reason diagnostics (#189) — is unit-testable without
+ * a live DB. `latency_ms` is the wall-clock total; `llm_ms` / `retrieval_ms` /
+ * `provider` / `finish_reason` come from the response meta and are null when
+ * absent (e.g. streaming callers log a partial payload with no meta).
  */
 export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
   return {
@@ -72,6 +73,8 @@ export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
     confidence: input.response.confidence ?? null,
     sources: input.response.sources ?? null,
     model: input.response.meta?.model ?? null,
+    provider: input.response.meta?.provider ?? null,
+    finish_reason: input.response.meta?.finish_reason ?? null,
     latency_ms: input.latency_ms,
     llm_ms: input.response.meta?.latency_ms ?? null,
     retrieval_ms: input.response.meta?.retrieval_ms ?? null,

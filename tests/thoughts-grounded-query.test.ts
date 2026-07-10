@@ -21,7 +21,16 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { buildQueryPrompt, deriveActionIntent, computePromptVersion, responseCacheKey } from '../src/routes/query.js'
+import {
+  buildQueryPrompt,
+  deriveActionIntent,
+  computePromptVersion,
+  responseCacheKey,
+  responseCacheGet,
+  responseCacheSet,
+  extractProvider,
+  shouldCacheResponse,
+} from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -262,6 +271,73 @@ describe('responseCacheKey — prompt_version is a load-bearing cache dimension'
     const a = responseCacheKey('q', 'cited', 'human', 'error:12345', 'v1', 'pv1')
     const b = responseCacheKey('q', 'cited', 'human', 'error', '12345:v1', 'pv1')
     assert.notEqual(a, b)
+  })
+})
+
+// A minimal, fully-formed QueryResponse for cache-behavior tests — the
+// content doesn't matter, only whether `action_intent` is set.
+function fakeResponse(actionIntent: { tool: string } | null) {
+  return {
+    answer: 'answer text',
+    confidence: 'high' as const,
+    sources: [],
+    project_slugs: [],
+    follow_up_suggestions: [],
+    action_intent: actionIntent,
+    contact: {},
+    meta: { model: 'test-model', latency_ms: 1234 },
+  }
+}
+
+describe('shouldCacheResponse (#188/#189)', () => {
+  it('is true when action_intent is null', () => {
+    assert.equal(shouldCacheResponse(fakeResponse(null)), true)
+  })
+
+  it('is false when action_intent is set', () => {
+    assert.equal(shouldCacheResponse(fakeResponse({ tool: 'open_match_tool' })), false)
+  })
+})
+
+describe('responseCacheGet/Set — never serve a stale action_intent-bearing entry (#188 review fix)', () => {
+  // Regression coverage for the exact production incident: an
+  // action_intent-bearing entry can already be sitting in the cache Map
+  // (however it got there — an older code path, or a bug reintroduced
+  // later) even though the current write path never puts one there itself.
+  // The read side must independently refuse to serve it, not merely trust
+  // that nothing bad was ever written.
+  it('treats a pre-existing action_intent-bearing entry as a miss and evicts it', () => {
+    const args = ['unique-q-1', 'cited', 'human', '2026-01-01', 'v1'] as const
+    responseCacheSet(...args, fakeResponse({ tool: 'open_match_tool' }))
+    assert.equal(responseCacheGet(...args), undefined)
+    // Evicted, not just skipped — a second get must also miss (not linger as
+    // a zombie entry that could resurface via a code path that forgets to check).
+    assert.equal(responseCacheGet(...args), undefined)
+  })
+
+  it('still serves a normal (action_intent: null) cached entry', () => {
+    const args = ['unique-q-2', 'cited', 'human', '2026-01-01', 'v1'] as const
+    const response = fakeResponse(null)
+    responseCacheSet(...args, response)
+    assert.deepEqual(responseCacheGet(...args), response)
+  })
+})
+
+describe('extractProvider (#189)', () => {
+  it('extracts the provider string from an OpenRouter-shaped response body', () => {
+    assert.equal(extractProvider({ body: { provider: 'Amazon Bedrock' } }), 'Amazon Bedrock')
+  })
+
+  it('returns undefined when body is missing', () => {
+    assert.equal(extractProvider({}), undefined)
+  })
+
+  it('returns undefined when response itself is undefined', () => {
+    assert.equal(extractProvider(undefined), undefined)
+  })
+
+  it('returns undefined when provider is present but not a string', () => {
+    assert.equal(extractProvider({ body: { provider: 42 } }), undefined)
   })
 })
 

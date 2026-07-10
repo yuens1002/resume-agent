@@ -137,7 +137,24 @@ export interface QueryResponse {
    */
   action_intent: { tool: string } | null
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
-  meta: { model: string; latency_ms: number; retrieval_ms?: number }
+  meta: {
+    model: string
+    latency_ms: number
+    retrieval_ms?: number
+    /**
+     * Which upstream actually served the model call (e.g. "Amazon Bedrock",
+     * "Anthropic"), when OpenRouter reports one — undefined otherwise
+     * (streaming callers, or a provider that doesn't report this). Added
+     * after #189: diagnosing a production-only reliability dip in
+     * `action_intent` routing required manually SSHing into the deployed
+     * container to compare provider metadata against local calls — logging
+     * it here means a future recurrence is queryable instead of requiring
+     * that live forensic reconstruction again.
+     */
+    provider?: string
+    /** The generation's finish reason (e.g. "stop", "tool-calls") — same #189 motivation as `provider`. */
+    finish_reason?: string
+  }
 }
 
 export interface MatchRequest {

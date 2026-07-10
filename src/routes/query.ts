@@ -126,7 +126,11 @@ export function responseCacheKey(
   return JSON.stringify([q, style, hint, profileUpdatedAt, thoughtsVersion, promptVersion])
 }
 
-function responseCacheGet(
+// Exported alongside responseCacheKey/computePromptVersion so the "never
+// serve/store an action_intent-bearing response" contract (#188) is directly
+// unit-testable — seed the cache via responseCacheSet, then assert
+// responseCacheGet treats it as a miss, without needing a live model call.
+export function responseCacheGet(
   question: string,
   style: string,
   callerHint: string,
@@ -151,7 +155,7 @@ function responseCacheGet(
   return value
 }
 
-function responseCacheSet(
+export function responseCacheSet(
   question: string,
   style: string,
   callerHint: string,
@@ -292,6 +296,32 @@ export function deriveActionIntent(toolCalls: readonly { toolName: string }[]): 
   return match ? { tool: match.toolName } : null
 }
 
+/**
+ * Pull OpenRouter's `provider` field out of a `generateText` result's raw
+ * `response` (an OpenRouter-specific extension of the OpenAI-compatible
+ * response body, not part of the AI SDK's own typed shape — hence the
+ * defensive unknown-narrowing rather than a direct property access). Pure
+ * and exported for unit testing without a live model call; see #189.
+ */
+export function extractProvider(modelResponse: unknown): string | undefined {
+  const body = (modelResponse as { body?: unknown } | undefined)?.body
+  const provider = (body as { provider?: unknown } | undefined)?.provider
+  return typeof provider === 'string' ? provider : undefined
+}
+
+/**
+ * Whether a computed `/query` response is safe to cache. `open_match_tool`'s
+ * routing decision is a model judgment call, not perfectly deterministic
+ * (#188/#189) — caching a response that carries an `action_intent` risks
+ * freezing a single bad (or good) roll and serving it to every subsequent
+ * visitor asking the same question, until something else invalidates the
+ * entry. Extracted to a named predicate so the "never cache this class of
+ * response" contract is unit-testable in isolation.
+ */
+export function shouldCacheResponse(response: Pick<QueryResponse, 'action_intent'>): boolean {
+  return !response.action_intent
+}
+
 // ── Shared core ─────────────────────────────────────────────
 //
 // queryProfile / queryProfileStream are pure functions — no Hono Context,
@@ -344,7 +374,7 @@ export async function queryProfile(
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
-  const { text: raw, toolCalls } = await generateText({
+  const { text: raw, toolCalls, finishReason, response: modelResponse } = await generateText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('json', style),
@@ -353,6 +383,7 @@ export async function queryProfile(
   })
   const latency_ms = Date.now() - start
   const actionIntent = deriveActionIntent(toolCalls)
+  const provider = extractProvider(modelResponse)
 
   let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'> & { project_slugs?: string[] }
   try {
@@ -381,7 +412,7 @@ export async function queryProfile(
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,
     },
-    meta: { model: MODEL, latency_ms, retrieval_ms },
+    meta: { model: MODEL, latency_ms, retrieval_ms, provider, finish_reason: finishReason },
   }
 
   // Cache — key covers all prompt dimensions (question, style, callerHint,
@@ -394,7 +425,7 @@ export async function queryProfile(
   // every time trades a latency win for correctness on exactly the
   // decision where a stuck wrong answer does the most damage (redirecting,
   // or failing to redirect, every visitor to the job-fit flow).
-  if (!response.action_intent) {
+  if (shouldCacheResponse(response)) {
     responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
   }
 

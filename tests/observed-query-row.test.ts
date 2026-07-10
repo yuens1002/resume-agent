@@ -23,7 +23,13 @@ function fullInput() {
       sources: ['projects.resume-agent'],
       follow_up_suggestions: ['What else?'],
       contact: {},
-      meta: { model: 'anthropic/claude-haiku-4.5', latency_ms: 9755, retrieval_ms: 1046 },
+      meta: {
+        model: 'anthropic/claude-haiku-4.5',
+        latency_ms: 9755,
+        retrieval_ms: 1046,
+        provider: 'Amazon Bedrock',
+        finish_reason: 'stop',
+      },
     },
     latency_ms: 10801,
     ip: '203.0.113.5',
@@ -45,6 +51,29 @@ describe('buildObservedQueryRow', () => {
   it('maps meta.retrieval_ms to retrieval_ms', () => {
     const row = buildObservedQueryRow(fullInput(), 'hashed')
     assert.equal(row.retrieval_ms, 1046)
+  })
+
+  // #189: added after a production incident required manually SSHing into
+  // the deployed container to compare OpenRouter provider metadata against
+  // local calls. Logging these means a future recurrence is queryable
+  // directly instead of requiring that live forensic reconstruction again.
+  it('maps meta.provider to provider', () => {
+    const row = buildObservedQueryRow(fullInput(), 'hashed')
+    assert.equal(row.provider, 'Amazon Bedrock')
+  })
+
+  it('maps meta.finish_reason to finish_reason', () => {
+    const row = buildObservedQueryRow(fullInput(), 'hashed')
+    assert.equal(row.finish_reason, 'stop')
+  })
+
+  it('nulls provider and finish_reason when absent from meta (older shape / provider that does not report it)', () => {
+    const input = fullInput()
+    delete (input.response.meta as { provider?: string }).provider
+    delete (input.response.meta as { finish_reason?: string }).finish_reason
+    const row = buildObservedQueryRow(input, 'h')
+    assert.equal(row.provider, null)
+    assert.equal(row.finish_reason, null)
   })
 
   it('passes the supplied ip_hash through verbatim (never the raw ip)', () => {
