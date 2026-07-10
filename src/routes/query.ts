@@ -135,11 +135,19 @@ function responseCacheGet(
 ): import('../types.js').QueryResponse | undefined {
   const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion, PROMPT_VERSION)
   const value = responseCache.get(key)
-  if (value !== undefined) {
-    // Move to end to refresh LRU recency
+  if (value === undefined) return undefined
+  // Guard the read side too, not just responseCacheSet: an action_intent-bearing
+  // entry can already be sitting in the Map from before this guard existed (this
+  // is exactly what happened in production — see the "never cache" comment
+  // below). Treat it as a miss and evict it, rather than trusting that nothing
+  // was ever written that shouldn't have been.
+  if (value.action_intent) {
     responseCache.delete(key)
-    responseCache.set(key, value)
+    return undefined
   }
+  // Move to end to refresh LRU recency
+  responseCache.delete(key)
+  responseCache.set(key, value)
   return value
 }
 
