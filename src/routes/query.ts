@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
 import { generateText, streamText, tool } from 'ai'
@@ -76,30 +77,53 @@ async function fetchThoughtsVersion(): Promise<string> {
 }
 
 // ── Response cache ───────────────────────────────────────
-// Key: normalized(question) + style + callerHint[:80] + profile.updated_at + thoughts_version
+// Key: JSON-encoded tuple of [normalized(question), style, callerHint[:80], profile.updated_at, thoughts_version, prompt_version]
+// (JSON-encoded, not delimiter-joined — several fields can legally contain
+// a plain separator character like ":", which would risk key collisions)
 // Dimensions:
 //   - style       — cited vs conversational changes the system prompt format
 //   - callerHint  — affects tone; truncated to 80 chars to bound key size while
 //                   still separating major caller types (ATS, human, interviewer)
 //   - profile.updated_at — changes on every profile mutation
 //   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
-// Staleness bound: max(profile cache TTL 5min, thoughts version TTL 60s) = 5min.
+//   - prompt_version      — hash of the actual prompt/tool-calling source (below).
+//     Nothing else in this key changes when a RULE_* constant or a tool
+//     `description` changes, which let a pre-fix cached response for the exact
+//     "Show recent work" starter-chip question keep serving the broken
+//     open_match_tool routing from #180 well after #181/#182 shipped — the
+//     process never restarted the way a deploy was assumed to guarantee.
+//     Hashing the prompt source makes this dimension self-maintaining: any
+//     future prompt-logic edit automatically orphans the old cache entries,
+//     with no manual version bump and no dependence on process-restart timing.
+// Staleness bound: max(profile cache TTL 5min, thoughts version TTL 60s) = 5min,
+// PLUS instant invalidation on any prompt-logic change via prompt_version.
 // Eviction: LRU (Map insertion order; get refreshes recency). Cap: 200 entries.
 // Streaming path is not cached (returns a live streamText handle).
+
+/** Pure hash over prompt-logic source strings — exported so tests can verify the mechanism without depending on real prompt content. */
+export function computePromptVersion(...parts: string[]): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12)
+}
 
 const RESPONSE_CACHE_MAX = 200
 const responseCache = new Map<string, import('../types.js').QueryResponse>()
 
-function responseCacheKey(
+export function responseCacheKey(
   question: string,
   style: string,
   callerHint: string,
   profileUpdatedAt: string,
   thoughtsVersion: string,
+  promptVersion: string,
 ): string {
   const q = question.toLowerCase().trim().replace(/\s+/g, ' ')
   const hint = callerHint.toLowerCase().trim().slice(0, 80)
-  return `${q}:${style}:${hint}:${profileUpdatedAt}:${thoughtsVersion}`
+  // JSON-encode the tuple rather than joining with a delimiter (e.g. ":") —
+  // several fields can legally contain that delimiter themselves
+  // (callerHint, ISO timestamps in profileUpdatedAt, thoughtsVersion's
+  // `error:${now}` fallback), which risks two different tuples colliding on
+  // the same key string.
+  return JSON.stringify([q, style, hint, profileUpdatedAt, thoughtsVersion, promptVersion])
 }
 
 function responseCacheGet(
@@ -109,7 +133,7 @@ function responseCacheGet(
   profileUpdatedAt: string,
   thoughtsVersion: string,
 ): import('../types.js').QueryResponse | undefined {
-  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion, PROMPT_VERSION)
   const value = responseCache.get(key)
   if (value !== undefined) {
     // Move to end to refresh LRU recency
@@ -127,7 +151,7 @@ function responseCacheSet(
   thoughtsVersion: string,
   response: import('../types.js').QueryResponse,
 ): void {
-  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion)
+  const key = responseCacheKey(question, style, callerHint, profileUpdatedAt, thoughtsVersion, PROMPT_VERSION)
   if (responseCache.size >= RESPONSE_CACHE_MAX && !responseCache.has(key)) {
     const firstKey = responseCache.keys().next().value
     if (firstKey !== undefined) responseCache.delete(firstKey)
@@ -213,30 +237,42 @@ export function buildQueryPrompt(
 // first-class field the frontend consumes directly instead of re-deriving
 // intent from free text (see RULE_ACTION_INTENT for the exact boundary).
 
+const OPEN_MATCH_TOOL_DESCRIPTION =
+  'Call ONLY when EITHER (1) the message pairs a role reference (however brief — see below, no formal job ' +
+  'description required) with a request to check fit against it or tailor the résumé to it, OR (2) the message ' +
+  'directly asks to see/open the résumé document itself (no role or JD required for this branch — naming the ' +
+  'résumé document is enough on its own). Branch (1) ' +
+  'has TWO independent requirements — BOTH must hold, checked separately: (i) an explicit fit-check/tailor/match ' +
+  'request — "would this be a good fit", "check if Sunny fits/matches", "tailor the résumé to this role/this" — ' +
+  'without this, branch (1) fails regardless of how much role detail is present; and (ii) at least one role-' +
+  'identifying signal anywhere in the message (a job title, a team/org unit, a company descriptor — named OR ' +
+  'anonymized like "a Series B startup" — a technical skill/requirement, or a scope/responsibility phrase). ' +
+  'Requirement (ii) is loose — ONE signal, in plain prose, no pasted job-posting block, no named company ' +
+  'needed — but it never substitutes for requirement (i). "What projects has Sunny built?" has role-adjacent ' +
+  'words ("built") but ZERO fit/match/tailor request — that fails (i) and must NOT call the tool, regardless of ' +
+  '(ii). Only ask for more detail (rather than call the tool) when (i) is present but (ii) is entirely absent ' +
+  '(e.g. "would this role be a good match?" alone, no title/team/company/skill/scope anywhere). If neither ' +
+  'branch applies, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", ' +
+  'or "portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with ' +
+  'no job description or role attached and no mention of the résumé document, is answered narratively via ' +
+  'project_slugs, not this tool. See your instructions for the full narrated-vs-action-request boundary.'
+
 const QUERY_TOOLS = {
   open_match_tool: tool({
-    description:
-      'Call ONLY when EITHER (1) the message pairs a role reference (however brief — see below, no formal job ' +
-      'description required) with a request to check fit against it or tailor the résumé to it, OR (2) the message ' +
-      'directly asks to see/open the résumé document itself (no role or JD required for this branch — naming the ' +
-      'résumé document is enough on its own). Branch (1) ' +
-      'has TWO independent requirements — BOTH must hold, checked separately: (i) an explicit fit-check/tailor/match ' +
-      'request — "would this be a good fit", "check if Sunny fits/matches", "tailor the résumé to this role/this" — ' +
-      'without this, branch (1) fails regardless of how much role detail is present; and (ii) at least one role-' +
-      'identifying signal anywhere in the message (a job title, a team/org unit, a company descriptor — named OR ' +
-      'anonymized like "a Series B startup" — a technical skill/requirement, or a scope/responsibility phrase). ' +
-      'Requirement (ii) is loose — ONE signal, in plain prose, no pasted job-posting block, no named company ' +
-      'needed — but it never substitutes for requirement (i). "What projects has Sunny built?" has role-adjacent ' +
-      'words ("built") but ZERO fit/match/tailor request — that fails (i) and must NOT call the tool, regardless of ' +
-      '(ii). Only ask for more detail (rather than call the tool) when (i) is present but (ii) is entirely absent ' +
-      '(e.g. "would this role be a good match?" alone, no title/team/company/skill/scope anywhere). If neither ' +
-      'branch applies, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", ' +
-      'or "portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with ' +
-      'no job description or role attached and no mention of the résumé document, is answered narratively via ' +
-      'project_slugs, not this tool. See your instructions for the full narrated-vs-action-request boundary.',
+    description: OPEN_MATCH_TOOL_DESCRIPTION,
     parameters: z.object({}),
   }),
 }
+
+// Response-cache versioning dimension (see the "Response cache" section
+// above) — computed once at module load from the actual prompt/tool-calling
+// source, not maintained by hand. Any edit to a RULE_* constant or this
+// tool's description automatically changes this value.
+const PROMPT_VERSION = computePromptVersion(
+  buildSystemPrompt('json', 'cited'),
+  buildSystemPrompt('json', 'conversational'),
+  OPEN_MATCH_TOOL_DESCRIPTION,
+)
 
 /**
  * Pure derivation of `QueryResponse.action_intent` from a `generateText` result's
