@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-10 — fix(query): never cache action_intent-bearing responses — a single non-deterministic bad roll was getting frozen and served to every visitor
+
 - 2026-07-10 — fix(query): add prompt-version dimension to response cache key — fixes stale pre-#181 cached responses still serving live
 
 - 2026-07-10 — fix(query): require independent role-signal and fit-request checks for open_match_tool (#182)

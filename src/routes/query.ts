@@ -376,9 +376,19 @@ export async function queryProfile(
     meta: { model: MODEL, latency_ms, retrieval_ms },
   }
 
-  // Always cache — key covers all prompt dimensions (question, style, callerHint,
-  // profile version, OB1 version).
-  responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
+  // Cache — key covers all prompt dimensions (question, style, callerHint,
+  // profile version, OB1 version, prompt version). EXCEPT: never cache a
+  // response that carries an action_intent. open_match_tool's routing
+  // decision is a model judgment call, not perfectly deterministic — a
+  // single unlucky (or lucky) roll caching itself here would freeze that
+  // one outcome and serve it to every subsequent visitor asking the same
+  // question, until something else invalidates the entry. Recomputing
+  // every time trades a latency win for correctness on exactly the
+  // decision where a stuck wrong answer does the most damage (redirecting,
+  // or failing to redirect, every visitor to the job-fit flow).
+  if (!response.action_intent) {
+    responseCacheSet(args.question, style, args.callerHint, profileUpdatedAt, thoughtsVersion, response)
+  }
 
   return response
 }
