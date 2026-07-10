@@ -251,6 +251,18 @@ describe('responseCacheKey — prompt_version is a load-bearing cache dimension'
     const b = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
     assert.equal(a, b)
   })
+
+  // Copilot review (PR #187): the original ":"-joined key format could collide
+  // when a field itself contains ":" — e.g. thoughtsVersion's `error:${now}`
+  // fallback, or an ISO timestamp in profileUpdatedAt. A naive shift of where
+  // one field ends and the next begins could make two distinct tuples produce
+  // the same string. JSON-encoding the tuple instead of delimiter-joining it
+  // rules this out structurally.
+  it('does not collide when a field value itself contains the old ":" delimiter', () => {
+    const a = responseCacheKey('q', 'cited', 'human', 'error:12345', 'v1', 'pv1')
+    const b = responseCacheKey('q', 'cited', 'human', 'error', '12345:v1', 'pv1')
+    assert.notEqual(a, b)
+  })
 })
 
 describe('match_thoughts_public migration (AC-1, AC-2)', () => {
