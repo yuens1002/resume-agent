@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-10 — feat(observability): log OpenRouter provider + finish_reason on /query responses; add durable regression tests for #188's never-cache-action_intent behavior
+
 - 2026-07-10 — fix(query): never cache action_intent-bearing responses — a single non-deterministic bad roll was getting frozen and served to every visitor
 
 - 2026-07-10 — fix(query): add prompt-version dimension to response cache key — fixes stale pre-#181 cached responses still serving live
