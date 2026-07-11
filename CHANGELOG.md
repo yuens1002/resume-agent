@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-11 — feat(ci): tiered eval cadence — nightly on subscription, weekly OpenRouter parity (#201 phase b) — nightly route eval runs through the Claude CLI (`--provider claude-code`, subscription-billed, same haiku weights as prod); a new Monday parity workflow keeps provider-drift coverage (#190) on the exact OpenRouter serving path (haiku + sonnet judge + query `--judge`) under its own `eval-parity` issue label; eval CI no longer reads the production OpenRouter key at all
+
 - 2026-07-11 — feat(eval): result cache + claude-code provider + key isolation for eval runs (#201 phase a) — route-eval verdicts cache to a committed JSON keyed by hash(rule+question+model+provider+round), so label-only changes replay free and rule edits auto-invalidate; `--provider claude-code` runs the classifier through the local Claude CLI (subscription, not metered API); eval scripts prefer `OPENROUTER_API_KEY_EVAL` so an eval burn can never exhaust the production key's monthly cap again (the incident that took prod down twice on 2026-07-11)
 
 - 2026-07-11 — feat(query): narrate_fit route + fit_question response flag (#199) — the classifier's three-way route surfaces "this narrated answer was about fit" so resume-agent-web renders its deterministic fit-check chip without re-guessing from text; fit questions get a 1536-token ceiling that overrides the binary heuristic (fixes live parse_error 500 on "Is [name] a fit for X?" phrasings); observed_queries logs fit_question for the judge sweep
