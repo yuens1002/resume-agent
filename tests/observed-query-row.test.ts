@@ -18,7 +18,7 @@ function fullInput() {
     question: 'What are your recent projects?',
     caller_hint: 'Recruiter reviewing candidates.',
     response: {
-      answer: 'Sunny built X [1].',
+      answer: 'Alex built X [1].',
       confidence: 'high' as const,
       sources: ['projects.resume-agent'],
       follow_up_suggestions: ['What else?'],

@@ -5,7 +5,7 @@
  * DEDICATED LLM call with forced enum output — rather than exposing
  * open_match_tool during answer generation and hoping the model picks it up
  * correctly. The in-generation design misfired on capability questions
- * ("what projects demonstrate Sunny's understanding of X" → tool, #194)
+ * ("what projects demonstrate the candidate's understanding of X" → tool, #194)
  * because the routing rule competed with ~15k chars of answer-generation
  * instructions; posed as an explicit closed-set choice, the same model
  * (haiku) classified 442/442 in the #195 spike.
@@ -55,7 +55,7 @@ export const ROUTE_CLASSIFIER_RULE = `You route visitor messages for a candidate
 
 "narrate" — answer in writing from the candidate's profile. The default for informational questions: projects, work history, skills, availability, capability or experience in any domain ("what projects show experience with X?" is capability, not fit — narrate).
 
-"narrate_fit" — also answered in writing, but the question asks about the candidate's FIT or suitability: whether or how well they fit, match, suit, would perform in, or are qualified for a role, position, posting, company, or being hired generally. Includes polite question forms ("can you check if she'd be a good fit for this role?"), fit questions with a full job description attached, a bare pasted job description with no question at all, general hire-worthiness questions ("would they be a good hire?"), and skill-adequacy-for-role questions ("is her TypeScript strong enough for a senior position?"). The interface uses this route to offer an interactive fit check as a follow-up.
+"narrate_fit" — also answered in writing, but the question asks about the candidate's FIT or suitability for a ROLE: whether or how well they fit, match, suit, would perform in, or are qualified for a role, position, posting, or being hired generally. Includes polite question forms ("can you check if she'd be a good fit for this role?"), fit questions with a full job description attached, a bare pasted job description with no question at all, general hire-worthiness questions ("would they be a good hire?", "why should we hire them?"), and skill-adequacy-for-role questions ("is her TypeScript strong enough for a senior position?"). The interface uses this route to offer an interactive fit check against a job description as a follow-up — so a role must be at least implicit. Work-environment or culture preference questions with no role in them ("would they do well in a startup environment?", "are they suited to early-stage startup work?") are plain "narrate": there is no role to check fit against.
 
 "open_match_tool" — open the interactive job-fit / résumé-tailoring tool NOW. Choose this ONLY when:
 (1) the visitor wants the candidate's résumé document itself — show/send/download/copy it, tailor it to a role, or asks whether one is available; or

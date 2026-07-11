@@ -36,9 +36,9 @@ describe('narrateActionIntentForSurface', () => {
 
   it('nulls action_intent and narrates a pointer with the URL when one is available', () => {
     const response = baseResponse({ tool: 'open_match_tool' })
-    const result = narrateActionIntentForSurface(response, 'https://sunny.dev')
+    const result = narrateActionIntentForSurface(response, 'https://example.dev')
     assert.equal(result.action_intent, null)
-    assert.match(result.answer, /https:\/\/sunny\.dev/)
+    assert.match(result.answer, /https:\/\/example\.dev/)
     assert.match(result.answer, /interactive résumé and job-fit flow/i)
   })
 
@@ -52,13 +52,13 @@ describe('narrateActionIntentForSurface', () => {
 
   it('never leaves the dead-end "Opening the tool now." acknowledgment in place', () => {
     const response = baseResponse({ tool: 'open_match_tool' })
-    const result = narrateActionIntentForSurface(response, 'https://sunny.dev')
+    const result = narrateActionIntentForSurface(response, 'https://example.dev')
     assert.notEqual(result.answer, 'Opening the job-fit tool now.')
   })
 
   it('preserves other fields (confidence, contact, meta) unchanged', () => {
     const response = baseResponse({ tool: 'open_match_tool' })
-    const result = narrateActionIntentForSurface(response, 'https://sunny.dev')
+    const result = narrateActionIntentForSurface(response, 'https://example.dev')
     assert.equal(result.confidence, response.confidence)
     assert.deepEqual(result.contact, response.contact)
     assert.deepEqual(result.meta, response.meta)

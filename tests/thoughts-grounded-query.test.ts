@@ -111,7 +111,7 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
     const prompt = buildQueryPrompt(
       PROFILE_WITH_PROJECTS,
       [],
-      'What else has Sunny built?',
+      'What else has Alex built?',
       'shown_projects: brew-guide, resume-agent',
     )
     assert.ok(!prompt.includes('"brew-guide"'), 'brew-guide should be filtered out of profile data')

@@ -15,8 +15,16 @@ export function isBinaryQuestion(question: string): boolean {
   const q = question.toLowerCase().trim()
   if (q.split(/\s+/).length >= 15) return false
   if (!/^(did|does|has|have|is|was|were|will|can|could|would|should)\b/.test(q)) return false
-  // Behavioral signals indicate the model needs observations context
-  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff)\b/.test(q)
+  // Behavioral signals indicate the model needs observations context.
+  // Fit/suitability signals (#199) mean the answer is a profile-vs-role
+  // comparison, not a yes/no: "Is [name] a fit for…?" opens like a binary
+  // question but needs retrieval context and a long answer — treating it as
+  // binary skipped thoughts retrieval and set a 300-token cap that truncated
+  // real fit answers mid-JSON. This keyword screen also acts as the safety
+  // net for paths where the classifier's narrate_fit flag isn't available
+  // (streaming, classifier fallback): such fit questions land on the default
+  // 1024/800 cap instead of 300.
+  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff|fit|fits|suited|suits|qualified|match|matches|hire|hiring)\b/.test(q)
 }
 
 export function isBehavioralQuestion(question: string): boolean {
@@ -39,7 +47,7 @@ export function maxTokensForQuestion(
   style: 'cited' | 'conversational',
   fitQuestion = false,
 ): number {
-  // fitQuestion wins over the binary heuristic: "Is Sunny a fit for X?"
+  // fitQuestion wins over the binary heuristic: "Is [name] a fit for X?"
   // pattern-matches isBinaryQuestion (starts with "Is", short, no behavioral
   // keywords), but the answer is a full profile-vs-role comparison — 300
   // tokens truncates it mid-JSON and the request 500s as a parse_error.

@@ -248,7 +248,7 @@ export function buildQueryPrompt(
 // job-match/résumé-tailoring flow, read back from `toolCalls`. That let the
 // routing rule compete with ~15k chars of unrelated answer-generation
 // instructions and misfired on capability questions ("what projects
-// demonstrate Sunny's understanding of AI engineering?" → tool, #194) even
+// demonstrate the candidate's understanding of AI engineering?" → tool, #194) even
 // though the rule's literal text didn't apply. It's replaced by a dedicated
 // classifier pre-pass — classifyRoute() in ../lib/route-classifier.ts — that
 // runs BEFORE generateText and decides the route from a closed two-value
