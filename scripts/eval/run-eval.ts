@@ -32,7 +32,7 @@ import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'node:fs
 import { generateText } from 'ai'
 import { getModel } from '../../src/lib/ai.js'
 import { parseJSON } from '../../src/lib/parse-json.js'
-import { queryProfile } from '../../src/routes/query.js'
+import { fetchCandidateName, queryProfile } from '../../src/routes/query.js'
 import { scoreAnswer, buildJudgePrompt, PASS_RATIO, type RuleResult } from '../../src/lib/eval-query-answer.js'
 import { EVAL_CASES, type EvalCase } from './query-eval-cases.js'
 
@@ -165,6 +165,11 @@ async function main(): Promise<void> {
     '',
   ].join('\n') + '\n')
 
+  // Derived from the live profile the eval already queries (#202) — never a
+  // hardcoded literal. Fetched once; scoreAnswer's no_data name-aware regexes
+  // (contact-tail, inference-claim) are built from this per case.
+  const candidateName = await fetchCandidateName()
+
   const scores: { caseId: string; category: string; pass: boolean; total: number; maxTotal: number }[] = []
   const latencyByCase: { caseId: string; category: string; med: Sample }[] = []
 
@@ -189,7 +194,7 @@ async function main(): Promise<void> {
       result = r
       if ('kind' in r) break // error — stop repeating this case
       samples.push({ total: totalMs, llm: r.meta.latency_ms, retrieval: r.meta.retrieval_ms ?? 0 })
-      const s = scoreAnswer(caseDef, r)
+      const s = scoreAnswer(caseDef, r, candidateName)
       lastScore = s
       runPasses.push(s.pass)
     }

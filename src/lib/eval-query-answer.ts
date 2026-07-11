@@ -31,6 +31,7 @@ import type {
   AdversarialExpect,
 } from './eval-query-types.js'
 import type { QueryResponse } from '../types.js'
+import { DEFAULT_CANDIDATE_NAME } from './query-prompt.js'
 
 export interface RuleResult {
   rule: string
@@ -231,31 +232,49 @@ const FACTUAL_DECLINE_PHRASES: readonly string[] = [
   'no relevant work history',
 ]
 
+// Escape a candidate name for safe embedding inside a RegExp source — a name
+// with regex metacharacters (rare, but not impossible on a forked profile)
+// must not be treated as a pattern.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // Disallowed tails on a no-data decline: anything that turns the factual decline
 // into a contact CTA or a speculative answer. These keep the rule honest about
 // the v2 contract ("the decline is the answer; no contact channels offered").
-const NO_DATA_DISALLOWED_TAILS: readonly RegExp[] = [
-  /calendly\.com/i,
-  /https?:\/\//, // any URL — the decline shouldn't link out
-  /feel free to (contact|reach out|chat)/i,
-  /you can (contact|reach out|email|book)/i,
-  /the best way to (ask|reach|find out)/i,
-  /\bcontact\s+(me|the\s+candidate|sunny)\b/i,
-]
+// The candidate-name alternative is built dynamically (#202) — the case fixtures
+// and any live/fork profile drive this, not a hardcoded literal.
+function buildNoDataDisallowedTails(candidateName: string): readonly RegExp[] {
+  return [
+    /calendly\.com/i,
+    /https?:\/\//, // any URL — the decline shouldn't link out
+    /feel free to (contact|reach out|chat)/i,
+    /you can (contact|reach out|email|book)/i,
+    /the best way to (ask|reach|find out)/i,
+    new RegExp(String.raw`\bcontact\s+(me|the\s+candidate|${escapeRegExp(candidateName)})(?!\w)`, 'i'),
+  ]
+}
 
 // Inference-claim verbs the agent must not pair with the candidate when
 // declining. The fabrication-bait failure mode is: agent uses a decline shape
 // up front ("team size is not documented...") then trails into a confident
-// claim ("...but Sunny led..."). Any "<candidate-noun> <claim-verb>" tells
-// the agent is fabricating after the decline — that's the exact pattern
-// RULE_HONESTY exists to prevent.
-const NO_DATA_INFERENCE_CLAIM_RE = /\b(sunny|the candidate)\s+\w*\s*(led|managed|built|designed|architected|shipped|launched|grew|scaled|hired|reduced|delivered|owned|operated|directed|oversaw)\b/i
+// claim ("...but <candidate-name> led..."). Any "<candidate-noun> <claim-verb>"
+// tells the agent is fabricating after the decline — that's the exact pattern
+// RULE_HONESTY exists to prevent. The name alternative is built dynamically
+// (#202) so the rule matches whichever candidate the live/fork profile names,
+// not a hardcoded literal.
+function buildNoDataInferenceClaimRe(candidateName: string): RegExp {
+  return new RegExp(
+    String.raw`(?<!\w)(${escapeRegExp(candidateName)}|the candidate)\s+\w*\s*(led|managed|built|designed|architected|shipped|launched|grew|scaled|hired|reduced|delivered|owned|operated|directed|oversaw)\b`,
+    'i',
+  )
+}
 
-function ruleNoData(answer: string): RuleResult[] {
+function ruleNoData(answer: string, candidateName: string): RuleResult[] {
   const lower = answer.toLowerCase()
   const matched = FACTUAL_DECLINE_PHRASES.find((p) => lower.includes(p.toLowerCase()))
-  const disallowedTail = NO_DATA_DISALLOWED_TAILS.find((re) => re.test(answer))
-  const inferenceClaim = NO_DATA_INFERENCE_CLAIM_RE.test(answer)
+  const disallowedTail = buildNoDataDisallowedTails(candidateName).find((re) => re.test(answer))
+  const inferenceClaim = buildNoDataInferenceClaimRe(candidateName).test(answer)
   const pass = Boolean(matched) && !disallowedTail && !inferenceClaim
   let detail: string
   if (!matched) {
@@ -369,6 +388,12 @@ function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
 export function scoreAnswer(
   caseDef: EvalCase,
   response: QueryResponse | string,
+  // Candidate name used to build the no_data-category name-aware regexes
+  // (#202) — never a hardcoded literal. Defaults to `DEFAULT_CANDIDATE_NAME`
+  // (query-prompt.ts's own OSS-safe fallback, reused here to keep the two
+  // in sync); real eval runs pass the name derived from the live profile
+  // (see scripts/eval/run-eval.ts).
+  candidateName: string = DEFAULT_CANDIDATE_NAME,
 ): CaseScore {
   const parsed = extractAnswer(response)
   const rules: RuleResult[] = []
@@ -397,7 +422,7 @@ export function scoreAnswer(
       rules.push(...ruleAdversarial(parsed.answer, caseDef.expect))
       break
     case 'no_data':
-      rules.push(...ruleNoData(parsed.answer))
+      rules.push(...ruleNoData(parsed.answer, candidateName))
       break
     case 'overview':
       rules.push(...ruleOverview(parsed))

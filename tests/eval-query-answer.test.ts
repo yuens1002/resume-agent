@@ -52,14 +52,14 @@ describe('anti-pattern phrasing rule (universal)', () => {
   }
 
   it('fails an answer containing "on record"', () => {
-    const score = scoreAnswer(onRecordCase, makeResponse(withCitations('Yes — Sunny built it [1]. No additional details on record.')))
+    const score = scoreAnswer(onRecordCase, makeResponse(withCitations('Yes — Alex built it [1]. No additional details on record.')))
     const r = score.rules.find((x) => x.rule === 'no-anti-pattern-phrasing')!
     assert.equal(r.pass, false)
     assert.match(r.detail, /on record/)
   })
 
   it('passes an answer with no anti-pattern phrases', () => {
-    const score = scoreAnswer(onRecordCase, makeResponse(withCitations('Yes — Sunny shipped the dual-gen pipeline and the public MCP [1].')))
+    const score = scoreAnswer(onRecordCase, makeResponse(withCitations('Yes — Alex shipped the dual-gen pipeline and the public MCP [1].')))
     const r = score.rules.find((x) => x.rule === 'no-anti-pattern-phrasing')!
     assert.equal(r.pass, true)
   })
@@ -77,17 +77,17 @@ describe('binary rule', () => {
   const noCase: EvalCase = {
     id: 'fixture-binary-no',
     category: 'binary',
-    question: 'Did Sunny work at Google?',
-    expect: { category: 'binary', expected: 'no', mustNotClaim: ['Sunny worked at Google'] },
+    question: 'Did Alex work at Google?',
+    expect: { category: 'binary', expected: 'no', mustNotClaim: ['Alex worked at Google'] },
   }
 
   it('passes a yes-case answer starting with "Yes"', () => {
-    const r = scoreAnswer(yesCase, makeResponse(withCitations('Yes — Sunny shipped it [1].'))).rules.find((x) => x.rule === 'binary-starts-with-yes-or-no')!
+    const r = scoreAnswer(yesCase, makeResponse(withCitations('Yes — Alex shipped it [1].'))).rules.find((x) => x.rule === 'binary-starts-with-yes-or-no')!
     assert.equal(r.pass, true)
   })
 
   it('flags a no-case answer that contains a forbidden false-claim string', () => {
-    const score = scoreAnswer(noCase, makeResponse(withCitations('No, but Sunny worked at Google in 2022 [1].')))
+    const score = scoreAnswer(noCase, makeResponse(withCitations('No, but Alex worked at Google in 2022 [1].')))
     const r = score.rules.find((x) => x.rule === 'binary-no-false-claim')!
     assert.equal(r.pass, false)
   })
@@ -95,7 +95,7 @@ describe('binary rule', () => {
   it('binary-no-false-claim is BLOCKING — a false claim fails the case even if citations and Yes/No opener are present', () => {
     const score = scoreAnswer(
       noCase,
-      makeResponse(withCitations('No, but Sunny worked at Google in 2022 [1].')),
+      makeResponse(withCitations('No, but Alex worked at Google in 2022 [1].')),
     )
     const r = score.rules.find((x) => x.rule === 'binary-no-false-claim')!
     assert.equal(r.blocking, true, 'binary-no-false-claim must be marked blocking')
@@ -112,12 +112,12 @@ describe('binary rule', () => {
         category: 'capability',
         namesGap: 'AWS',
         allowsAdjacent: ['Supabase'],
-        mustNotClaim: ['Sunny is AWS certified'],
+        mustNotClaim: ['Alex is AWS certified'],
       },
     }
     const score = scoreAnswer(
       capCase,
-      makeResponse(withCitations('Sunny is AWS certified [1]; the work has been on Supabase as well [2].')),
+      makeResponse(withCitations('Alex is AWS certified [1]; the work has been on Supabase as well [2].')),
     )
     const r = score.rules.find((x) => x.rule === 'capability-no-overclaim')!
     assert.equal(r.blocking, true)
@@ -202,7 +202,7 @@ describe('AC-12: no_data factual-decline rule', () => {
   it('fails when a factual decline trails into a calendly URL or contact CTA', () => {
     const calendlyTail = scoreAnswer(
       noDataCase,
-      makeResponse(`The candidate does not appear to have documented work history on that. Feel free to reach out at https://calendly.com/sunny/chat.`),
+      makeResponse(`The candidate does not appear to have documented work history on that. Feel free to reach out at https://calendly.com/alex/chat.`),
     ).rules.find((x) => x.rule === 'no-data-factual-decline')!
     assert.equal(calendlyTail.pass, false, 'a decline that trails into a contact CTA must fail')
 
@@ -218,9 +218,9 @@ describe('AC-12: no_data factual-decline rule', () => {
     // up front, then pads with a confident claim inferred from adjacent data.
     const inferenceTail = scoreAnswer(
       noDataCase,
-      makeResponse(`Team size is not documented in the work history, but Sunny led the resume-agent project through multiple iterations.`),
+      makeResponse(`Team size is not documented in the work history, but Alex led the resume-agent project through multiple iterations.`),
     ).rules.find((x) => x.rule === 'no-data-factual-decline')!
-    assert.equal(inferenceTail.pass, false, 'a decline that pads with "Sunny led ..." must fail')
+    assert.equal(inferenceTail.pass, false, 'a decline that pads with "Alex led ..." must fail')
     assert.match(inferenceTail.detail, /inference claim/i)
 
     const inferenceTail2 = scoreAnswer(
@@ -275,19 +275,19 @@ describe('AC-9, AC-10: cites-source rule', () => {
   }
 
   it('AC-10: passes when both a [N] marker AND a Sources: block are present', () => {
-    const score = scoreAnswer(binaryCase, makeResponse(`Yes — Sunny built it [1].\n\nSources:\n[1] projects.resume-agent`))
+    const score = scoreAnswer(binaryCase, makeResponse(`Yes — Alex built it [1].\n\nSources:\n[1] projects.resume-agent`))
     const r = score.rules.find((x) => x.rule === 'cites-source')!
     assert.equal(r.pass, true)
   })
 
   it('AC-10: fails when the [N] marker is missing', () => {
-    const r = scoreAnswer(binaryCase, makeResponse(`Yes — Sunny built it.\n\nSources:\nprojects.resume-agent`)).rules.find((x) => x.rule === 'cites-source')!
+    const r = scoreAnswer(binaryCase, makeResponse(`Yes — Alex built it.\n\nSources:\nprojects.resume-agent`)).rules.find((x) => x.rule === 'cites-source')!
     assert.equal(r.pass, false)
     assert.match(r.detail, /marker:absent/)
   })
 
   it('AC-10: fails when the Sources: block is missing', () => {
-    const r = scoreAnswer(binaryCase, makeResponse(`Yes — Sunny built it [1].`)).rules.find((x) => x.rule === 'cites-source')!
+    const r = scoreAnswer(binaryCase, makeResponse(`Yes — Alex built it [1].`)).rules.find((x) => x.rule === 'cites-source')!
     assert.equal(r.pass, false)
     assert.match(r.detail, /Sources block:absent/)
   })
@@ -315,7 +315,7 @@ describe('AC-9, AC-10: cites-source rule', () => {
   it('citation marker regex rejects [0] (positive integers only per RULE_CITATION)', () => {
     const r = scoreAnswer(
       binaryCase,
-      makeResponse(`Yes — Sunny built it [0].\n\nSources:\n[0] projects.resume-agent`),
+      makeResponse(`Yes — Alex built it [0].\n\nSources:\n[0] projects.resume-agent`),
     ).rules.find((x) => x.rule === 'cites-source')!
     assert.equal(r.pass, false, '[0] should not satisfy the positive-integer marker requirement')
   })
@@ -339,7 +339,7 @@ describe('capability rule', () => {
   it('passes when answer names the gap, names an adjacent, and avoids the overclaim list', () => {
     const score = scoreAnswer(
       caseDef,
-      makeResponse(withCitations('Sunny has not worked directly with AWS — hosting has been Supabase, Railway, and Vercel [1].')),
+      makeResponse(withCitations('Alex has not worked directly with AWS — hosting has been Supabase, Railway, and Vercel [1].')),
     )
     assert.equal(score.rules.find((r) => r.rule === 'capability-names-gap')!.pass, true)
     assert.equal(score.rules.find((r) => r.rule === 'capability-no-overclaim')!.pass, true)
@@ -347,11 +347,11 @@ describe('capability rule', () => {
   })
 
   it('flags overclaim when the answer says a forbidden affirmative', () => {
-    const r = scoreAnswer(caseDef, makeResponse(withCitations('Sunny is AWS certified [1].'))).rules.find((r2) => r2.rule === 'capability-no-overclaim')!
+    const r = scoreAnswer(caseDef, makeResponse(withCitations('Alex is AWS certified [1].'))).rules.find((r2) => r2.rule === 'capability-no-overclaim')!
     assert.equal(r.pass, false)
   })
 
-  it('does NOT flag the natural disclaimer ("Sunny has not run Kubernetes in production")', () => {
+  it('does NOT flag the natural disclaimer ("Alex has not run Kubernetes in production")', () => {
     // Regression for the v1 bug: the disclaimer contains the question's wording.
     // The fixture-mustNotClaim list must not include "Kubernetes in production".
     const k8sCase: EvalCase = {
@@ -367,7 +367,7 @@ describe('capability rule', () => {
     }
     const score = scoreAnswer(
       k8sCase,
-      makeResponse(withCitations('Sunny has not run Kubernetes in production — infrastructure has been Railway and managed PaaS [1].')),
+      makeResponse(withCitations('Alex has not run Kubernetes in production — infrastructure has been Railway and managed PaaS [1].')),
     )
     assert.equal(score.rules.find((r) => r.rule === 'capability-no-overclaim')!.pass, true)
   })
@@ -386,7 +386,7 @@ describe('behavioral rule — confidence + observations grounding', () => {
   it('passes when confidence >= medium and sources include observations', () => {
     const score = scoreAnswer(
       caseDef,
-      makeResponse(withCitations('Sunny decides by user pain × shipping cost [1].'), { confidence: 'medium', sources: ['observations'] }),
+      makeResponse(withCitations('Alex decides by user pain × shipping cost [1].'), { confidence: 'medium', sources: ['observations'] }),
     )
     assert.equal(score.rules.find((r) => r.rule === 'behavioral-confidence-band')!.pass, true)
     assert.equal(score.rules.find((r) => r.rule === 'behavioral-grounds-in-observations')!.pass, true)
@@ -503,20 +503,20 @@ describe('overview rule — progressive disclosure', () => {
   }
 
   it('passes when the answer names a count + leads with recent + offers more via follow-up', () => {
-    const answer = 'Sunny has 7 projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web'
-    const score = scoreAnswer(overviewCase, overviewResponse(answer, ['Want to hear about Sunny\'s other 4 projects?']))
+    const answer = 'Alex has 7 projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web'
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, ['Want to hear about Alex\'s other 4 projects?']))
     assert.ok(score.pass, JSON.stringify(score.rules.map(r => [r.rule, r.pass]), null, 2))
   })
 
   it('fails the discloses-progressively rule when the answer exhausts the list with no count or "more" signal', () => {
-    const answer = 'Sunny built resume-agent [1], brew-guide [2], artisan-roast [3], and artisan-roast-platform [4].\n\nSources:\n[1] a\n[2] b\n[3] c\n[4] d'
+    const answer = 'Alex built resume-agent [1], brew-guide [2], artisan-roast [3], and artisan-roast-platform [4].\n\nSources:\n[1] a\n[2] b\n[3] c\n[4] d'
     const score = scoreAnswer(overviewCase, overviewResponse(answer, []))
     const r = score.rules.find(x => x.rule === 'overview-discloses-progressively')!
     assert.equal(r.pass, false)
   })
 
   it('fails the offers-followup rule when no follow-up offers the rest', () => {
-    const answer = 'Sunny has 7 projects; the three most recent are A [1], B [2], C [3].\n\nSources:\n[1] a\n[2] b\n[3] c'
+    const answer = 'Alex has 7 projects; the three most recent are A [1], B [2], C [3].\n\nSources:\n[1] a\n[2] b\n[3] c'
     const score = scoreAnswer(overviewCase, overviewResponse(answer, ['What tech stack does A use?']))
     const r = score.rules.find(x => x.rule === 'overview-offers-followup')!
     assert.equal(r.pass, false)
@@ -544,8 +544,8 @@ describe('#197 C1: NAMES_COUNT_RE accepts spelled numbers', () => {
 
   it('passes overview-discloses-progressively when the count is spelled out ("seven active projects")', () => {
     const answer =
-      "Sunny has seven active projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web"
-    const score = scoreAnswer(overviewCase, overviewResponse(answer, ["Want to hear about Sunny's other 4 projects?"]))
+      "Alex has seven active projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web"
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, ["Want to hear about Alex's other 4 projects?"]))
     const r = score.rules.find((x) => x.rule === 'overview-discloses-progressively')!
     assert.equal(r.pass, true, r.detail)
   })

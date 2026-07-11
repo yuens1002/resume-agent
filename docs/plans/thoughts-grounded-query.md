@@ -1,5 +1,7 @@
 # Plan: Thoughts-Grounded `/query` and Public MCP `ask_candidate`
 
+> This doc's examples mirror the live profile; fork-local by design, see #202.
+
 **Branch:** `feat/thoughts-grounded-query` (not started)
 **Status:** Planning — ready for review
 **Scope:** Make `/query` and `/public-mcp` semantically inject OB1 thoughts (project observations, judgment, "aha" moments) as grounded context above the structured profile. Behavioral and decision-making questions get answered from lived experience, not from inferred patterns over employment bullets. Includes a default-public-with-`private`-opt-out policy on captures.
