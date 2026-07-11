@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
 import { generateText, streamText } from 'ai'
-import { parseJSON } from '../lib/parse-json.js'
+import { parseJSON, salvageTrailingSourcesBlock } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
@@ -299,6 +299,34 @@ export function shouldCacheResponse(response: Pick<QueryResponse, 'action_intent
   return !response.action_intent
 }
 
+/** Minimal shape `generateWithLengthRetry` needs from a `generateText` call — kept
+ * loose (not the full AI SDK result type) so the helper is unit-testable with
+ * plain stub functions instead of a live model call. */
+export interface LengthRetryResult {
+  text: string
+  finishReason: string
+  response: unknown
+}
+
+/**
+ * Calls `callFn` once at `cap` maxTokens. If the model truncated the answer
+ * (`finishReason === 'length'`), retries ONCE at `min(cap * 2, 2048)` maxTokens
+ * — same prompt/system/model, whatever `callFn` closes over — and returns the
+ * retry's result regardless of its own finishReason (no further retries).
+ * A truncated mid-sentence answer is bad; a second truncated answer is a
+ * signal the question itself needs a real cap increase, not more retries.
+ * Single call (no retry) when the first result already finished cleanly.
+ */
+export async function generateWithLengthRetry(
+  callFn: (maxTokens: number) => Promise<LengthRetryResult>,
+  cap: number,
+): Promise<LengthRetryResult> {
+  const first = await callFn(cap)
+  if (first.finishReason !== 'length') return first
+  const retryCap = Math.min(cap * 2, 2048)
+  return callFn(retryCap)
+}
+
 // ── Shared core ─────────────────────────────────────────────
 //
 // queryProfile / queryProfileStream are pure functions — no Hono Context,
@@ -400,13 +428,18 @@ export async function queryProfile(
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
+  const cap = maxTokensForQuestion(args.question, args.style ?? 'cited', route === 'narrate_fit')
   const start = Date.now()
-  const { text: raw, finishReason, response: modelResponse } = await generateText({
-    model: getModel(),
-    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited', route === 'narrate_fit'),
-    system: buildSystemPrompt('json', style),
-    prompt,
-  })
+  const { text: raw, finishReason, response: modelResponse } = await generateWithLengthRetry(
+    (maxTokens) =>
+      generateText({
+        model: getModel(),
+        maxTokens,
+        system: buildSystemPrompt('json', style),
+        prompt,
+      }),
+    cap,
+  )
   const latency_ms = Date.now() - start
   const provider = extractProvider(modelResponse)
 
@@ -414,8 +447,15 @@ export async function queryProfile(
   try {
     parsed = parseJSON(raw)
   } catch (err) {
-    console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
+    console.error('[query] parse_error:', err, '— finishReason:', finishReason, '— raw (first 500 chars):', raw.slice(0, 500))
     return { kind: 'parse_error', raw }
+  }
+
+  // parseJSON casts without runtime validation — guard so a valid-JSON but
+  // wrong-shape response (non-string answer) can't turn the salvage into an
+  // unhandled throw; it flows on to the same downstream handling as before.
+  if (typeof parsed.answer === 'string') {
+    parsed.answer = salvageTrailingSourcesBlock(raw, parsed.answer)
   }
 
   const response: QueryResponse = {
