@@ -216,7 +216,7 @@ async function main(): Promise<void> {
     if (flags.judge) {
       try {
         const { text } = await generateText({
-          model: getModel(),
+          model: getModel(process.env.EVAL_JUDGE_MODEL ?? 'anthropic/claude-sonnet-4.5'),
           maxTokens: 200,
           prompt: buildJudgePrompt(caseDef, result.answer),
         })

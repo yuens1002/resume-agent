@@ -219,7 +219,6 @@ export function buildQueryPrompt(
     parts.push(thoughts.map((t) => `- ${t}`).join('\n'))
     parts.push('')
   }
-  parts.push('# Profile data')
   // Pre-sort projects most-recent-first so the model leads with current work
   // when asked about projects generally (RULE_PROGRESSIVE_DISCLOSURE), and
   // physically drop already-shown projects (RULE_SHOWN_PROJECTS) so the
@@ -234,6 +233,15 @@ export function buildQueryPrompt(
           ).filter((p) => !shownSlugs.includes(p.slug)),
         }
       : profile
+  // Name the project count explicitly in the heading — the model was
+  // miscounting the raw JSON array (e.g. reporting 7 projects as "six").
+  // User-message-only change (does not touch PROMPT_VERSION-hashed system text).
+  const projectsForCount = (profileForPrompt as { projects?: unknown[] } | undefined)?.projects
+  parts.push(
+    Array.isArray(projectsForCount) && projectsForCount.length > 0
+      ? `# Profile data (${projectsForCount.length} projects)`
+      : '# Profile data',
+  )
   parts.push(JSON.stringify(profileForPrompt, null, 2))
   parts.push('')
   parts.push('# Question')

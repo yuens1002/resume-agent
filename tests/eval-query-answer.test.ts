@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { scoreAnswer } from '../src/lib/eval-query-answer.js'
+import { scoreAnswer, buildJudgePrompt } from '../src/lib/eval-query-answer.js'
 import type { EvalCase } from '../scripts/eval/query-eval-cases.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -527,3 +527,76 @@ describe('overview rule — progressive disclosure', () => {
 // #195 along with `ruleActionIntent` and the `action_intent` eval category —
 // routing coverage now lives in the route-classifier golden set
 // (scripts/eval/route-cases.ts, `npm run eval:route`).
+
+// ── #197 chunk C: rubric calibration ────────────────────────
+
+describe('#197 C1: NAMES_COUNT_RE accepts spelled numbers', () => {
+  const overviewCase = {
+    id: 'overview-projects',
+    category: 'overview' as const,
+    question: 'What are all the projects you have worked on?',
+    expect: { category: 'overview' as const },
+  }
+
+  function overviewResponse(answer: string, followUps: string[]) {
+    return { answer, confidence: 'high' as const, sources: ['projects.resume-agent'], follow_up_suggestions: followUps }
+  }
+
+  it('passes overview-discloses-progressively when the count is spelled out ("seven active projects")', () => {
+    const answer =
+      "Sunny has seven active projects; the three most recent are resume-agent [1], brew-guide [2], and resume-agent-web [3].\n\nSources:\n[1] projects.resume-agent\n[2] projects.brew-guide\n[3] projects.resume-agent-web"
+    const score = scoreAnswer(overviewCase, overviewResponse(answer, ["Want to hear about Sunny's other 4 projects?"]))
+    const r = score.rules.find((x) => x.rule === 'overview-discloses-progressively')!
+    assert.equal(r.pass, true, r.detail)
+  })
+})
+
+describe('#197 C2: anti-pattern phrase scoping — "in the database" dropped for behavioral/overview', () => {
+  const behavioralCase: EvalCase = {
+    id: 'behavioral-hard-tradeoff',
+    category: 'behavioral',
+    question: 'Walk me through a hard engineering tradeoff you made.',
+    expect: { category: 'behavioral', confidenceAtLeast: 'medium', groundsInObservations: true },
+  }
+  const noDataCase: EvalCase = {
+    id: 'fixture-no-data-db',
+    category: 'no_data',
+    question: 'What IDE color theme does the candidate use?',
+    expect: { category: 'no_data' },
+  }
+
+  it('a behavioral answer describing a product database ("only three logged brews in the database") does not blocking-fail', () => {
+    const answer = withCitations(
+      "Alex faced a tradeoff on the recommendation engine: with only three logged brews in the database for a new user, the model had to choose between cold-start guesses and waiting for more data [1].",
+    )
+    const score = scoreAnswer(behavioralCase, makeResponse(answer, { sources: ['observations'] }))
+    const r = score.rules.find((x) => x.rule === 'no-anti-pattern-phrasing')!
+    assert.equal(r.pass, true, r.detail)
+    assert.equal(score.pass, true, 'blocking anti-pattern rule must not fail this behavioral answer')
+  })
+
+  it('a no_data decline containing "in the database" still blocking-fails (scoping is category-specific, not global)', () => {
+    const r = scoreAnswer(
+      noDataCase,
+      makeResponse('Nothing on that is in the database.'),
+    ).rules.find((x) => x.rule === 'no-anti-pattern-phrasing')!
+    assert.equal(r.pass, false)
+    assert.match(r.detail, /in the database/)
+  })
+})
+
+describe('#197 D3: judge prompt contains the "NOT violations" sentinel', () => {
+  it('buildJudgePrompt includes the NOT-violations calibration block', () => {
+    const caseDef: EvalCase = {
+      id: 'fixture-judge-sentinel',
+      category: 'binary',
+      question: 'Did the candidate build resume-agent?',
+      expect: { category: 'binary', expected: 'yes' },
+    }
+    const prompt = buildJudgePrompt(caseDef, 'Yes — Alex built it [1].\n\nSources:\n[1] projects.resume-agent')
+    assert.match(prompt, /These are CORRECT per the rules — do not fail them:/)
+    assert.match(prompt, /third-person narration/)
+    assert.match(prompt, /bare corpus paths/)
+    assert.match(prompt, /documented gap pattern/)
+  })
+})
