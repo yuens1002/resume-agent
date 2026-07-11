@@ -29,6 +29,13 @@ import type { Route } from '../../src/lib/route-classifier.js'
 export const WINDOW_DAYS = 8
 
 /**
+ * Row cap for the observed_queries window query. judge-sweep.ts warns loudly
+ * when the query returns exactly this many rows — the window was likely
+ * truncated, and the sweep must never silently claim coverage it doesn't have.
+ */
+export const QUERY_ROW_CAP = 10000
+
+/**
  * Trust established by 224/224 golden-set convergence (#195/#205) — same
  * judge model the weekly parity run (eval-weekly.yml's route-judge step)
  * already uses.
@@ -51,14 +58,14 @@ export interface Disagreement {
   question: string
   servedRoute: Route
   judgeRoute: Route
-  firstSeen: string
+  lastObserved: string
 }
 
 export interface JudgedEntry {
   question: string
   servedRoute: Route
   judgeRoute: Route
-  firstSeen: string
+  lastObserved: string
 }
 
 // ── Normalization + dedupe ──────────────────────────────────
@@ -162,10 +169,10 @@ export function buildArbitrationSection(disagreements: Disagreement[], isoDate: 
       '',
       `- Served route: \`${d.servedRoute}\``,
       `- Judge route: \`${d.judgeRoute}\``,
-      // `d.firstSeen` is the created_at of the row distinctByNormalizedQuestion
+      // `d.lastObserved` is the created_at of the row distinctByNormalizedQuestion
       // kept, which (given rows are queried most-recent-first) is this
       // question's most recent observed occurrence, not its first.
-      `- Last observed: ${d.firstSeen}`,
+      `- Last observed: ${d.lastObserved}`,
       '',
       '**Question:**',
       `${fence}text`,
@@ -207,7 +214,7 @@ export function formatReport(input: ReportInput): string {
     disagreements.forEach((d, i) => {
       const oneLine = d.question.replace(/\s+/g, ' ')
       lines.push(
-        `  ${i + 1}. served=${d.servedRoute}  judge=${d.judgeRoute}  first_seen=${d.firstSeen}`,
+        `  ${i + 1}. served=${d.servedRoute}  judge=${d.judgeRoute}  last_observed=${d.lastObserved}`,
         `     Q: ${oneLine.slice(0, 160)}${oneLine.length > 160 ? '…' : ''}`,
       )
     })

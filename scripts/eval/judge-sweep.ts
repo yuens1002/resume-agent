@@ -39,6 +39,7 @@ import { ROUTE_CASES } from './route-cases.js'
 import {
   ARBITRATION_LABEL,
   JUDGE_MODEL,
+  QUERY_ROW_CAP,
   WINDOW_DAYS,
   buildArbitrationSection,
   buildCleanSummaryLine,
@@ -105,7 +106,7 @@ async function main(): Promise<void> {
     .select('question, action_intent, fit_question, created_at')
     .gte('created_at', since)
     .order('created_at', { ascending: false })
-    .limit(10000)
+    .limit(QUERY_ROW_CAP)
 
   if (error) {
     process.stderr.write(`judge-sweep: observed_queries query failed: ${error.message}\n`)
@@ -113,6 +114,14 @@ async function main(): Promise<void> {
   }
 
   const rows = (data ?? []) as ObservedRow[]
+  if (rows.length === QUERY_ROW_CAP) {
+    // The window returned exactly the row cap — almost certainly truncated. The sweep
+    // must never silently claim full-window coverage it doesn't have.
+    process.stderr.write(
+      `judge-sweep: WARNING — observed_queries returned the row cap (${QUERY_ROW_CAP}); ` +
+        `the ${WINDOW_DAYS}d window is likely truncated and some questions were not swept.\n`,
+    )
+  }
   const distinct = distinctByNormalizedQuestion(rows)
 
   const routeCaseQuestions = ROUTE_CASES.map((c) => normalizeQuestion(c.question))
@@ -151,7 +160,7 @@ async function main(): Promise<void> {
       process.exit(1)
       return
     }
-    judged.push({ question: row.question, servedRoute, judgeRoute, firstSeen: row.created_at })
+    judged.push({ question: row.question, servedRoute, judgeRoute, lastObserved: row.created_at })
   }
 
   const report = formatReport({
@@ -166,7 +175,7 @@ async function main(): Promise<void> {
 
   const disagreements: Disagreement[] = judged
     .filter((j) => j.servedRoute !== j.judgeRoute)
-    .map((j) => ({ question: j.question, servedRoute: j.servedRoute, judgeRoute: j.judgeRoute, firstSeen: j.firstSeen }))
+    .map((j) => ({ question: j.question, servedRoute: j.servedRoute, judgeRoute: j.judgeRoute, lastObserved: j.lastObserved }))
 
   if (dryRun) {
     process.stdout.write('\n[dry-run] no issue filed.\n')

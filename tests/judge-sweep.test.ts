@@ -120,7 +120,7 @@ test('filterNewQuestions: empty known set keeps everything', () => {
 
 test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips the verbatim question (multi-line/quotes/unicode preserved)', () => {
   const disagreements: Disagreement[] = [
-    { question: NASTY_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', firstSeen: '2026-07-05T10:22:00.000Z' },
+    { question: NASTY_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', lastObserved: '2026-07-05T10:22:00.000Z' },
   ]
   const section = buildArbitrationSection(disagreements, '2026-07-11')
   const recovered = extractQuestionsFromIssueText(section)
@@ -129,13 +129,13 @@ test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips the v
 
 test('extractQuestionsFromIssueText: recovers every question across multiple disagreements and multiple sections concatenated', () => {
   const first = buildArbitrationSection(
-    [{ question: 'first question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', firstSeen: '2026-07-01T00:00:00Z' }],
+    [{ question: 'first question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', lastObserved: '2026-07-01T00:00:00Z' }],
     '2026-07-04',
   )
   const second = buildArbitrationSection(
     [
-      { question: NASTY_QUESTION, servedRoute: 'narrate_fit', judgeRoute: 'open_match_tool', firstSeen: '2026-07-08T00:00:00Z' },
-      { question: 'third question', servedRoute: 'open_match_tool', judgeRoute: 'narrate', firstSeen: '2026-07-09T00:00:00Z' },
+      { question: NASTY_QUESTION, servedRoute: 'narrate_fit', judgeRoute: 'open_match_tool', lastObserved: '2026-07-08T00:00:00Z' },
+      { question: 'third question', servedRoute: 'open_match_tool', judgeRoute: 'narrate', lastObserved: '2026-07-09T00:00:00Z' },
     ],
     '2026-07-11',
   )
@@ -160,7 +160,7 @@ const FENCED_QUESTION =
 
 test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips a question containing its own ``` fence without truncation', () => {
   const disagreements: Disagreement[] = [
-    { question: FENCED_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', firstSeen: '2026-07-05T10:22:00.000Z' },
+    { question: FENCED_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', lastObserved: '2026-07-05T10:22:00.000Z' },
   ]
   const section = buildArbitrationSection(disagreements, '2026-07-11')
   const recovered = extractQuestionsFromIssueText(section)
@@ -170,7 +170,7 @@ test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips a que
 test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips a question containing a longer (4-backtick) fence run', () => {
   const question = 'Outer fence:\n````\nnested ```text``` fence\n````\nDoes this fit?'
   const disagreements: Disagreement[] = [
-    { question, servedRoute: 'narrate_fit', judgeRoute: 'narrate', firstSeen: '2026-07-06T00:00:00.000Z' },
+    { question, servedRoute: 'narrate_fit', judgeRoute: 'narrate', lastObserved: '2026-07-06T00:00:00.000Z' },
   ]
   const section = buildArbitrationSection(disagreements, '2026-07-11')
   assert.deepEqual(extractQuestionsFromIssueText(section), [question])
@@ -178,8 +178,8 @@ test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips a que
 
 test('buildArbitrationSection -> extractQuestionsFromIssueText round-trips multiple disagreements when some contain fences and some do not', () => {
   const disagreements: Disagreement[] = [
-    { question: 'plain question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', firstSeen: '2026-07-01T00:00:00Z' },
-    { question: FENCED_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', firstSeen: '2026-07-02T00:00:00Z' },
+    { question: 'plain question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', lastObserved: '2026-07-01T00:00:00Z' },
+    { question: FENCED_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', lastObserved: '2026-07-02T00:00:00Z' },
   ]
   const section = buildArbitrationSection(disagreements, '2026-07-11')
   assert.deepEqual(extractQuestionsFromIssueText(section), ['plain question', FENCED_QUESTION])
@@ -193,7 +193,7 @@ test('buildArbitrationSection: zero disagreements produces a section that round-
 
 test('buildArbitrationSection: labels the timestamp "Last observed", not "First observed" (the value is the most recent occurrence — distinctByNormalizedQuestion keeps the first row of a most-recent-first-sorted list)', () => {
   const disagreements: Disagreement[] = [
-    { question: 'plain question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', firstSeen: '2026-07-05T10:22:00.000Z' },
+    { question: 'plain question', servedRoute: 'narrate', judgeRoute: 'narrate_fit', lastObserved: '2026-07-05T10:22:00.000Z' },
   ]
   const section = buildArbitrationSection(disagreements, '2026-07-11')
   assert.match(section, /Last observed: 2026-07-05T10:22:00\.000Z/)
@@ -223,9 +223,9 @@ test('formatReport: counts agreements and disagreements correctly, and lists eac
     distinctTotal: 12,
     newTotal: 3,
     judged: [
-      { question: 'agree one', servedRoute: 'narrate', judgeRoute: 'narrate', firstSeen: '2026-07-10T00:00:00Z' },
-      { question: NASTY_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', firstSeen: '2026-07-10T01:00:00Z' },
-      { question: 'agree two', servedRoute: 'narrate_fit', judgeRoute: 'narrate_fit', firstSeen: '2026-07-10T02:00:00Z' },
+      { question: 'agree one', servedRoute: 'narrate', judgeRoute: 'narrate', lastObserved: '2026-07-10T00:00:00Z' },
+      { question: NASTY_QUESTION, servedRoute: 'narrate', judgeRoute: 'open_match_tool', lastObserved: '2026-07-10T01:00:00Z' },
+      { question: 'agree two', servedRoute: 'narrate_fit', judgeRoute: 'narrate_fit', lastObserved: '2026-07-10T02:00:00Z' },
     ],
   })
   assert.match(report, /observed rows: 50/)
