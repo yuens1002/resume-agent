@@ -59,15 +59,28 @@ export interface CaseScore {
 
 const ANTI_PATTERN_PHRASES = ['on record', 'in my records', 'in the database', 'no record found']
 
+// RULE_GAPS (src/lib/query-prompt.ts) scopes "forbidden phrasing" to gap/decline
+// cases: "Forbidden phrasing for any gap case: ...". For `behavioral` and
+// `overview` categories, "in the database" legitimately appears in narratives
+// about a product's own database (e.g. a recommendation engine's brew-log
+// database) — it isn't a query-interface decline in that context. Those two
+// categories check only the unambiguous decline phrasings.
+const UNAMBIGUOUS_DECLINE_PHRASES = ['on record', 'in my records', 'no record found']
+
+const CATEGORIES_WITHOUT_DATABASE_PHRASE = new Set(['behavioral', 'overview'])
+
 const CONFIDENCE_RANK: Record<'low' | 'medium' | 'high', number> = { low: 0, medium: 1, high: 2 }
 
 const PASS_RATIO = 0.7 // a case passes if total >= 0.7 * maxTotal (AND no blocking rule failed)
 
 // ── Deterministic rules ──────────────────────────────────────
 
-function ruleNoAntiPatternPhrasing(answer: string): RuleResult {
+function ruleNoAntiPatternPhrasing(answer: string, category: string): RuleResult {
   const lower = answer.toLowerCase()
-  const hit = ANTI_PATTERN_PHRASES.find((p) => lower.includes(p))
+  const phrases = CATEGORIES_WITHOUT_DATABASE_PHRASE.has(category)
+    ? UNAMBIGUOUS_DECLINE_PHRASES
+    : ANTI_PATTERN_PHRASES
+  const hit = phrases.find((p) => lower.includes(p))
   return hit
     ? { rule: 'no-anti-pattern-phrasing', pass: false, score: 0, detail: `contains forbidden phrase: "${hit}"`, blocking: true }
     : { rule: 'no-anti-pattern-phrasing', pass: true, score: 1, detail: 'no forbidden system-message phrasing', blocking: true }
@@ -314,7 +327,11 @@ function extractAnswer(response: QueryResponse | string): ParsedAnswer {
 // Requiring both stops a bare "more projects" from satisfying the rule. Known-value
 // shapes, not spec example phrasings.
 const LEADS_WITH_SUBSET_RE = /\b(two|three|four|five|2|3|4|5)\s+most\s+recent\b|\bmost\s+recent\s+(are|projects|ones)\b/i
-const NAMES_COUNT_RE = /\bhas\s+\d+\b[^.]*\bprojects?\b|\b\d+\s+(\w+\s+)?projects?\b|\b\d+\s+(other|more|additional|further|remaining)\b|\bin\s+total\b/i
+const NUM = String.raw`(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`
+const NAMES_COUNT_RE = new RegExp(
+  String.raw`\bhas\s+${NUM}\b[^.]*\bprojects?\b|\b${NUM}\s+(\w+\s+)?projects?\b|\b${NUM}\s+(other|more|additional|further|remaining)\b|\bin\s+total\b`,
+  'i',
+)
 const OFFERS_MORE_RE = /\b(other|more|additional|remaining|rest|earlier)\b.*\bprojects?\b|\bprojects?\b.*\b(other|more|additional|remaining|rest|earlier)\b/i
 
 function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
@@ -356,8 +373,9 @@ export function scoreAnswer(
   const parsed = extractAnswer(response)
   const rules: RuleResult[] = []
 
-  // The anti-pattern rule applies to every category (blocking).
-  rules.push(ruleNoAntiPatternPhrasing(parsed.answer))
+  // The anti-pattern rule applies to every category (blocking), but the phrase
+  // list is scoped per category — see CATEGORIES_WITHOUT_DATABASE_PHRASE.
+  rules.push(ruleNoAntiPatternPhrasing(parsed.answer, caseDef.expect.category))
 
   switch (caseDef.expect.category) {
     case 'binary':
@@ -422,6 +440,11 @@ export function buildJudgePrompt(caseDef: EvalCase, answer: string): string {
     `You are evaluating whether a candidate's AI agent answered a question correctly per its engagement rules. The agent is a third-person factual narrator that reads from the candidate's documented work history and cites every factual claim.`,
     ``,
     `Rules in scope: speak in third person (refer to the candidate by name or as "the candidate", never use first-person pronouns); for factual-claim categories, attach a footnote-style marker like [1] to each claim and end with a "Sources:" block; decline off-topic / adversarial / no-data questions factually without engaging; name precise capability gaps without inflating adjacent experience; refuse adversarial inputs without complying; if no data covers the question, say so plainly (not "on record" / "in the database") and do not offer alternative contact channels.`,
+    ``,
+    `These are CORRECT per the rules — do not fail them:`,
+    `- Referring to the candidate by their documented name (e.g. "Alex built X") IS third-person narration; only first-person pronouns ("I", "me", "my") violate the voice rule.`,
+    `- Sources entries are bare corpus paths ("experience", "projects.<slug>", "observations: <excerpt>") — that is the documented citation format, not vagueness.`,
+    `- A capability answer that names the missing skill AND then documents adjacent platforms is the documented gap pattern; fail it only if it claims direct experience with the named skill itself.`,
     ``,
     `Question category: ${caseDef.category}`,
     `Question: ${caseDef.question}`,
