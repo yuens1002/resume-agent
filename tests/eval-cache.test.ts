@@ -9,7 +9,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cacheKey, loadCache, saveCache } from '../scripts/eval/eval-cache.js'
@@ -62,6 +62,20 @@ test('saveCache -> loadCache: round-trips through a temp path', () => {
     const data = { abc123: 'narrate', def456: 'open_match_tool' }
     saveCache(data, path)
     assert.deepEqual(loadCache(path), data)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('saveCache: writes keys in sorted order regardless of insertion order', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eval-cache-sort-'))
+  const path = join(dir, 'verdicts.json')
+  try {
+    // Insertion order deliberately unsorted — a concurrency pool inserts in
+    // completion order, which must not leak into the committed file's diff.
+    saveCache({ zzz: 'narrate', aaa: 'open_match_tool', mmm: 'narrate_fit' }, path)
+    const raw = readFileSync(path, 'utf8')
+    assert.deepEqual(Object.keys(JSON.parse(raw)), ['aaa', 'mmm', 'zzz'])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

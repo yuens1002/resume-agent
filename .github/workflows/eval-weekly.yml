@@ -1,0 +1,160 @@
+name: Weekly eval gate
+
+# THE eval gate for this repo — weekly cadence, owner decision 2026-07-11
+# (#201): traffic and change volume don't warrant a daily gate, and eval
+# regressions are not mission-critical. This workflow replaced the nightly
+# eval-query.yml entirely.
+#
+# Everything runs on the exact OpenRouter serving path production uses —
+# never the Claude CLI. The subscription CLI provider
+# (`npm run eval:route -- --provider claude-code`) remains a free LOCAL dev
+# tool only: its free-text decoding is measurably noisier than production's
+# generateObject-forced enum on narrate/narrate_fit boundary cases (see
+# RouteCase.cli_unstable), and the CLI's self-updater corrupted a live run
+# mid-eval on 2026-07-11 — both disqualify it as a CI gate.
+#
+# Three checks:
+#   1. route-haiku  — golden set on the production default model (#195's
+#                       regression guard + #190's provider-drift guard)
+#   2. route-judge   — a stronger judge model re-checked against the same
+#                       golden labels, to catch cases where the default
+#                       model's answer is "right" only by luck
+#   3. query-judge    — the /query eval with the LLM-as-judge rule enabled,
+#                       a semantic spot-check on top of the #197-class
+#                       deterministic citation checks
+#
+# Failures open/update a deduped `eval-parity` issue; the close-when-green
+# step closes it once all three checks pass again. All steps use the
+# isolated OPENROUTER_API_KEY_EVAL — a full weekly run costs well under $1,
+# and an eval burn can never exhaust the production key (#201).
+#
+# Full environment-fidelity rationale (prod vs OpenRouter eval vs CLI
+# provider, and why each runs where it does): docs/eval-environments.md
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'  # Mondays 5am UTC
+  workflow_dispatch:       # manual run from GitHub UI or `gh workflow run eval-weekly.yml`
+
+concurrency:
+  group: eval-weekly
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Production default model via OpenRouter — the exact prod serving path.
+      - name: Run route classifier eval (OpenRouter, prod default model)
+        id: route-haiku
+        timeout-minutes: 20
+        env:
+          OPENROUTER_API_KEY_EVAL: ${{ secrets.OPENROUTER_API_KEY_EVAL }}
+        run: |
+          set +e
+          {
+            echo '=== route classifier eval — prod default model (npm run eval:route) ==='
+            npm run eval:route -- --no-cache
+          } >> eval-output.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          tail -n 40 eval-output.log
+
+      # Judge validation: a stronger model against the same golden labels.
+      - name: Run route classifier eval (OpenRouter, judge model)
+        id: route-judge
+        timeout-minutes: 20
+        env:
+          OPENROUTER_API_KEY_EVAL: ${{ secrets.OPENROUTER_API_KEY_EVAL }}
+        run: |
+          set +e
+          {
+            echo
+            echo '=== route classifier eval — judge model (npm run eval:route) ==='
+            npm run eval:route -- --no-cache --model anthropic/claude-sonnet-4.5
+          } >> eval-output.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          tail -n 40 eval-output.log
+
+      # /query eval with the LLM-as-judge rule — a weekly semantic spot-check
+      # on top of the #197-class deterministic citation checks.
+      - name: Run query eval (LLM-as-judge)
+        id: query-judge
+        timeout-minutes: 20
+        env:
+          SUPA_PROJECT_URL: ${{ secrets.SUPA_PROJECT_URL }}
+          SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
+          OPENROUTER_API_KEY_EVAL: ${{ secrets.OPENROUTER_API_KEY_EVAL }}
+        run: |
+          set +e
+          {
+            echo
+            echo '=== query eval — LLM-as-judge (npm run eval:query -- --judge) ==='
+            npm run eval:query -- --judge
+          } >> eval-output.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          tail -n 40 eval-output.log
+
+      - name: Open or update a parity issue on failure
+        if: steps.route-haiku.outputs.exit_code != '0' || steps.route-judge.outputs.exit_code != '0' || steps.query-judge.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create eval-parity --color B60205 \
+            --description "Weekly OpenRouter parity run caught provider drift or a judge disagreement" 2>/dev/null || true
+
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label eval-parity --state open \
+            --json number -q '.[0].number // empty')
+
+          BODY_FILE=$(mktemp)
+          {
+            echo "Weekly OpenRouter parity eval failed on $(date -u +%Y-%m-%dT%H:%M:%SZ) — route-haiku exit ${{ steps.route-haiku.outputs.exit_code }}, route-judge exit ${{ steps.route-judge.outputs.exit_code }}, query-judge exit ${{ steps.query-judge.outputs.exit_code }}."
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo '```'
+            tail -c 60000 eval-output.log
+            echo '```'
+          } > "$BODY_FILE"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "chore(eval): weekly OpenRouter parity regression — $(date -u +%Y-%m-%d)" \
+              --label eval-parity \
+              --body-file "$BODY_FILE"
+          fi
+
+      - name: Close the standing parity issue once green again
+        if: steps.route-haiku.outputs.exit_code == '0' && steps.route-judge.outputs.exit_code == '0' && steps.query-judge.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --label eval-parity --state open \
+            --json number -q '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+              --body "Passing again as of $(date -u +%Y-%m-%dT%H:%M:%SZ) — closing. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Fail the job if any eval run failed
+        if: steps.route-haiku.outputs.exit_code != '0' || steps.route-judge.outputs.exit_code != '0' || steps.query-judge.outputs.exit_code != '0'
+        run: exit 1

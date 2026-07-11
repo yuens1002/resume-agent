@@ -587,6 +587,8 @@ npm run eval:query -- --runs 3 --baseline
 
 Read the per-case `PASS/FAIL — <rule>: <detail>` lines, then the category summary, the overall score, and the **latency report** (p50/p95 for total / llm / retrieval, plus the slowest cases). The harness measures correctness **and** latency on one fixed set, so latency is only ever optimized with the pass rate held — see [`docs/plans/query-latency.md`](docs/plans/query-latency.md) and the recorded snapshots in [`docs/eval-baselines.md`](docs/eval-baselines.md).
 
+The route classifier has its own golden-set eval (`npm run eval:route` — 112 spec-labeled cases, result-cached for dev iteration, weekly CI gate). It can run against two backends with genuinely different behavior — the production OpenRouter path (the gate) and a free local Claude-CLI path (dev tool only). Which runs where, and the empirically-established reasons why, are documented in [`docs/eval-environments.md`](docs/eval-environments.md).
+
 ---
 
 ## Workflow

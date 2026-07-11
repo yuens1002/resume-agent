@@ -44,6 +44,21 @@ export interface RouteCase {
   source: 'eval-legacy' | 'incident' | 'observed' | 'synthetic'
   /** Label rationale for cases near the decision boundary. */
   note?: string
+  /**
+   * Set (with the reason + characterization evidence) when the claude-code
+   * CLI provider systematically disagrees with the label even though the
+   * production OpenRouter path holds it. The CLI harness approximates
+   * production (same weights, but free-text decoding instead of
+   * generateObject's forced enum — see classify-via-claude-code.ts); on
+   * razor-thin boundaries the approximation can genuinely differ. Marked
+   * cases still RUN and are REPORTED on the claude-code provider (local dev
+   * sweeps) but do not gate there — the weekly CI gate (eval-weekly.yml)
+   * runs the true OpenRouter serving path, where every case gates at 100%.
+   * The label stays authoritative; this field documents a known harness
+   * divergence, never a label change. Owner decision 2026-07-11 (#201);
+   * full rationale: docs/eval-environments.md.
+   */
+  cli_unstable?: string
 }
 
 export const ROUTE_CASES: RouteCase[] = [
@@ -59,7 +74,7 @@ export const ROUTE_CASES: RouteCase[] = [
   { id: 'legacy-not-what-projects-built', expected: 'narrate', source: 'eval-legacy', question: 'What projects has Alex built?' },
   { id: 'legacy-not-show-recent-projects', expected: 'narrate', source: 'eval-legacy', question: 'Show me your recent projects' },
   { id: 'legacy-near-miss-qualified-jd', expected: 'narrate_fit', source: 'eval-legacy', question: 'Is Alex qualified for this role? Senior Frontend Engineer — 5+ years React/TypeScript, experience with design systems, comfortable owning a codebase with minimal oversight, remote-friendly.', note: 'Spec pivot 2026-07-10: "Is Alex qualified for X?" is a question, not an action request — narrate_fit even with the JD attached. (The old label\'s own note said "until real usage data says otherwise".)' },
-  { id: 'legacy-near-miss-general-skills', expected: 'narrate', source: 'eval-legacy', question: "Does Alex's skill set generally match what companies are hiring for right now?", note: 'Match verb but no specific role — asking about matching as a general capability.' },
+  { id: 'legacy-near-miss-general-skills', expected: 'narrate', source: 'eval-legacy', question: "Does Alex's skill set generally match what companies are hiring for right now?", note: 'Match verb but no specific role — asking about matching as a general capability.', cli_unstable: 'CLI path reads the match-verb-no-role boundary as narrate_fit — 1/5 rounds correct (2026-07-11 characterization) vs 336/336 on the OpenRouter enum path. Harness divergence, not a label question.' },
   { id: 'legacy-prose-fit-fintech', expected: 'narrate_fit', source: 'eval-legacy', question: 'Is Alex a fit for a Senior Backend Engineer role at a fintech startup needing strong Postgres and API design skills?', note: 'Spec pivot 2026-07-10: fit QUESTION → narrate_fit (prose answer + fit-check chip). Was open_match_tool under #182.' },
   { id: 'legacy-prose-fit-devops', expected: 'narrate_fit', source: 'eval-legacy', question: 'Any chance Alex fits a DevOps Lead role requiring Kubernetes and Terraform experience?', note: 'Spec pivot 2026-07-10: fit QUESTION → narrate_fit (prose answer + fit-check chip). Was open_match_tool under #182.' },
   { id: 'legacy-fit-verb-no-role', expected: 'narrate_fit', source: 'eval-legacy', question: 'Would Alex be a good hire?', note: "Hire-worthiness question with zero role signal — narrate_fit per the rule's good-hire example." },
@@ -125,11 +140,11 @@ export const ROUTE_CASES: RouteCase[] = [
   { id: 'boundary-ts-strong-enough', expected: 'narrate_fit', source: 'synthetic', question: "Is Alex's TypeScript strong enough for a senior position?", note: "Skill-adequacy-for-role question — narrate_fit per the rule's explicit example (judge-loop arbitration 2026-07-11)." },
   { id: 'boundary-do-well-startup', expected: 'narrate', source: 'synthetic', question: 'Would Alex do well in a startup environment?', note: 'Twin of boundary-suited-startups — environment preference, no role, narrate.' },
   { id: 'boundary-frontend-or-backend', expected: 'narrate', source: 'synthetic', question: 'Is Alex more of a frontend or backend engineer?' },
-  { id: 'boundary-senior-mentor', expected: 'narrate', source: 'synthetic', question: 'Is Alex senior enough to mentor other engineers?' },
+  { id: 'boundary-senior-mentor', expected: 'narrate', source: 'synthetic', question: 'Is Alex senior enough to mentor other engineers?', cli_unstable: 'CLI path coin-flips this no-role skill-adequacy boundary — 3/5 rounds correct (2026-07-11) vs stable on the OpenRouter enum path. Same narrate/narrate_fit divergence class as legacy-near-miss-general-skills.' },
   { id: 'boundary-salary', expected: 'narrate', source: 'synthetic', question: 'What salary range is Alex targeting?' },
   { id: 'boundary-contract', expected: 'narrate', source: 'synthetic', question: 'Is Alex open to contract roles?' },
   { id: 'boundary-why-hire', expected: 'narrate_fit', source: 'synthetic', question: 'Why should we hire Alex?', note: 'Fit-adjacent but zero role signal — a narrated pitch is the right response.' },
-  { id: 'boundary-thrive-roles', expected: 'narrate', source: 'synthetic', question: 'What roles would Alex thrive in?' },
+  { id: 'boundary-thrive-roles', expected: 'narrate', source: 'synthetic', question: 'What roles would Alex thrive in?', cli_unstable: 'CLI path reads role-exploration-with-no-specific-role as narrate_fit — 1/5 rounds correct (2026-07-11) vs stable on the OpenRouter enum path. Same narrate/narrate_fit divergence class as legacy-near-miss-general-skills.' },
   { id: 'boundary-interviewing', expected: 'narrate', source: 'synthetic', question: 'Is Alex interviewing anywhere right now?' },
 
   // ── observed: verbatim client-sent phrasings (mostly owner-generated — see header) ──

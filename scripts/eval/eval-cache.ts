@@ -53,5 +53,10 @@ export function loadCache(path = CACHE_PATH): Record<string, string> {
 
 export function saveCache(cache: Record<string, string>, path = CACHE_PATH): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(cache, null, 2) + '\n')
+  // Sorted keys: entries land in insertion order from a concurrency pool, so
+  // unsorted writes would reorder the committed file between otherwise
+  // identical runs — noisy diffs and avoidable merge conflicts in a file
+  // whose whole job is being reviewable.
+  const sorted = Object.fromEntries(Object.entries(cache).sort(([a], [b]) => a.localeCompare(b)))
+  writeFileSync(path, JSON.stringify(sorted, null, 2) + '\n')
 }

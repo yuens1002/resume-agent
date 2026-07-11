@@ -160,8 +160,18 @@ async function main(): Promise<void> {
     perCase.set(c.id, got)
   })
 
+  // Cases annotated cli_unstable are known harness divergences on the
+  // claude-code provider (see RouteCase.cli_unstable): they run and are
+  // reported, but only GATING cases decide the exit code there. On the
+  // openrouter provider (the true serving path, incl. the weekly parity
+  // run) every case gates — the annotation never weakens the real check.
+  const gates = (c: RouteCase): boolean => flags.provider !== 'claude-code' || !c.cli_unstable
+
   let hits = 0
+  let gatingHits = 0
+  let gatingTotal = 0
   const misses: string[] = []
+  const nonGating: string[] = []
   const bySource = new Map<string, { hits: number; total: number }>()
   for (const c of selected) {
     const got = perCase.get(c.id)!
@@ -171,8 +181,14 @@ async function main(): Promise<void> {
     acc.hits += ok
     acc.total += flags.rounds
     bySource.set(c.source, acc)
-    if (ok < flags.rounds) {
-      misses.push(`  ✗ ${c.id}: expected=${c.expected} got=[${got.join(', ')}] (${ok}/${flags.rounds})${c.note ? `\n      note: ${c.note}` : ''}`)
+    if (gates(c)) {
+      gatingHits += ok
+      gatingTotal += flags.rounds
+      if (ok < flags.rounds) {
+        misses.push(`  ✗ ${c.id}: expected=${c.expected} got=[${got.join(', ')}] (${ok}/${flags.rounds})${c.note ? `\n      note: ${c.note}` : ''}`)
+      }
+    } else {
+      nonGating.push(`  ${ok === flags.rounds ? '✓' : '~'} ${c.id}: expected=${c.expected} got=[${got.join(', ')}] (${ok}/${flags.rounds})\n      cli_unstable: ${c.cli_unstable}`)
     }
   }
 
@@ -183,11 +199,17 @@ async function main(): Promise<void> {
   }
   process.stdout.write(`  ─────────────────────────────────\n`)
   process.stdout.write(`  Overall:     ${hits}/${total} (${((hits / total) * 100).toFixed(1)}%)\n`)
+  if (gatingTotal !== total) {
+    process.stdout.write(`  Gating:      ${gatingHits}/${gatingTotal} (${nonGating.length} known-unstable case(s) reported below, non-gating on this provider)\n`)
+  }
   if (misses.length) {
     process.stdout.write(`\n── Misses ──────────────────────────────────\n${misses.join('\n')}\n`)
   }
+  if (nonGating.length) {
+    process.stdout.write(`\n── Known-unstable on claude-code (non-gating) ─\n${nonGating.join('\n')}\n`)
+  }
 
-  process.exit(hits === total ? 0 : 1)
+  process.exit(gatingHits === gatingTotal ? 0 : 1)
 }
 
 main().catch((err) => {
