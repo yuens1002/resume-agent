@@ -451,7 +451,12 @@ export async function queryProfile(
     return { kind: 'parse_error', raw }
   }
 
-  parsed.answer = salvageTrailingSourcesBlock(raw, parsed.answer)
+  // parseJSON casts without runtime validation — guard so a valid-JSON but
+  // wrong-shape response (non-string answer) can't turn the salvage into an
+  // unhandled throw; it flows on to the same downstream handling as before.
+  if (typeof parsed.answer === 'string') {
+    parsed.answer = salvageTrailingSourcesBlock(raw, parsed.answer)
+  }
 
   const response: QueryResponse = {
     ...parsed,
