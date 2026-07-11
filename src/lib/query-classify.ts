@@ -24,7 +24,7 @@ export function isBinaryQuestion(question: string): boolean {
   // net for paths where the classifier's narrate_fit flag isn't available
   // (streaming, classifier fallback): such fit questions land on the default
   // 1024/800 cap instead of 300.
-  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff|fit|fits|suited|suits|qualified|match|matches|hire|hiring)\b/.test(q)
+  return !/\b(how|why|walk|describe|explain|tell me|experience|approach|decision|tradeoff|fit|fits|suited|suits|qualified|match|matches|hire|hiring|ever)\b/.test(q)
 }
 
 export function isBehavioralQuestion(question: string): boolean {
@@ -32,7 +32,7 @@ export function isBehavioralQuestion(question: string): boolean {
   return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''']?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
 }
 
-// binary: 300 | fit question: 1536 | behavioral: 1024 | everything else: 1024 cited / 800 conversational
+// binary: 300 | fit question: 1536 | behavioral: 1536 | everything else: 1024 cited / 800 conversational
 // Cited responses include inline citation markers ([1], [2], …) for every project mentioned.
 // A 7-project exhaustive listing in cited style adds ~100+ tokens of citation overhead on top
 // of the prose, causing parse failures at 800. Raising cited to 1024 matches behavioral and
@@ -54,6 +54,9 @@ export function maxTokensForQuestion(
   // The classifier's route is the stronger signal; trust it first.
   if (fitQuestion) return 1536
   if (isBinaryQuestion(question)) return 300
-  if (isBehavioralQuestion(question)) return 1024
+  // Raised 1024 → 1536 (#193): behavioral answers carry 10+ citations from
+  // 8 retrieved thoughts and blow past 1024 — confirmed finishReason
+  // 'length' at exactly 1024 completion tokens. Matches the fit cap.
+  if (isBehavioralQuestion(question)) return 1536
   return style === 'cited' ? 1024 : 800
 }
