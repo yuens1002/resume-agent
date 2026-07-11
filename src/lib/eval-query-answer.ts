@@ -435,7 +435,7 @@ export function scoreAnswer(
  * to the existing list. Caller is responsible for actually wiring this into a
  * scoring run — exposed here so it can be unit-tested in isolation.
  */
-export function buildJudgePrompt(caseDef: EvalCase, answer: string): string {
+export function buildJudgePrompt(caseDef: EvalCase, answer: string, followUps?: string[]): string {
   return [
     `You are evaluating whether a candidate's AI agent answered a question correctly per its engagement rules. The agent is a third-person factual narrator that reads from the candidate's documented work history and cites every factual claim.`,
     ``,
@@ -445,10 +445,16 @@ export function buildJudgePrompt(caseDef: EvalCase, answer: string): string {
     `- Referring to the candidate by their documented name (e.g. "Alex built X") IS third-person narration; only first-person pronouns ("I", "me", "my") violate the voice rule.`,
     `- Sources entries are bare corpus paths ("experience", "projects.<slug>", "observations: <excerpt>") — that is the documented citation format, not vagueness.`,
     `- A capability answer that names the missing skill AND then documents adjacent platforms is the documented gap pattern; fail it only if it claims direct experience with the named skill itself.`,
+    `- Binary (yes/no) answers are REQUIRED to open with the word "Yes" or "No" before the third-person narration — that opener is rule compliance, not first-person voice.`,
+    `- When asked to list ALL projects, the documented progressive-disclosure rule requires leading with only the 3 most recent, naming the total count, and offering the rest as a follow-up — naming a subset is the designed behavior, not an incomplete answer.`,
     ``,
     `Question category: ${caseDef.category}`,
     `Question: ${caseDef.question}`,
     `Answer: ${answer}`,
+    // The response's structured follow_up_suggestions field is where rules like
+    // progressive disclosure's "offer the rest" are satisfied — without showing
+    // it, the judge fails answers for omitting an offer that exists.
+    ...(followUps && followUps.length ? [`Follow-up suggestions offered alongside the answer (a rule satisfied here counts as satisfied): ${JSON.stringify(followUps)}`] : []),
     ``,
     `Respond in this exact JSON shape and nothing else:`,
     `{ "pass": boolean, "reason": "one short sentence" }`,

@@ -218,7 +218,7 @@ async function main(): Promise<void> {
         const { text } = await generateText({
           model: getModel(process.env.EVAL_JUDGE_MODEL ?? 'anthropic/claude-sonnet-4.5'),
           maxTokens: 200,
-          prompt: buildJudgePrompt(caseDef, result.answer),
+          prompt: buildJudgePrompt(caseDef, result.answer, result.follow_up_suggestions),
         })
         const parsed = parseJSON(text) as { pass?: boolean; reason?: string }
         const jp = Boolean(parsed.pass)
