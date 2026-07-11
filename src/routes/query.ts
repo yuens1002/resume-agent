@@ -340,36 +340,38 @@ export async function queryProfile(
   // error, fall back to 'narrate' (the safe default; classifyRoute's own doc
   // comment makes the caller responsible for this decision).
   const skipThoughts = isBinaryQuestion(args.question)
-  // Each branch times itself — timing the Promise.all as a whole would
-  // inflate retrieval_ms by classifier time whenever the classifier is the
-  // slower of the two, skewing the phase-latency observability (#189).
-  const [[thoughts, retrieval_ms], [route, classify_ms]] = await Promise.all([
-    (async (): Promise<[string[], number]> => {
-      if (skipThoughts) return [[], 0]
-      const t0 = Date.now()
-      const t = await queryRelevantThoughtsForQuestion(args.question)
-      return [t, Date.now() - t0]
-    })(),
-    (async (): Promise<[Route, number]> => {
-      const t0 = Date.now()
-      try {
-        const r = await classifyRoute(args.question)
-        return [r, Date.now() - t0]
-      } catch (err) {
-        console.warn('[query] classifyRoute failed — falling back to narrate:', (err as Error).message)
-        return ['narrate', Date.now() - t0]
-      }
-    })(),
-  ])
+  // Both branches start immediately and time themselves, but only the
+  // classifier is awaited up front: the tool-route short-circuit below must
+  // not be latency-gated by retrieval work it would discard (retrieval p95
+  // ~1.5s). The narrate path awaits retrieval right after the route check,
+  // so it still gets full parallelism. Retrieval never rejects
+  // (queryRelevantThoughtsForQuestion falls back to [] internally), so the
+  // floating promise on the tool path is safe to abandon.
+  const retrievalPromise = (async (): Promise<[string[], number]> => {
+    if (skipThoughts) return [[], 0]
+    const t0 = Date.now()
+    const t = await queryRelevantThoughtsForQuestion(args.question)
+    return [t, Date.now() - t0]
+  })()
+  const [route, classify_ms] = await (async (): Promise<[Route, number]> => {
+    const t0 = Date.now()
+    try {
+      const r = await classifyRoute(args.question)
+      return [r, Date.now() - t0]
+    } catch (err) {
+      console.warn('[query] classifyRoute failed — falling back to narrate:', (err as Error).message)
+      return ['narrate', Date.now() - t0]
+    }
+  })()
 
   if (route === 'open_match_tool') {
-    // Deterministic short-circuit — no generateText call at all. Keeps the
-    // /query response shape fully backward-compatible (resume-agent-web
-    // keeps reading action_intent exactly as before); the retrieval above is
-    // discarded, but its cost was already paid concurrently with the
-    // classifier call, not added on top of it. Never cached (see
-    // shouldCacheResponse below) — this branch returns before reaching the
-    // cache-set call.
+    // Deterministic short-circuit — no generateText call at all, and the
+    // still-running retrieval promise is abandoned unawaited (it never
+    // rejects, see above), so this path's latency is the classifier call
+    // alone. Keeps the /query response shape fully backward-compatible
+    // (resume-agent-web keeps reading action_intent exactly as before).
+    // Never cached (see shouldCacheResponse below) — this branch returns
+    // before reaching the cache-set call.
     return {
       answer: 'Opening the job-fit tool now.',
       confidence: 'high',
@@ -384,6 +386,8 @@ export async function queryProfile(
       meta: { model: MODEL, latency_ms: classify_ms },
     }
   }
+
+  const [thoughts, retrieval_ms] = await retrievalPromise
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
