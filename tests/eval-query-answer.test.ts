@@ -458,6 +458,46 @@ describe('AC-11: capability-kubernetes case fixture drops the false-positive ent
   })
 })
 
+// ── #202: name-aware no_data regexes with hostile fork names ──
+
+describe('#202: name-aware no_data regexes with hostile fork names', () => {
+  const noDataCase: EvalCase = {
+    id: 'fixture-no-data-hostile-names',
+    category: 'no_data',
+    question: 'Did the candidate manage a large team?',
+    expect: { category: 'no_data' },
+  }
+  const DECLINE = 'The candidate does not appear to have documented work history relevant to this question.'
+  const findRule = (answer: string, candidateName: string) =>
+    scoreAnswer(noDataCase, makeResponse(answer), candidateName).rules.find((x) => x.rule === 'no-data-factual-decline')!
+
+  it('regex-metacharacter name compiles and catches an inference claim', () => {
+    const r = findRule(`${DECLINE} However, A+B(x)* led the replatforming effort.`, 'A+B(x)*')
+    assert.equal(r.pass, false)
+    assert.match(r.detail, /inference claim/)
+  })
+
+  it('regex-metacharacter name does not false-positive on a clean decline', () => {
+    const r = findRule(DECLINE, 'A+B(x)*')
+    assert.equal(r.pass, true)
+  })
+
+  it('CJK name catches an inference claim (ASCII \\b never matched here)', () => {
+    const r = findRule(`${DECLINE} But 孙 led a team of thirty engineers.`, '孙')
+    assert.equal(r.pass, false)
+    assert.match(r.detail, /inference claim/)
+  })
+
+  it('accented name trips the contact-CTA tail, and a longer word containing it does not', () => {
+    const cta = findRule(`${DECLINE} Please contact José for details.`, 'José')
+    assert.equal(cta.pass, false)
+    assert.match(cta.detail, /disallowed content/)
+    // "Josée" must not match name "José" — the Unicode lookahead blocks the prefix match.
+    const nearMiss = findRule(`${DECLINE} Please contact Josée for details.`, 'José')
+    assert.equal(nearMiss.pass, true)
+  })
+})
+
 // ── AC-8: no-data-offers-contact rule is gone from the rubric source ──
 
 describe('AC-8: no-data-offers-contact rule is gone', () => {

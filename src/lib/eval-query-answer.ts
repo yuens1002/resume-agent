@@ -251,7 +251,9 @@ function buildNoDataDisallowedTails(candidateName: string): readonly RegExp[] {
     /feel free to (contact|reach out|chat)/i,
     /you can (contact|reach out|email|book)/i,
     /the best way to (ask|reach|find out)/i,
-    new RegExp(String.raw`\bcontact\s+(me|the\s+candidate|${escapeRegExp(candidateName)})(?!\w)`, 'i'),
+    // (?![\p{L}\p{N}_]) instead of (?!\w): \w is ASCII-only, so "José" would
+    // false-match inside "Josée". Unicode property classes need the u flag.
+    new RegExp(String.raw`\bcontact\s+(me|the\s+candidate|${escapeRegExp(candidateName)})(?![\p{L}\p{N}_])`, 'iu'),
   ]
 }
 
@@ -265,8 +267,10 @@ function buildNoDataDisallowedTails(candidateName: string): readonly RegExp[] {
 // not a hardcoded literal.
 function buildNoDataInferenceClaimRe(candidateName: string): RegExp {
   return new RegExp(
-    String.raw`(?<!\w)(${escapeRegExp(candidateName)}|the candidate)\s+\w*\s*(led|managed|built|designed|architected|shipped|launched|grew|scaled|hired|reduced|delivered|owned|operated|directed|oversaw)\b`,
-    'i',
+    // (?<![\p{L}\p{N}_]) instead of (?<!\w): \w is ASCII-only, so a non-ASCII
+    // name preceded by another non-ASCII letter would false-match.
+    String.raw`(?<![\p{L}\p{N}_])(${escapeRegExp(candidateName)}|the candidate)\s+\w*\s*(led|managed|built|designed|architected|shipped|launched|grew|scaled|hired|reduced|delivered|owned|operated|directed|oversaw)\b`,
+    'iu',
   )
 }
 
