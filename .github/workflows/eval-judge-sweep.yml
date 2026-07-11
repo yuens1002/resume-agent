@@ -1,0 +1,48 @@
+name: Weekly judge sweep
+
+# The #205 half of the weekly eval cadence: turns organic production traffic
+# into golden-set growth. Sibling workflow to eval-weekly.yml (same weekly
+# schedule) rather than a fourth step there, because this job's outcome
+# semantics are different — eval-weekly.yml's steps are pass/fail checks that
+# feed its own eval-parity issue, while this job's "failure mode" is an
+# arbitration queue the script itself files/updates as a GitHub issue
+# (label eval-arbitration). A served-route vs judge-route disagreement is
+# NEVER a red X here — see scripts/eval/judge-sweep.ts's exit-code contract.
+# Only infrastructure errors (DB unreachable, judge model call failing,
+# missing env, or a `gh` failure while filing) fail this job.
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'  # Mondays 5am UTC — same cadence as eval-weekly.yml
+  workflow_dispatch:       # manual run from GitHub UI or `gh workflow run eval-judge-sweep.yml`
+
+concurrency:
+  group: eval-judge-sweep
+  cancel-in-progress: true
+
+jobs:
+  judge-sweep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run judge sweep over production traffic
+        timeout-minutes: 20
+        env:
+          SUPA_PROJECT_URL: ${{ secrets.SUPA_PROJECT_URL }}
+          SUPA_SERVICE_ROLE: ${{ secrets.SUPA_SERVICE_ROLE }}
+          OPENROUTER_API_KEY_EVAL: ${{ secrets.OPENROUTER_API_KEY_EVAL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run eval:judge-sweep
