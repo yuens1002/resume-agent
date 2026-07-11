@@ -75,6 +75,10 @@ export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
     model: input.response.meta?.model ?? null,
     provider: input.response.meta?.provider ?? null,
     finish_reason: input.response.meta?.finish_reason ?? null,
+    // Which route the classifier picked (#195), for the production-traffic
+    // accuracy loop — null for narrated answers (no tool call) and for
+    // streaming callers that log a partial payload with no action_intent.
+    action_intent: input.response.action_intent?.tool ?? null,
     latency_ms: input.latency_ms,
     llm_ms: input.response.meta?.latency_ms ?? null,
     retrieval_ms: input.response.meta?.retrieval_ms ?? null,

@@ -29,7 +29,6 @@ import type {
   BehavioralExpect,
   OffTopicExpect,
   AdversarialExpect,
-  ActionIntentExpect,
 } from './eval-query-types.js'
 import type { QueryResponse } from '../types.js'
 
@@ -343,42 +342,10 @@ function ruleOverview(parsed: ParsedAnswer): RuleResult[] {
   ]
 }
 
-/**
- * Acceptance spec for #174 (real tool-calling for action-intent routing).
- * `QueryResponse` has no action-intent signal yet — routing is still faked
- * client-side via a regex in resume-agent-web. This rule checks the shape
- * #174 proposes: a first-class `action_intent` field the frontend can read
- * directly instead of re-deciding from free text. Blocking, not additive —
- * a wrong routing decision isn't a partial-credit quality issue, it's a
- * correctness failure (same reasoning as `adversarial-no-compliance`).
- *
- * Because the field doesn't exist yet, `actionIntent` is always `undefined`
- * today — so every `shouldOpenTool: true` case fails (nothing can open a
- * tool that isn't there) while `shouldOpenTool: false` cases pass, but only
- * by the field's absence, not because a real routing decision was made. The
- * positive cases are the falsifiable target #174's implementation has to
- * satisfy; the negative cases start proving anything only once the field
- * exists and can actually disagree with them.
- */
-function ruleActionIntent(response: QueryResponse | string, expect: ActionIntentExpect): RuleResult[] {
-  const actionIntent =
-    typeof response === 'string'
-      ? undefined
-      : (response as QueryResponse & { action_intent?: { tool: string } | null }).action_intent
-  const openedTool = Boolean(actionIntent?.tool)
-  const pass = openedTool === expect.shouldOpenTool
-  return [
-    {
-      rule: 'action-intent-routes-correctly',
-      pass,
-      score: pass ? 1 : 0,
-      detail: pass
-        ? `routing decision matches expectation (shouldOpenTool=${expect.shouldOpenTool})`
-        : `expected shouldOpenTool=${expect.shouldOpenTool}, got action_intent=${JSON.stringify(actionIntent ?? null)}`,
-      blocking: true,
-    },
-  ]
-}
+// The `action_intent` eval category (and its rule, `ruleActionIntent`) was
+// removed in #195 — action-intent routing coverage now lives in the
+// dedicated route-classifier golden set (scripts/eval/route-cases.ts, run
+// via `npm run eval:route`), which exercises `classifyRoute()` directly.
 
 // ── Public API ───────────────────────────────────────────────
 
@@ -417,9 +384,6 @@ export function scoreAnswer(
     case 'overview':
       rules.push(...ruleOverview(parsed))
       rules.push(ruleCitesSource(parsed.answer))
-      break
-    case 'action_intent':
-      rules.push(...ruleActionIntent(response, caseDef.expect))
       break
   }
 
