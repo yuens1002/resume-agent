@@ -252,7 +252,13 @@ describe('buildQueryPrompt — HIDE_FROM_PROJECTS filtering (#176)', () => {
     assert.ok(prompt.includes('"artisan-roast"'), 'the one genuinely remaining project should stay')
   })
 
-  it('is a no-op when the hidden set is empty (default — HIDE_FROM_PROJECTS unset)', () => {
+  // Both default-call-shape tests below assert behavior that only holds when
+  // HIDE_FROM_PROJECTS is genuinely unset in the running process (dev shells
+  // load .env.local, which may set it) — skip rather than fail on a machine
+  // where the precondition doesn't hold. CI runs them.
+  const hiddenEnvSet = (process.env.HIDE_FROM_PROJECTS ?? '').trim() !== ''
+
+  it('is a no-op when the hidden set is empty (default — HIDE_FROM_PROJECTS unset)', { skip: hiddenEnvSet && 'HIDE_FROM_PROJECTS is set in this environment' }, () => {
     const withDefault = buildQueryPrompt(PROFILE_WITH_PROJECTS, [], 'What projects has Alex built?')
     const withExplicitEmpty = buildQueryPrompt(
       PROFILE_WITH_PROJECTS,
@@ -273,7 +279,7 @@ describe('buildQueryPrompt — HIDE_FROM_PROJECTS filtering (#176)', () => {
   // (4 args, no hidden-set override) and assert it exactly matches building
   // the same prompt with an explicit empty hidden set (the unfiltered path,
   // since filterVisibleProjects treats an empty Set as a pure no-op).
-  it('byte-identical to the unfiltered path when HIDE_FROM_PROJECTS is unset (invariant)', () => {
+  it('byte-identical to the unfiltered path when HIDE_FROM_PROJECTS is unset (invariant)', { skip: hiddenEnvSet && 'HIDE_FROM_PROJECTS is set in this environment' }, () => {
     const preExisting = buildQueryPrompt(
       PROFILE_WITH_PROJECTS,
       ['some retrieved observation'],
