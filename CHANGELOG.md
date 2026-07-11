@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-11 — feat(query): narrate_fit route + fit_question response flag (#199) — the classifier's three-way route surfaces "this narrated answer was about fit" so resume-agent-web renders its deterministic fit-check chip without re-guessing from text; fit questions get a 1536-token ceiling that overrides the binary heuristic (fixes live parse_error 500 on "Is Sunny a fit for X?" phrasings); observed_queries logs fit_question for the judge sweep
+
 - 2026-07-11 — feat(query): classify action intent via dedicated pre-pass instead of in-generation tool-calling (#195) — open_match_tool routing moves from an AI-SDK tool exposed during answer generation to classifyRoute() run in parallel with retrieval; tool-route short-circuits deterministically, narrate-route never sees a tool (kills the #194 misfire class); public-mcp rewrites tool intents into a narrated pointer (#183); observed_queries logs the route decision; legacy action_intent eval category removed (route eval owns routing coverage)
 
 - 2026-07-10 — feat(eval): route-classifier golden set (112 spec-labeled cases) + nightly baseline run, and the classifier module it asserts (#195) — includes the owner-decided spec pivot (tool only on résumé intent or explicit procedure invocation; fit QUESTIONS narrate), judge validation via `--model`, and drops the hardcoded `--env-file=.env.local` that broke the nightly eval in CI (#184)

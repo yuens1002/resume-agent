@@ -82,6 +82,20 @@ describe('maxTokensForQuestion', () => {
     assert.equal(maxTokensForQuestion('Walk me through his last project', 'conversational'), 1024)
   })
 
+  // #199: fit questions narrate under the narrate-first spec and produce the
+  // longest answer shape (profile-vs-role comparison). Critically, the fit
+  // flag must BEAT the binary heuristic: "Is Sunny a fit for X?" reads as
+  // binary (starts with "Is", short) and the 300-token cap truncated a real
+  // fit answer mid-JSON into a parse_error 500 on the first live smoke test.
+  it('fit questions get 1536, overriding the binary heuristic', () => {
+    const q = 'Is Sunny a fit for a Senior Backend Engineer role at a fintech startup?'
+    assert.equal(isBinaryQuestion(q), true, 'precondition: this phrasing pattern-matches binary')
+    assert.equal(maxTokensForQuestion(q, 'cited', true), 1536)
+    assert.equal(maxTokensForQuestion(q, 'conversational', true), 1536)
+    // without the flag, unchanged behavior
+    assert.equal(maxTokensForQuestion(q, 'cited'), 300)
+  })
+
   it('non-binary non-behavioral questions get 1024 cited / 800 conversational', () => {
     // cited adds inline citation markers ([1][2]…) per project — 7-project exhaustive listings
     // overflow 800 in cited mode; raising cited to 1024 matches behavioral ceiling.

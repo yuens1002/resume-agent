@@ -24,12 +24,27 @@ export function isBehavioralQuestion(question: string): boolean {
   return /\b(how do you|walk me through|tell me about|describe (a |your )|what[''']?s your approach|approach to|what is your approach|how (would|did|do) you handle|how (have|did) you)\b/.test(q)
 }
 
-// binary: 300 | behavioral: 1024 | everything else: 1024 cited / 800 conversational
+// binary: 300 | fit question: 1536 | behavioral: 1024 | everything else: 1024 cited / 800 conversational
 // Cited responses include inline citation markers ([1], [2], …) for every project mentioned.
 // A 7-project exhaustive listing in cited style adds ~100+ tokens of citation overhead on top
 // of the prose, causing parse failures at 800. Raising cited to 1024 matches behavioral and
 // gives sufficient headroom. Conversational stays at 800 — no citation markup, shorter output.
-export function maxTokensForQuestion(question: string, style: 'cited' | 'conversational'): number {
+//
+// fitQuestion (#199): fit questions narrate under the narrate-first spec (#195) instead of
+// opening the tool, and a profile-vs-role comparison is the longest answer shape the system
+// produces — 1024 truncated one mid-JSON on the very first smoke test (the #193 parse_error
+// shape). The classifier route is known before generation, so the ceiling keys on it.
+export function maxTokensForQuestion(
+  question: string,
+  style: 'cited' | 'conversational',
+  fitQuestion = false,
+): number {
+  // fitQuestion wins over the binary heuristic: "Is Sunny a fit for X?"
+  // pattern-matches isBinaryQuestion (starts with "Is", short, no behavioral
+  // keywords), but the answer is a full profile-vs-role comparison — 300
+  // tokens truncates it mid-JSON and the request 500s as a parse_error.
+  // The classifier's route is the stronger signal; trust it first.
+  if (fitQuestion) return 1536
   if (isBinaryQuestion(question)) return 300
   if (isBehavioralQuestion(question)) return 1024
   return style === 'cited' ? 1024 : 800

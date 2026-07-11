@@ -79,6 +79,11 @@ export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
     // accuracy loop — null for narrated answers (no tool call) and for
     // streaming callers that log a partial payload with no action_intent.
     action_intent: input.response.action_intent?.tool ?? null,
+    // Whether the classifier flagged a fit/suitability question (#199) —
+    // logged so the judge sweep can score the full three-way route decision
+    // (narrate / narrate_fit / open_match_tool), not just the tool binary.
+    // Null (not false) when the payload is partial (streaming callers).
+    fit_question: input.response.fit_question ?? null,
     latency_ms: input.latency_ms,
     llm_ms: input.response.meta?.latency_ms ?? null,
     retrieval_ms: input.response.meta?.retrieval_ms ?? null,

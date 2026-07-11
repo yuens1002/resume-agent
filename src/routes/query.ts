@@ -379,6 +379,7 @@ export async function queryProfile(
       follow_up_suggestions: [],
       project_slugs: [],
       action_intent: { tool: 'open_match_tool' },
+      fit_question: false,
       contact: {
         email: profile.contact?.email,
         calendly: profile.contact?.calendly,
@@ -394,7 +395,7 @@ export async function queryProfile(
   const start = Date.now()
   const { text: raw, finishReason, response: modelResponse } = await generateText({
     model: getModel(),
-    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
+    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited', route === 'narrate_fit'),
     system: buildSystemPrompt('json', style),
     prompt,
   })
@@ -413,6 +414,9 @@ export async function queryProfile(
     ...parsed,
     project_slugs: parsed.project_slugs ?? [],
     action_intent: null,
+    // narrate_fit answers identically to narrate — the flag is the only
+    // difference, and it's what the frontend's follow-up chip keys on (#199).
+    fit_question: route === 'narrate_fit',
     contact: {
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,
