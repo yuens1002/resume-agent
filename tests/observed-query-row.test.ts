@@ -22,6 +22,7 @@ function fullInput() {
       confidence: 'high' as const,
       sources: ['projects.resume-agent'],
       follow_up_suggestions: ['What else?'],
+      action_intent: null as { tool: string } | null,
       contact: {},
       meta: {
         model: 'anthropic/claude-haiku-4.5',
@@ -65,6 +66,31 @@ describe('buildObservedQueryRow', () => {
   it('maps meta.finish_reason to finish_reason', () => {
     const row = buildObservedQueryRow(fullInput(), 'hashed')
     assert.equal(row.finish_reason, 'stop')
+  })
+
+  // #195: the classifier pre-pass routing decision, logged so production
+  // traffic accuracy can be monitored over time (the weekly judge sweep).
+  it('maps response.action_intent.tool to action_intent', () => {
+    const input = fullInput()
+    input.response.action_intent = { tool: 'open_match_tool' }
+    const row = buildObservedQueryRow(input, 'hashed')
+    assert.equal(row.action_intent, 'open_match_tool')
+  })
+
+  it('nulls action_intent when the response routed to narrate (action_intent: null)', () => {
+    const row = buildObservedQueryRow(fullInput(), 'hashed')
+    assert.equal(row.action_intent, null)
+  })
+
+  it('nulls action_intent when absent entirely (streaming partial payload)', () => {
+    const input = {
+      source: 'mcp' as const,
+      question: 'q',
+      response: { answer: 'collected stream text' },
+      latency_ms: 4200,
+    }
+    const row = buildObservedQueryRow(input, null)
+    assert.equal(row.action_intent, null)
   })
 
   it('nulls provider and finish_reason when absent from meta (older shape / provider that does not report it)', () => {

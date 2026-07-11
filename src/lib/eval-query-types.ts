@@ -13,7 +13,6 @@ export type EvalCategory =
   | 'adversarial'
   | 'no_data'
   | 'overview'
-  | 'action_intent'
 
 export interface BinaryExpect {
   category: 'binary'
@@ -57,27 +56,10 @@ export interface OverviewExpect {
   category: 'overview'
 }
 
-/**
- * Action-intent routing (#174): does the question want a narrated answer, or
- * does it want to open the job-match/résumé-tailoring flow? `shouldOpenTool`
- * is the ground-truth label a human assigned to the question. Negative cases
- * (topically adjacent but should NOT open the tool) are as important as
- * positive ones — that boundary is exactly what a client-side regex can't
- * hold, and is the reason #174 proposes real tool-calling instead.
- *
- * NOTE: `QueryResponse` does not carry an action-intent signal yet (see
- * `ruleActionIntent` in `eval-query-answer.ts`). Concretely, that means every
- * `shouldOpenTool: true` case fails today (nothing can open a tool that
- * doesn't exist) while `shouldOpenTool: false` cases pass — coincidentally,
- * by the field's absence rather than by a real routing decision. The
- * positive cases are the falsifiable target #174 has to satisfy; the
- * negative cases don't yet prove anything and will only become a real check
- * once the field exists and can actually disagree with them.
- */
-export interface ActionIntentExpect {
-  category: 'action_intent'
-  shouldOpenTool: boolean
-}
+// Action-intent routing coverage moved to the dedicated route-classifier
+// golden set (scripts/eval/route-cases.ts, `npm run eval:route`) in #195 —
+// see that file's header for why keeping a second labeled set here was
+// removed rather than kept in sync.
 
 export type EvalExpect =
   | BinaryExpect
@@ -87,7 +69,6 @@ export type EvalExpect =
   | AdversarialExpect
   | NoDataExpect
   | OverviewExpect
-  | ActionIntentExpect
 
 export interface EvalCase {
   id: string

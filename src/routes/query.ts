@@ -4,13 +4,14 @@ import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
 import { getModel, MODEL } from '../lib/ai.js'
-import { generateText, streamText, tool } from 'ai'
+import { generateText, streamText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import { buildSystemPrompt, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
+import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -240,61 +241,29 @@ export function buildQueryPrompt(
   return parts.join('\n')
 }
 
-// ── Action-intent tool (#174) ────────────────────────────────
+// ── Action-intent routing (#195) ─────────────────────────────
 //
-// Hoisted to module scope — never construct a Zod schema inside a handler.
-// `execute` is intentionally omitted: nothing runs server-side when the
-// model calls this. The call itself IS the signal — queryProfile reads
-// `result.toolCalls` and turns it into `response.action_intent`, a
-// first-class field the frontend consumes directly instead of re-deriving
-// intent from free text (see RULE_ACTION_INTENT for the exact boundary).
-
-const OPEN_MATCH_TOOL_DESCRIPTION =
-  'Call ONLY when EITHER (1) the message pairs a role reference (however brief — see below, no formal job ' +
-  'description required) with a request to check fit against it or tailor the résumé to it, OR (2) the message ' +
-  'directly asks to see/open the résumé document itself (no role or JD required for this branch — naming the ' +
-  'résumé document is enough on its own). Branch (1) ' +
-  'has TWO independent requirements — BOTH must hold, checked separately: (i) an explicit fit-check/tailor/match ' +
-  'request — "would this be a good fit", "check if Sunny fits/matches", "tailor the résumé to this role/this" — ' +
-  'without this, branch (1) fails regardless of how much role detail is present; and (ii) at least one role-' +
-  'identifying signal anywhere in the message (a job title, a team/org unit, a company descriptor — named OR ' +
-  'anonymized like "a Series B startup" — a technical skill/requirement, or a scope/responsibility phrase). ' +
-  'Requirement (ii) is loose — ONE signal, in plain prose, no pasted job-posting block, no named company ' +
-  'needed — but it never substitutes for requirement (i). "What projects has Sunny built?" has role-adjacent ' +
-  'words ("built") but ZERO fit/match/tailor request — that fails (i) and must NOT call the tool, regardless of ' +
-  '(ii). Only ask for more detail (rather than call the tool) when (i) is present but (ii) is entirely absent ' +
-  '(e.g. "would this role be a good match?" alone, no title/team/company/skill/scope anywhere). If neither ' +
-  'branch applies, do NOT call this — regardless of surface words like "work", "built", "worked on", "shipped", ' +
-  'or "portfolio". Any request to see or discuss the candidate\'s past projects/portfolio/work in general, with ' +
-  'no job description or role attached and no mention of the résumé document, is answered narratively via ' +
-  'project_slugs, not this tool. See your instructions for the full narrated-vs-action-request boundary.'
-
-const QUERY_TOOLS = {
-  open_match_tool: tool({
-    description: OPEN_MATCH_TOOL_DESCRIPTION,
-    parameters: z.object({}),
-  }),
-}
+// Routing used to be an AI SDK tool exposed during answer generation (#174):
+// the model both answered the question AND decided whether to open the
+// job-match/résumé-tailoring flow, read back from `toolCalls`. That let the
+// routing rule compete with ~15k chars of unrelated answer-generation
+// instructions and misfired on capability questions ("what projects
+// demonstrate Sunny's understanding of AI engineering?" → tool, #194) even
+// though the rule's literal text didn't apply. It's replaced by a dedicated
+// classifier pre-pass — classifyRoute() in ../lib/route-classifier.ts — that
+// runs BEFORE generateText and decides the route from a closed two-value
+// enum. The 'narrate' route never receives a tool at all, so there is
+// nothing left for a routing rule to misfire against during generation.
 
 // Response-cache versioning dimension (see the "Response cache" section
-// above) — computed once at module load from the actual prompt/tool-calling
-// source, not maintained by hand. Any edit to a RULE_* constant or this
-// tool's description automatically changes this value.
+// above) — computed once at module load from the actual prompt/routing-rule
+// source, not maintained by hand. Any edit to a RULE_* constant or the
+// classifier's rule text automatically changes this value.
 const PROMPT_VERSION = computePromptVersion(
   buildSystemPrompt('json', 'cited'),
   buildSystemPrompt('json', 'conversational'),
-  OPEN_MATCH_TOOL_DESCRIPTION,
+  ROUTE_CLASSIFIER_RULE,
 )
-
-/**
- * Pure derivation of `QueryResponse.action_intent` from a `generateText` result's
- * `toolCalls`. Extracted from `queryProfile` so the routing signal is unit-testable
- * without a live model call — exported for that purpose.
- */
-export function deriveActionIntent(toolCalls: readonly { toolName: string }[]): { tool: string } | null {
-  const match = toolCalls.find((c) => c.toolName === 'open_match_tool')
-  return match ? { tool: match.toolName } : null
-}
 
 /**
  * Pull OpenRouter's `provider` field out of a `generateText` result's raw
@@ -366,48 +335,74 @@ export async function queryProfile(
   if (cached) return { ...cached, meta: { ...cached.meta, latency_ms: 0, retrieval_ms: 0 } }
 
   // Retrieval — only on cache miss, skipped entirely for binary questions.
+  // Classifier pre-pass (#195) runs IN PARALLEL with retrieval — the two are
+  // independent, so wiring in the pre-pass adds ~0 wall-clock. On classifier
+  // error, fall back to 'narrate' (the safe default; classifyRoute's own doc
+  // comment makes the caller responsible for this decision).
   const skipThoughts = isBinaryQuestion(args.question)
   const retrievalStart = Date.now()
-  const thoughts = skipThoughts ? [] : await queryRelevantThoughtsForQuestion(args.question)
+  const [thoughts, [route, classify_ms]] = await Promise.all([
+    skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
+    (async (): Promise<[Route, number]> => {
+      const t0 = Date.now()
+      try {
+        const r = await classifyRoute(args.question)
+        return [r, Date.now() - t0]
+      } catch (err) {
+        console.warn('[query] classifyRoute failed — falling back to narrate:', (err as Error).message)
+        return ['narrate', Date.now() - t0]
+      }
+    })(),
+  ])
   const retrieval_ms = Date.now() - retrievalStart
+
+  if (route === 'open_match_tool') {
+    // Deterministic short-circuit — no generateText call at all. Keeps the
+    // /query response shape fully backward-compatible (resume-agent-web
+    // keeps reading action_intent exactly as before); the retrieval above is
+    // discarded, but its cost was already paid concurrently with the
+    // classifier call, not added on top of it. Never cached (see
+    // shouldCacheResponse below) — this branch returns before reaching the
+    // cache-set call.
+    return {
+      answer: 'Opening the job-fit tool now.',
+      confidence: 'high',
+      sources: [],
+      follow_up_suggestions: [],
+      project_slugs: [],
+      action_intent: { tool: 'open_match_tool' },
+      contact: {
+        email: profile.contact?.email,
+        calendly: profile.contact?.calendly,
+      },
+      meta: { model: MODEL, latency_ms: classify_ms },
+    }
+  }
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
   const start = Date.now()
-  const { text: raw, toolCalls, finishReason, response: modelResponse } = await generateText({
+  const { text: raw, finishReason, response: modelResponse } = await generateText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('json', style),
     prompt,
-    tools: QUERY_TOOLS,
   })
   const latency_ms = Date.now() - start
-  const actionIntent = deriveActionIntent(toolCalls)
   const provider = extractProvider(modelResponse)
 
   let parsed: Pick<QueryResponse, 'answer' | 'confidence' | 'sources' | 'follow_up_suggestions'> & { project_slugs?: string[] }
   try {
     parsed = parseJSON(raw)
   } catch (err) {
-    if (actionIntent) {
-      // The model called the tool but didn't also produce the JSON envelope
-      // RULE_ACTION_INTENT asks for alongside it. The tool call is
-      // unambiguous signal on its own — degrade to a minimal response
-      // rather than a parse_error. A non-empty answer matters here: until
-      // resume-agent-web switches to reading action_intent, this text is
-      // what a legacy client actually displays — an empty string would
-      // surface as a blank response body despite the request succeeding.
-      parsed = { answer: 'Opening the job-fit tool now.', confidence: 'low', sources: [], follow_up_suggestions: [] }
-    } else {
-      console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
-      return { kind: 'parse_error', raw }
-    }
+    console.error('[query] parse_error:', err, '— raw (first 500 chars):', raw.slice(0, 500))
+    return { kind: 'parse_error', raw }
   }
 
   const response: QueryResponse = {
     ...parsed,
     project_slugs: parsed.project_slugs ?? [],
-    action_intent: actionIntent,
+    action_intent: null,
     contact: {
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,

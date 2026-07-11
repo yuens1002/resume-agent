@@ -34,7 +34,6 @@ import {
   RULE_OUTPUT_JSON_CONVERSATIONAL,
   RULE_PROGRESSIVE_DISCLOSURE,
   RULE_SHOWN_PROJECTS,
-  RULE_ACTION_INTENT,
   sortProjectsByRecency,
 } from '../src/lib/query-prompt.js'
 
@@ -536,75 +535,5 @@ describe('RULE_SHOWN_PROJECTS', () => {
 describe('RULE_CALLER_CONTEXT — shown_projects mention', () => {
   it('mentions shown_projects as a recognized structured field', () => {
     assert.match(RULE_CALLER_CONTEXT, /shown_projects/)
-  })
-})
-
-// ── RULE_ACTION_INTENT (#174) ──────────────────────────────
-
-describe('RULE_ACTION_INTENT', () => {
-  it('is exported and non-empty', () => {
-    assert.ok(typeof RULE_ACTION_INTENT === 'string' && RULE_ACTION_INTENT.length > 0)
-  })
-
-  it('names the open_match_tool tool', () => {
-    assert.match(RULE_ACTION_INTENT, /open_match_tool/)
-  })
-
-  it('says to call the tool in addition to the JSON envelope, not instead of it', () => {
-    assert.match(RULE_ACTION_INTENT, /in addition to|do not omit the JSON/i)
-  })
-
-  it('draws the narrated-vs-action-request boundary', () => {
-    assert.match(RULE_ACTION_INTENT, /narrated question/i)
-  })
-
-  // Regression coverage for #180: "Show recent work" / "What projects has
-  // Sunny built?" were over-triggering the tool because "work" and "projects"
-  // read as adjacent to the tool's job-fit/résumé purpose.
-  it('excludes portfolio/project-browsing requests from the tool trigger', () => {
-    assert.match(RULE_ACTION_INTENT, /portfolio|project history/i)
-    assert.match(RULE_ACTION_INTENT, /show recent work/i)
-    assert.match(RULE_ACTION_INTENT, /what projects has sunny built/i)
-  })
-
-  it('clarifies "work" means things built, not employment or the fit action', () => {
-    assert.match(RULE_ACTION_INTENT, /things built/i)
-  })
-
-  // Regression coverage for #182: branch (1)'s role-detail requirement was
-  // too strict (required a pasted, block-formatted JD), causing consistent
-  // false negatives on prose-style fit-check requests. The fix is a
-  // two-part gate — an explicit fit/tailor/match request, AND separately at
-  // least one loose role-identifying signal — never collapsed into a single
-  // signal count (that collapse is what reopened #180's false positives
-  // during this fix's development).
-  it('lowers the role-detail bar while still requiring the fit/match/tailor verb separately', () => {
-    assert.match(RULE_ACTION_INTENT, /anonymized/i)
-    assert.match(RULE_ACTION_INTENT, /Series B startup/i)
-  })
-
-  it('keeps the fit/match/tailor request and the role signal as independent, non-substitutable requirements', () => {
-    assert.match(RULE_ACTION_INTENT, /never substitutes for/i)
-    assert.match(RULE_ACTION_INTENT, /what projects has sunny built/i)
-  })
-
-  it('requires the JSON envelope even for a clarifying-question response (no bare prose fallback)', () => {
-    assert.match(RULE_ACTION_INTENT, /nothing to act on/i)
-    assert.match(RULE_ACTION_INTENT, /never correct/i)
-  })
-
-  it('is included in the json system prompt', () => {
-    const prompt = buildSystemPrompt('json')
-    assert.ok(prompt.includes(RULE_ACTION_INTENT))
-  })
-
-  it('is included in the json+conversational system prompt', () => {
-    const prompt = buildSystemPrompt('json', 'conversational')
-    assert.ok(prompt.includes(RULE_ACTION_INTENT))
-  })
-
-  it('is NOT included in the stream system prompt — no tool is passed to queryProfileStream', () => {
-    const prompt = buildSystemPrompt('stream')
-    assert.ok(!prompt.includes(RULE_ACTION_INTENT))
   })
 })

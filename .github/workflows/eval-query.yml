@@ -8,12 +8,9 @@ name: Nightly query eval — regression watch
 # used elsewhere in this ecosystem, applied to the eval rubric instead of
 # browser QA.
 #
-# `action_intent` is excluded deliberately: it's the acceptance spec for
-# #174 (real tool-calling for action-intent routing), and every case in it
-# fails by design until that feature ships (QueryResponse carries no
-# action-intent signal yet). Including it here would page on a known,
-# accepted gap every night instead of a real regression. Once #174 ships,
-# drop --exclude-category action_intent from the run step below.
+# Action-intent routing coverage lives in the separate route-classifier
+# golden set (below), not in this harness — the legacy `action_intent`
+# category here was removed in #195.
 
 on:
   schedule:
@@ -42,7 +39,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Run query eval (stable categories — action_intent excluded, see #174)
+      - name: Run query eval
         id: eval
         env:
           SUPA_PROJECT_URL: ${{ secrets.SUPA_PROJECT_URL }}
@@ -50,7 +47,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set +e
-          npm run eval:query -- --exclude-category action_intent > eval-output.log 2>&1
+          npm run eval:query > eval-output.log 2>&1
           echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
           cat eval-output.log

@@ -23,7 +23,6 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   buildQueryPrompt,
-  deriveActionIntent,
   computePromptVersion,
   responseCacheKey,
   responseCacheGet,
@@ -206,35 +205,14 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
   })
 })
 
-describe('deriveActionIntent (#174)', () => {
-  it('returns null when no tool calls are present', () => {
-    assert.equal(deriveActionIntent([]), null)
-  })
-
-  it('returns null when a tool call is present but not open_match_tool', () => {
-    assert.equal(deriveActionIntent([{ toolName: 'some_other_tool' }]), null)
-  })
-
-  it('returns { tool: "open_match_tool" } when the model called it', () => {
-    assert.deepEqual(deriveActionIntent([{ toolName: 'open_match_tool' }]), { tool: 'open_match_tool' })
-  })
-
-  it('finds open_match_tool among multiple tool calls', () => {
-    assert.deepEqual(
-      deriveActionIntent([{ toolName: 'some_other_tool' }, { toolName: 'open_match_tool' }]),
-      { tool: 'open_match_tool' },
-    )
-  })
-})
-
 // Regression coverage for a live incident: a cached response for the exact
 // "Show recent work" starter-chip question kept serving pre-#181's broken
 // open_match_tool routing well after the prompt/tool-description fix shipped,
-// because nothing in the cache key changed when RULE_ACTION_INTENT or the
+// because nothing in the cache key changed when the routing rule or the
 // tool's description changed. computePromptVersion + the prompt_version
 // dimension on responseCacheKey close that gap — these tests verify the
 // mechanism itself, not real prompt content, so they don't need to change
-// every time a RULE_* constant is edited.
+// every time a RULE_* constant (or, since #195, ROUTE_CLASSIFIER_RULE) is edited.
 describe('computePromptVersion — response cache invalidation on prompt-logic change', () => {
   it('is deterministic: identical inputs produce identical output', () => {
     assert.equal(computePromptVersion('a', 'b', 'c'), computePromptVersion('a', 'b', 'c'))

@@ -22,10 +22,54 @@ import { z } from 'zod'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { queryProfile, queryProfileStream } from './query.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
+import { supabase } from '../lib/supabase.js'
+import type { QueryResponse } from '../types.js'
 
 interface RequestContext {
   ip?: string
   userAgent?: string
+}
+
+// ── Surface-capability mapping for action_intent (#183/#195) ────────────
+//
+// The classifier detects caller-agnostic intent; the surface decides the
+// action (#195 design). resume-agent-web can open the job-fit/résumé-
+// tailoring tool client-side. MCP/API callers (this route) have no UI to act
+// on `action_intent` at all — leaving it set would hand them
+// "Opening the job-fit tool now." with nothing to open (#183). Narrate a
+// pointer to the interactive flow instead, with a URL when the profile
+// publishes one.
+
+/**
+ * Rewrite a `QueryResponse` that carries a non-null `action_intent` into a
+ * narrated pointer at the interactive flow, for surfaces (MCP/API) that
+ * cannot open the tool themselves. Passes through unchanged when
+ * `action_intent` is already null. Pure and exported for unit testing
+ * without a live queryProfile call.
+ */
+export function narrateActionIntentForSurface(
+  response: QueryResponse,
+  profileUrl?: string,
+): QueryResponse {
+  if (!response.action_intent) return response
+  const pointer = profileUrl
+    ? `The interactive résumé and job-fit flow is available at ${profileUrl} — it can generate a tailored résumé against a specific job description.`
+    : `The interactive résumé and job-fit flow is available on the candidate's site — it can generate a tailored résumé against a specific job description.`
+  return {
+    ...response,
+    action_intent: null,
+    answer: pointer,
+  }
+}
+
+/** Best-effort lookup of the profile's published website URL, for the narrated pointer above. */
+async function fetchProfileWebsiteUrl(): Promise<string | undefined> {
+  const { data } = await supabase
+    .from('public_profile')
+    .select('contact')
+    .eq('id', '00000000-0000-0000-0000-000000000001')
+    .single()
+  return (data as { contact?: { website?: string } } | null)?.contact?.website
 }
 
 function buildPublicServer(reqCtx: RequestContext): McpServer {
@@ -120,17 +164,24 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
         return { content: [{ type: 'text' as const, text: message }], isError: true }
       }
 
+      // MCP has no UI surface to open the job-fit tool — narrate a pointer
+      // instead of handing back a dead-end "Opening the tool now." (#183).
+      // Only fetch the profile URL on this rare path, not on every call.
+      const surfaceResult = result.action_intent
+        ? narrateActionIntentForSurface(result, await fetchProfileWebsiteUrl())
+        : result
+
       void logObservedQuery({
         source: 'mcp',
         question,
         caller_hint: callerHint,
-        response: result,
+        response: surfaceResult,
         latency_ms: Date.now() - start,
         ip: reqCtx.ip,
         user_agent: reqCtx.userAgent,
       })
 
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+      return { content: [{ type: 'text' as const, text: JSON.stringify(surfaceResult) }] }
     },
   )
 
