@@ -610,7 +610,7 @@ describe('#197 D3: judge prompt contains the "NOT violations" sentinel', () => {
       expect: { category: 'overview' },
     }
     const withFollowUps = buildJudgePrompt(caseDef, 'Alex has seven active projects; the three most recent are… [1]\n\nSources:\n[1] projects', [
-      'Want the remaining four projects?',
+      "What are Alex's remaining four projects?",
     ])
     assert.match(withFollowUps, /Follow-up suggestions offered alongside the answer/)
     assert.match(withFollowUps, /remaining four projects/)
