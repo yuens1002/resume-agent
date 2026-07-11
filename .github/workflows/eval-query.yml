@@ -47,7 +47,11 @@ jobs:
       - run: npm ci
 
       - name: Install Claude Code CLI (subscription provider, #201)
-        run: npm install -g @anthropic-ai/claude-code
+        # Pinned for reproducibility — an unpinned install lets an upstream CLI
+        # release silently change eval behavior between nightly runs. Bump
+        # deliberately (and re-run this workflow via workflow_dispatch to
+        # verify) rather than floating on latest.
+        run: npm install -g @anthropic-ai/claude-code@2.1.207
 
       - name: Run query eval
         id: eval
