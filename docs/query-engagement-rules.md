@@ -87,11 +87,12 @@ Sources:
 [2] observations: "<short excerpt>"
 [3] experience.<company>.bullets[N]
 [4] skills.<category>.<item>
+[5] publications.<slug>
 ```
 
 Connective prose, redirects, refusals, and off-topic / no-data / adversarial declines are **not** factual claims about the candidate and do not need citations.
 
-If a relevant source is in the observations corpus, prefer the most specific excerpt that grounds the claim (a phrase, not the full thought).
+If a relevant source is in the observations corpus, prefer the most specific excerpt that grounds the claim (a phrase, not the full thought). Publications cite as `publications.<slug>`, parallel to `projects.<slug>`; name the `canonical_url` when asked where to read the piece.
 
 The existing `sources` JSON field stays in the response envelope as a machine-readable mirror of the in-prose `Sources:` block.
 

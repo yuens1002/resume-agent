@@ -233,16 +233,26 @@ export function buildQueryPrompt(
           ).filter((p) => !shownSlugs.includes(p.slug)),
         }
       : profile
+  // Publications are injected wholesale alongside projects — no retrieval
+  // gating, no sorting (the list is small; #177 chunk 2). When the profile
+  // has no publications yet, drop the key entirely rather than emitting an
+  // empty array — avoids empty-section noise in the prompt for a field most
+  // profiles won't populate right away.
+  const publicationsForPrompt = (profileForPrompt as { publications?: unknown } | undefined)?.publications
+  const finalProfileForPrompt =
+    profileForPrompt && typeof profileForPrompt === 'object' && Array.isArray(publicationsForPrompt) && publicationsForPrompt.length === 0
+      ? Object.fromEntries(Object.entries(profileForPrompt as object).filter(([key]) => key !== 'publications'))
+      : profileForPrompt
   // Name the project count explicitly in the heading — the model was
   // miscounting the raw JSON array (e.g. reporting 7 projects as "six").
   // User-message-only change (does not touch PROMPT_VERSION-hashed system text).
-  const projectsForCount = (profileForPrompt as { projects?: unknown[] } | undefined)?.projects
+  const projectsForCount = (finalProfileForPrompt as { projects?: unknown[] } | undefined)?.projects
   parts.push(
     Array.isArray(projectsForCount) && projectsForCount.length > 0
       ? `# Profile data (${projectsForCount.length} projects)`
       : '# Profile data',
   )
-  parts.push(JSON.stringify(profileForPrompt, null, 2))
+  parts.push(JSON.stringify(finalProfileForPrompt, null, 2))
   parts.push('')
   parts.push('# Question')
   parts.push(question)

@@ -205,6 +205,46 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
   })
 })
 
+// #177 chunk 2: publications are injected wholesale into the prompt, same as
+// projects — no sorting, no retrieval gating (the list is small). An absent
+// or empty publications array is dropped from the JSON entirely rather than
+// emitted as `"publications": []`, so a profile with no publications yet
+// doesn't add empty-section noise to the prompt.
+describe('buildQueryPrompt — publications injection', () => {
+  const PROFILE_WITH_PUBLICATIONS = {
+    ...SAMPLE_PROFILE,
+    publications: [
+      {
+        title: 'Eval-driven development for LLM products',
+        slug: 'eval-driven-development',
+        platform: 'blog',
+        canonical_url: 'https://example.com/eval-driven-development',
+        date: '2026-05-01',
+        tags: ['evals', 'llm'],
+        grounded_in: 'resume-agent',
+      },
+    ],
+  }
+
+  it('includes the publications array wholesale in the profile JSON', () => {
+    const prompt = buildQueryPrompt(PROFILE_WITH_PUBLICATIONS, [], 'What has Sunny published?')
+    assert.ok(prompt.includes('"publications"'))
+    assert.ok(prompt.includes('"eval-driven-development"'))
+    assert.ok(prompt.includes('"https://example.com/eval-driven-development"'))
+  })
+
+  it('omits the publications key entirely when the array is empty', () => {
+    const profileWithNoPublications = { ...SAMPLE_PROFILE, publications: [] }
+    const prompt = buildQueryPrompt(profileWithNoPublications, [], 'What has Sunny published?')
+    assert.ok(!prompt.includes('"publications"'), 'empty publications array must not appear as noise in the prompt')
+  })
+
+  it('omits the publications key entirely when the field is absent', () => {
+    const prompt = buildQueryPrompt(SAMPLE_PROFILE, [], 'What has Sunny published?')
+    assert.ok(!prompt.includes('"publications"'))
+  })
+})
+
 // Regression coverage for a live incident: a cached response for the exact
 // "Show recent work" starter-chip question kept serving pre-#181's broken
 // open_match_tool routing well after the prompt/tool-description fix shipped,

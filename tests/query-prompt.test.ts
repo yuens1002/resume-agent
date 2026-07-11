@@ -172,6 +172,15 @@ describe('AC-3: RULE_CITATION — footnote markers + Sources block', () => {
   it('says declines do not need citations', () => {
     assert.match(RULE_CITATION, /redirects|refusals|declines/i)
   })
+
+  it('names publications.<slug> as a source form, exactly parallel to projects.<slug> (#177 chunk 2)', () => {
+    assert.match(RULE_CITATION, /publications\.<slug>/)
+    assert.match(RULE_CITATION, /projects\.<slug>/)
+  })
+
+  it('tells the model to cite canonical_url when the visitor asks where to read the piece', () => {
+    assert.match(RULE_CITATION, /canonical_url/)
+  })
 })
 
 // ── AC-4: RULE_GAPS no longer mentions calendly / contact-offer ──
@@ -381,6 +390,11 @@ describe('docs/query-engagement-rules.md stays in sync with the prompt module', 
       )
     })
   }
+
+  it('doc and prompt both name publications.<slug> as a Sources-block source form (#177 chunk 2)', () => {
+    assert.match(specSource, /publications\.<slug>/, 'docs/query-engagement-rules.md missing publications.<slug> source form')
+    assert.match(RULE_CITATION, /publications\.<slug>/, 'RULE_CITATION missing publications.<slug> source form')
+  })
 })
 
 // ── sortProjectsByRecency ─────────────────────────────────
