@@ -171,11 +171,15 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
         ? narrateActionIntentForSurface(result, await fetchProfileWebsiteUrl())
         : result
 
+      // Log the PRE-mapping result: observed_queries.action_intent must
+      // record what the classifier decided (#195's monitoring loop), not the
+      // surface rewrite — logging surfaceResult would null the routing
+      // signal on exactly this surface.
       void logObservedQuery({
         source: 'mcp',
         question,
         caller_hint: callerHint,
-        response: surfaceResult,
+        response: result,
         latency_ms: Date.now() - start,
         ip: reqCtx.ip,
         user_agent: reqCtx.userAgent,

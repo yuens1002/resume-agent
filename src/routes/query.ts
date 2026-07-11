@@ -340,9 +340,16 @@ export async function queryProfile(
   // error, fall back to 'narrate' (the safe default; classifyRoute's own doc
   // comment makes the caller responsible for this decision).
   const skipThoughts = isBinaryQuestion(args.question)
-  const retrievalStart = Date.now()
-  const [thoughts, [route, classify_ms]] = await Promise.all([
-    skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
+  // Each branch times itself — timing the Promise.all as a whole would
+  // inflate retrieval_ms by classifier time whenever the classifier is the
+  // slower of the two, skewing the phase-latency observability (#189).
+  const [[thoughts, retrieval_ms], [route, classify_ms]] = await Promise.all([
+    (async (): Promise<[string[], number]> => {
+      if (skipThoughts) return [[], 0]
+      const t0 = Date.now()
+      const t = await queryRelevantThoughtsForQuestion(args.question)
+      return [t, Date.now() - t0]
+    })(),
     (async (): Promise<[Route, number]> => {
       const t0 = Date.now()
       try {
@@ -354,7 +361,6 @@ export async function queryProfile(
       }
     })(),
   ])
-  const retrieval_ms = Date.now() - retrievalStart
 
   if (route === 'open_match_tool') {
     // Deterministic short-circuit — no generateText call at all. Keeps the
