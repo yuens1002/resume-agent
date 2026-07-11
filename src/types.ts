@@ -51,6 +51,17 @@ export interface Project {
   git_evidence?: GitEvidence
 }
 
+export interface Publication {
+  title: string
+  slug: string
+  platform: 'X' | 'Dev.to' | 'Medium' | 'YouTube' | string
+  canonical_url: string
+  date: string
+  tags: string[]
+  grounded_in: string       // link back to the knowledge_base concept/finding the piece is based on
+  signature?: EvidenceSignature
+}
+
 export interface EvidenceSignature {
   alg: 'ed25519'
   key_url: string       // URL to /.well-known/oep-public-key.json
@@ -111,6 +122,7 @@ export interface PublicProfile {
   employment: Employment[]
   education: Education[]
   projects: Project[]
+  publications: Publication[]
   availability: Availability
   updated_at: string
 }

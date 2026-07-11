@@ -136,6 +136,7 @@ app.get('/', (c) => {
                       employment: { type: 'array' },
                       education: { type: 'array' },
                       projects: { type: 'array' },
+                      publications: { type: 'array', description: 'Published pieces (blog posts, X threads, YouTube scripts) cited as evidence alongside portfolio projects.' },
                       availability: { type: 'object' },
                     },
                   },
