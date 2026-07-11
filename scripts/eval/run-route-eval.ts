@@ -7,22 +7,36 @@
  *   npm run eval:route -- --source <name>    # one provenance slice (eval-legacy|incident|observed|synthetic)
  *   npm run eval:route -- --model <id>       # judge validation: run a different model
  *                                            # (e.g. anthropic/claude-sonnet-4.5) against the same labels
+ *   npm run eval:route -- --provider <name>  # openrouter (default) | claude-code
+ *   npm run eval:route -- --no-cache         # bypass the result cache (#201), force live calls
  *
  * Every (case × round) must match its label for the run to pass — routing is
  * a closed-set classification where the golden labels ARE the spec, so there
  * is no partial credit and no majority vote: a case that flips across rounds
  * is a reliability regression worth failing on. Exit 0 only on 100%.
  *
- * Calls classifyRoute() directly (no HTTP server). Rounds run through a
- * small concurrency pool; a model/provider error counts as a miss, never a
- * silent pass. Like run-eval.ts this makes LLM calls — it is NOT in
- * `test:unit`; the nightly workflow (eval-query.yml) runs it on schedule.
+ * Calls classifyRoute() directly (no HTTP server) for the default
+ * `openrouter` provider, or classifyRouteViaClaudeCode() for `claude-code`
+ * (#201's subscription-provider mode). Rounds run through a small
+ * concurrency pool; a model/provider error counts as a miss, never a silent
+ * pass. Like run-eval.ts this makes LLM calls — it is NOT in `test:unit`;
+ * the nightly workflow (eval-query.yml) runs it on schedule.
+ *
+ * Result cache (#201): verdicts are keyed by (rule text, question, model,
+ * provider, round) and persisted to scripts/eval/.cache/ — see eval-cache.ts
+ * for why. Enabled by default; pass --no-cache to force every case live.
  */
 
-import { config } from 'dotenv'
-config({ path: '.env.local' })
+// First import: a side-effect import evaluates before ESM's static import
+// graph reaches ai.ts (imported transitively via route-classifier.js below),
+// so this must run before ai.ts's module-level client reads
+// OPENROUTER_API_KEY. Mirrors ai.ts's own `import './env.js'` idiom.
+import './eval-env.js'
 
-import { classifyRoute } from '../../src/lib/route-classifier.js'
+import { classifyRoute, ROUTE_CLASSIFIER_RULE } from '../../src/lib/route-classifier.js'
+import { MODEL } from '../../src/lib/ai.js'
+import { classifyRouteViaClaudeCode, CLAUDE_CODE_DEFAULT_MODEL } from './classify-via-claude-code.js'
+import { cacheKey, loadCache, saveCache } from './eval-cache.js'
 import { ROUTE_CASES, type RouteCase } from './route-cases.js'
 
 interface Flags {
@@ -30,15 +44,21 @@ interface Flags {
   source?: string
   model?: string
   rounds: number
+  provider: 'openrouter' | 'claude-code'
+  cache: boolean
 }
 
 function parseFlags(argv: string[]): Flags {
-  const flags: Flags = { rounds: 3 }
+  const flags: Flags = { rounds: 3, provider: 'openrouter', cache: true }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--case') flags.case = argv[++i]
     else if (arg === '--source') flags.source = argv[++i]
     else if (arg === '--model') flags.model = argv[++i]
+    else if (arg === '--provider') {
+      const p = argv[++i]
+      if (p === 'openrouter' || p === 'claude-code') flags.provider = p
+    } else if (arg === '--no-cache') flags.cache = false
     else if (arg === '--rounds') {
       const n = Number(argv[++i])
       if (Number.isFinite(n) && n >= 1) flags.rounds = Math.floor(n)
@@ -49,6 +69,8 @@ function parseFlags(argv: string[]): Flags {
         '  --case <id>       Run a single case by id',
         '  --source <name>   Run one provenance slice (eval-legacy|incident|observed|synthetic)',
         '  --model <id>      Override the model (judge validation, e.g. anthropic/claude-sonnet-4.5)',
+        '  --provider <name> openrouter (default) | claude-code',
+        '  --no-cache        Bypass the result cache; force live calls',
         '  --rounds <n>      Rounds per case (default 3)',
         '  --help, -h        Show this',
         '',
@@ -86,21 +108,50 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
+  // The cache key's model dimension must reflect what actually executes:
+  // without --model, the claude-code provider pins CLAUDE_CODE_DEFAULT_MODEL
+  // (never the CLI's local /model preference), while openrouter uses the
+  // production default. Keying claude-code entries under the OpenRouter MODEL
+  // id would let two different serving paths share verdicts incorrectly.
+  const effectiveModel = flags.model ?? (flags.provider === 'claude-code' ? CLAUDE_CODE_DEFAULT_MODEL : MODEL)
+
   process.stdout.write(
     `Route eval: ${selected.length} case(s) × ${flags.rounds} round(s)` +
+      `  provider=${flags.provider}  cache=${flags.cache ? 'on' : 'off'}` +
       `${flags.model ? `  model=${flags.model} (override)` : ''}\n\n`,
   )
+
+  // Always load the full existing cache (even under --no-cache) so that
+  // persisting at the end merges in fresh verdicts without discarding
+  // entries for keys outside this run's job list — --no-cache only skips
+  // *reading* a hit for this run's own keys, it must never destroy the rest
+  // of the committed cache file.
+  const cache = loadCache()
+  const newlyCached = new Map<string, string>()
 
   const jobs: { c: RouteCase; round: number }[] = selected.flatMap((c) =>
     Array.from({ length: flags.rounds }, (_, round) => ({ c, round })),
   )
-  const outcomes = await pool(jobs, 8, async ({ c }) => {
+  const poolSize = flags.provider === 'claude-code' ? 4 : 8
+  const outcomes = await pool(jobs, poolSize, async ({ c, round }) => {
+    const key = cacheKey(ROUTE_CLASSIFIER_RULE, c.question, effectiveModel, flags.provider, round)
+    if (flags.cache && key in cache) return cache[key]
     try {
-      return await classifyRoute(c.question, flags.model)
+      const verdict =
+        flags.provider === 'claude-code'
+          ? await classifyRouteViaClaudeCode(c.question, flags.model)
+          : await classifyRoute(c.question, flags.model)
+      newlyCached.set(key, verdict)
+      return verdict
     } catch (err) {
       return `ERR: ${(err as Error).message.slice(0, 80)}`
     }
   })
+
+  if (newlyCached.size) {
+    const merged = { ...cache, ...Object.fromEntries(newlyCached) }
+    saveCache(merged)
+  }
 
   const perCase = new Map<string, string[]>()
   jobs.forEach(({ c }, i) => {

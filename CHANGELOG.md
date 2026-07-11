@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-11 — feat(eval): result cache + claude-code provider + key isolation for eval runs (#201 phase a) — route-eval verdicts cache to a committed JSON keyed by hash(rule+question+model+provider+round), so label-only changes replay free and rule edits auto-invalidate; `--provider claude-code` runs the classifier through the local Claude CLI (subscription, not metered API); eval scripts prefer `OPENROUTER_API_KEY_EVAL` so an eval burn can never exhaust the production key's monthly cap again (the incident that took prod down twice on 2026-07-11)
+
 - 2026-07-11 — feat(query): narrate_fit route + fit_question response flag (#199) — the classifier's three-way route surfaces "this narrated answer was about fit" so resume-agent-web renders its deterministic fit-check chip without re-guessing from text; fit questions get a 1536-token ceiling that overrides the binary heuristic (fixes live parse_error 500 on "Is [name] a fit for X?" phrasings); observed_queries logs fit_question for the judge sweep
 
 - 2026-07-11 — feat(query): classify action intent via dedicated pre-pass instead of in-generation tool-calling (#195) — open_match_tool routing moves from an AI-SDK tool exposed during answer generation to classifyRoute() run in parallel with retrieval; tool-route short-circuits deterministically, narrate-route never sees a tool (kills the #194 misfire class); public-mcp rewrites tool intents into a narrated pointer (#183); observed_queries logs the route decision; legacy action_intent eval category removed (route eval owns routing coverage)
