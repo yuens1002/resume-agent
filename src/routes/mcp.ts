@@ -13,13 +13,27 @@ import { scoreMatch } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
-import type { Project } from '../types.js'
+import { mergePublication } from '../lib/publications.js'
+import type { Project, Publication } from '../types.js'
 
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
 const JWT_SECRET = process.env.JWT_SECRET
 const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null
 
 if (!OPEN_BRAIN_KEY) throw new Error('Missing OPEN_BRAIN_KEY')
+
+// upsert_publication input schema — hoisted to module scope (unlike
+// upsert_project's inline object literal) so it's a stable reference for
+// tests and future reuse without re-allocating it on every buildServer() call.
+const UPSERT_PUBLICATION_INPUT_SCHEMA = {
+  slug:          z.string().describe('URL-safe identifier, e.g. "why-agentic-workflows-fail"'),
+  title:         z.string().optional().describe('Display title of the piece'),
+  platform:      z.string().optional().describe('Where it was published, e.g. "X", "Dev.to", "Medium", "YouTube"'),
+  canonical_url: z.string().optional().describe('Canonical URL — the source-of-truth copy (POSSE)'),
+  date:          z.string().optional().describe('Publish date, e.g. "2026-07-11"'),
+  tags:          z.array(z.string()).optional().describe('Topic tags'),
+  grounded_in:   z.string().optional().describe('Link back to the specific knowledge_base concept/finding the piece is based on'),
+}
 
 // ── Helpers ───────────────────────────────────────────────
 
@@ -371,6 +385,54 @@ function buildServer(): McpServer {
 
         const label = (input.name ?? input.slug)
         return { content: [{ type: 'text' as const, text: `Project "${label}" (${input.slug}) ${action}.` }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'upsert_publication',
+    {
+      title: 'Upsert Publication',
+      description:
+        'Add or update a published piece (blog post, X thread, YouTube script) by slug. If a publication with the same slug exists it is merged (only provided fields overwrite); otherwise it is appended. ' +
+        'Use this to record a newly published piece or update an existing one without touching the rest of the profile.',
+      inputSchema: UPSERT_PUBLICATION_INPUT_SCHEMA,
+    },
+    async (input) => {
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('public_profile')
+          .select('publications')
+          .eq('id', '00000000-0000-0000-0000-000000000001')
+          .single()
+
+        if (fetchError || !data) {
+          return { content: [{ type: 'text' as const, text: 'Failed to load profile.' }], isError: true }
+        }
+
+        const publications: Publication[] = data.publications ?? []
+        const result = mergePublication(publications, input)
+
+        if (!result.ok) {
+          return { content: [{ type: 'text' as const, text: result.error }], isError: true }
+        }
+
+        const { data: updated, error: updateError } = await supabase
+          .from('public_profile')
+          .update({ publications: result.publications, updated_at: new Date().toISOString() })
+          .eq('id', '00000000-0000-0000-0000-000000000001')
+          .select('id')
+          .single()
+
+        if (updateError || !updated) {
+          const message = updateError?.message ?? 'Profile not found while saving publication.'
+          return { content: [{ type: 'text' as const, text: `Failed to save publication: ${message}` }], isError: true }
+        }
+
+        const label = (input.title ?? input.slug)
+        return { content: [{ type: 'text' as const, text: `Publication "${label}" (${input.slug}) ${result.action}.` }] }
       } catch (err: unknown) {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
       }
