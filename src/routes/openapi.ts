@@ -61,6 +61,10 @@ app.get('/', (c) => {
                         properties: { tool: { type: 'string' } },
                         required: ['tool'],
                       },
+                      fit_question: {
+                        type: 'boolean',
+                        description: 'True when the question asked about the candidate\'s fit/suitability for a role and was answered in prose (narrate-first). Clients with an interactive fit-check flow should offer it as an explicit follow-up when this is true.',
+                      },
                     },
                   },
                 },

@@ -136,6 +136,14 @@ export interface QueryResponse {
    * to open a different flow (job-match / résumé-tailoring today).
    */
   action_intent: { tool: string } | null
+  /**
+   * True when the classifier routed the question as narrate_fit (#199): a
+   * question ABOUT the candidate's fit/suitability, answered in prose per the
+   * narrate-first spec (#195). The frontend renders its deterministic
+   * "run the full fit check" follow-up chip from this — never by re-guessing
+   * intent from the answer text (resume-agent-web#26).
+   */
+  fit_question: boolean
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
   meta: {
     model: string

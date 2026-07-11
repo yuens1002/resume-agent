@@ -18,7 +18,7 @@ function fullInput() {
     question: 'What are your recent projects?',
     caller_hint: 'Recruiter reviewing candidates.',
     response: {
-      answer: 'Sunny built X [1].',
+      answer: 'Alex built X [1].',
       confidence: 'high' as const,
       sources: ['projects.resume-agent'],
       follow_up_suggestions: ['What else?'],
@@ -80,6 +80,21 @@ describe('buildObservedQueryRow', () => {
   it('nulls action_intent when the response routed to narrate (action_intent: null)', () => {
     const row = buildObservedQueryRow(fullInput(), 'hashed')
     assert.equal(row.action_intent, null)
+  })
+
+  // #199: the three-way route's fit-question dimension, logged so the judge
+  // sweep can score narrate vs narrate_fit, not just the tool binary.
+  it('maps response.fit_question through, and nulls it when absent (streaming partial payload)', () => {
+    const withFlag = fullInput()
+    ;(withFlag.response as { fit_question?: boolean }).fit_question = true
+    assert.equal(buildObservedQueryRow(withFlag, 'h').fit_question, true)
+
+    const withFalse = fullInput()
+    ;(withFalse.response as { fit_question?: boolean }).fit_question = false
+    assert.equal(buildObservedQueryRow(withFalse, 'h').fit_question, false)
+
+    const partial = { source: 'mcp' as const, question: 'q', response: { answer: 'text' }, latency_ms: 1 }
+    assert.equal(buildObservedQueryRow(partial, null).fit_question, null)
   })
 
   it('nulls action_intent when absent entirely (streaming partial payload)', () => {

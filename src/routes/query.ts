@@ -248,7 +248,7 @@ export function buildQueryPrompt(
 // job-match/résumé-tailoring flow, read back from `toolCalls`. That let the
 // routing rule compete with ~15k chars of unrelated answer-generation
 // instructions and misfired on capability questions ("what projects
-// demonstrate Sunny's understanding of AI engineering?" → tool, #194) even
+// demonstrate the candidate's understanding of AI engineering?" → tool, #194) even
 // though the rule's literal text didn't apply. It's replaced by a dedicated
 // classifier pre-pass — classifyRoute() in ../lib/route-classifier.ts — that
 // runs BEFORE generateText and decides the route from a closed two-value
@@ -379,6 +379,7 @@ export async function queryProfile(
       follow_up_suggestions: [],
       project_slugs: [],
       action_intent: { tool: 'open_match_tool' },
+      fit_question: false,
       contact: {
         email: profile.contact?.email,
         calendly: profile.contact?.calendly,
@@ -394,7 +395,7 @@ export async function queryProfile(
   const start = Date.now()
   const { text: raw, finishReason, response: modelResponse } = await generateText({
     model: getModel(),
-    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
+    maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited', route === 'narrate_fit'),
     system: buildSystemPrompt('json', style),
     prompt,
   })
@@ -413,6 +414,9 @@ export async function queryProfile(
     ...parsed,
     project_slugs: parsed.project_slugs ?? [],
     action_intent: null,
+    // narrate_fit answers identically to narrate — the flag is the only
+    // difference, and it's what the frontend's follow-up chip keys on (#199).
+    fit_question: route === 'narrate_fit',
     contact: {
       email: profile.contact?.email,
       calendly: profile.contact?.calendly,
