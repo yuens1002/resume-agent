@@ -27,6 +27,9 @@ name: Weekly eval gate
 # step closes it once all three checks pass again. All steps use the
 # isolated OPENROUTER_API_KEY_EVAL — a full weekly run costs well under $1,
 # and an eval burn can never exhaust the production key (#201).
+#
+# Full environment-fidelity rationale (prod vs OpenRouter eval vs CLI
+# provider, and why each runs where it does): docs/eval-environments.md
 
 on:
   schedule:

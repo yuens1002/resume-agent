@@ -14,7 +14,8 @@
  * ~30 cases of a live eval with ENOENT — DISABLE_AUTOUPDATER below
  * prevents that, but a gate shouldn't depend on a self-updating local
  * binary. The weekly CI gate (eval-weekly.yml) runs the OpenRouter
- * serving path exclusively.
+ * serving path exclusively. Full rationale + the environment-fidelity
+ * comparison: docs/eval-environments.md.
  *
  * Implementation spawns `claude -p --system-prompt-file <tmpfile>
  * --exclude-dynamic-system-prompt-sections --output-format json --model
@@ -108,8 +109,6 @@ async function invokeClaudeCode(question: string, systemPromptPath: string, mode
   const stdout = await new Promise<string>((resolve, reject) => {
     const child = spawn('claude', args, {
       shell: true,
-      timeout: SPAWN_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
       // The CLI's self-updater rewrote its own npm shim mid-eval on
       // 2026-07-11, failing ~30 in-flight cases with "'claude' is not
       // recognized" — a long eval must never race its own binary's update.
@@ -117,11 +116,29 @@ async function invokeClaudeCode(question: string, systemPromptPath: string, mode
     })
     let out = ''
     let err = ''
+    // spawn's built-in `timeout` option is insufficient under shell:true on
+    // Windows: it kills the cmd.exe shim but the grandchild (the real CLI)
+    // keeps the stdio pipes open, so 'close' still waits for it — verified
+    // empirically (2s timeout, 29s actual). Manual timer + TREE kill instead.
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      if (process.platform === 'win32' && child.pid) {
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { shell: true })
+      } else {
+        child.kill('SIGKILL')
+      }
+    }, SPAWN_TIMEOUT_MS)
     child.stdout.on('data', (d) => (out += d))
     child.stderr.on('data', (d) => (err += d))
-    child.on('error', reject)
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
     child.on('close', (code) => {
-      if (code !== 0) reject(new Error(`claude-code: ${code === null ? `timed out after ${SPAWN_TIMEOUT_MS}ms (killed)` : `exit ${code}`}: ${err.slice(0, 200)}`))
+      clearTimeout(timer)
+      if (timedOut) reject(new Error(`claude-code: timed out after ${SPAWN_TIMEOUT_MS}ms (process tree killed)`))
+      else if (code !== 0) reject(new Error(`claude-code: exit ${code}: ${err.slice(0, 200)}`))
       else resolve(out)
     })
     // Production-fidelity requirement 3 (see header): the exact prompt

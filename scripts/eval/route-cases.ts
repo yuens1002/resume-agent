@@ -51,11 +51,12 @@ export interface RouteCase {
    * production (same weights, but free-text decoding instead of
    * generateObject's forced enum — see classify-via-claude-code.ts); on
    * razor-thin boundaries the approximation can genuinely differ. Marked
-   * cases still RUN and are REPORTED on the claude-code provider but do not
-   * gate the nightly — the weekly OpenRouter parity run gates them at 100%
-   * on the true serving path. The label stays authoritative; this field
-   * documents a known harness divergence, never a label change. Owner
-   * decision 2026-07-11 (#201).
+   * cases still RUN and are REPORTED on the claude-code provider (local dev
+   * sweeps) but do not gate there — the weekly CI gate (eval-weekly.yml)
+   * runs the true OpenRouter serving path, where every case gates at 100%.
+   * The label stays authoritative; this field documents a known harness
+   * divergence, never a label change. Owner decision 2026-07-11 (#201);
+   * full rationale: docs/eval-environments.md.
    */
   cli_unstable?: string
 }
