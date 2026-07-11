@@ -55,8 +55,28 @@ jobs:
           set -e
           cat eval-output.log
 
+      # Route-classifier golden set (#195) — the closed-set routing baseline
+      # (100+ spec-labeled cases, 3 rounds each). Separate from the query eval
+      # above: it calls classifyRoute() directly (no Supabase needed) and
+      # asserts 100%, no partial credit. This is the regression guard for the
+      # #194 class of misroute.
+      - name: Run route classifier eval (golden set, #195)
+        id: route
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set +e
+          {
+            echo
+            echo '=== route classifier eval (npm run eval:route) ==='
+            npm run eval:route
+          } >> eval-output.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          tail -n 40 eval-output.log
+
       - name: Open or update a regression issue on failure
-        if: steps.eval.outputs.exit_code != '0'
+        if: steps.eval.outputs.exit_code != '0' || steps.route.outputs.exit_code != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -68,7 +88,7 @@ jobs:
 
           BODY_FILE=$(mktemp)
           {
-            echo "Nightly \`npm run eval:query -- --exclude-category action_intent\` failed on $(date -u +%Y-%m-%dT%H:%M:%SZ)."
+            echo "Nightly eval failed on $(date -u +%Y-%m-%dT%H:%M:%SZ) — query eval exit ${{ steps.eval.outputs.exit_code }}, route eval exit ${{ steps.route.outputs.exit_code }}."
             echo
             echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo
@@ -87,7 +107,7 @@ jobs:
           fi
 
       - name: Close the standing regression issue once green again
-        if: steps.eval.outputs.exit_code == '0'
+        if: steps.eval.outputs.exit_code == '0' && steps.route.outputs.exit_code == '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -99,6 +119,6 @@ jobs:
             gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY"
           fi
 
-      - name: Fail the job if the eval run failed
-        if: steps.eval.outputs.exit_code != '0'
+      - name: Fail the job if either eval run failed
+        if: steps.eval.outputs.exit_code != '0' || steps.route.outputs.exit_code != '0'
         run: exit 1

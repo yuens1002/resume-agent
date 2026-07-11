@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- 2026-07-10 — feat(eval): route-classifier golden set (112 spec-labeled cases) + nightly baseline run, and the classifier module it asserts (#195) — includes the owner-decided spec pivot (tool only on résumé intent or explicit procedure invocation; fit QUESTIONS narrate), judge validation via `--model`, and drops the hardcoded `--env-file=.env.local` that broke the nightly eval in CI (#184)
+
 - 2026-07-10 — fix(query): default all callers to cited style, closing the one reproducible open_match_tool misfire (conversational style + human caller-hint) found in #191 — resume-agent-web's sanitizeAnswer already strips citation markers unconditionally, so this changes reliability only, not visible output
 
 - 2026-07-10 — feat(observability): log OpenRouter provider + finish_reason on /query responses; add durable regression tests for #188's never-cache-action_intent behavior
