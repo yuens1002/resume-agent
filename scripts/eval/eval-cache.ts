@@ -31,12 +31,24 @@ import { dirname } from 'node:path'
 const CACHE_PATH = 'scripts/eval/.cache/route-classifier-verdicts.json'
 
 export function cacheKey(rule: string, question: string, model: string, provider: string, round: number): string {
-  return createHash('sha256').update([rule, question, model, provider, String(round)].join(' ')).digest('hex')
+  // JSON encoding, not delimiter-joining: rule and question contain arbitrary
+  // text (including any delimiter), so a joined string lets two different
+  // tuples collide into one key — an incorrect cache hit, the worst failure
+  // mode a cache can have. JSON.stringify preserves the tuple boundaries.
+  return createHash('sha256').update(JSON.stringify([rule, question, model, provider, round])).digest('hex')
 }
 
 export function loadCache(path = CACHE_PATH): Record<string, string> {
   if (!existsSync(path)) return {}
-  return JSON.parse(readFileSync(path, 'utf8'))
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch (err) {
+    // A raw JSON.parse error hides WHICH file is broken — the likely cause is
+    // a merge conflict left in the committed cache. Name the path and the fix.
+    throw new Error(
+      `eval cache at ${path} is not valid JSON (merge conflict markers?) — fix or delete the file and re-run: ${(err as Error).message}`,
+    )
+  }
 }
 
 export function saveCache(cache: Record<string, string>, path = CACHE_PATH): void {

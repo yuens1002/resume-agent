@@ -35,7 +35,7 @@ import './eval-env.js'
 
 import { classifyRoute, ROUTE_CLASSIFIER_RULE } from '../../src/lib/route-classifier.js'
 import { MODEL } from '../../src/lib/ai.js'
-import { classifyRouteViaClaudeCode } from './classify-via-claude-code.js'
+import { classifyRouteViaClaudeCode, CLAUDE_CODE_DEFAULT_MODEL } from './classify-via-claude-code.js'
 import { cacheKey, loadCache, saveCache } from './eval-cache.js'
 import { ROUTE_CASES, type RouteCase } from './route-cases.js'
 
@@ -108,7 +108,12 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
-  const effectiveModel = flags.model ?? MODEL
+  // The cache key's model dimension must reflect what actually executes:
+  // without --model, the claude-code provider pins CLAUDE_CODE_DEFAULT_MODEL
+  // (never the CLI's local /model preference), while openrouter uses the
+  // production default. Keying claude-code entries under the OpenRouter MODEL
+  // id would let two different serving paths share verdicts incorrectly.
+  const effectiveModel = flags.model ?? (flags.provider === 'claude-code' ? CLAUDE_CODE_DEFAULT_MODEL : MODEL)
 
   process.stdout.write(
     `Route eval: ${selected.length} case(s) × ${flags.rounds} round(s)` +
