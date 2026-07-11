@@ -54,7 +54,7 @@ export interface Project {
 export interface Publication {
   title: string
   slug: string
-  platform: 'X' | 'Dev.to' | 'Medium' | 'YouTube' | string
+  platform: 'X' | 'Dev.to' | 'Medium' | 'YouTube' | (string & {})  // known platforms keep autocomplete; any string still allowed
   canonical_url: string
   date: string
   tags: string[]
