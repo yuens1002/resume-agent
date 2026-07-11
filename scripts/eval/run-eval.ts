@@ -22,8 +22,11 @@
  * calls); it is NOT in `test:unit`.
  */
 
-import { config } from 'dotenv'
-config({ path: '.env.local' })
+// First import: a side-effect import evaluates before ESM's static import
+// graph reaches ai.ts (imported transitively via query.js below), so this
+// must run before ai.ts's module-level client reads OPENROUTER_API_KEY.
+// Mirrors ai.ts's own `import './env.js'` idiom. (#201 key isolation)
+import './eval-env.js'
 
 import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'node:fs'
 import { generateText } from 'ai'
