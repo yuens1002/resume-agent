@@ -598,5 +598,23 @@ describe('#197 D3: judge prompt contains the "NOT violations" sentinel', () => {
     assert.match(prompt, /third-person narration/)
     assert.match(prompt, /bare corpus paths/)
     assert.match(prompt, /documented gap pattern/)
+    assert.match(prompt, /REQUIRED to open with the word "Yes" or "No"/)
+    assert.match(prompt, /progressive-disclosure rule/)
+  })
+
+  it('buildJudgePrompt surfaces follow_up_suggestions to the judge when present', () => {
+    const caseDef: EvalCase = {
+      id: 'fixture-judge-followups',
+      category: 'overview',
+      question: 'What are all the projects you have worked on?',
+      expect: { category: 'overview' },
+    }
+    const withFollowUps = buildJudgePrompt(caseDef, 'Alex has seven active projects; the three most recent are… [1]\n\nSources:\n[1] projects', [
+      "What are Alex's remaining four projects?",
+    ])
+    assert.match(withFollowUps, /Follow-up suggestions offered alongside the answer/)
+    assert.match(withFollowUps, /remaining four projects/)
+    const withoutFollowUps = buildJudgePrompt(caseDef, 'Alex has seven active projects [1]\n\nSources:\n[1] projects')
+    assert.doesNotMatch(withoutFollowUps, /Follow-up suggestions offered/)
   })
 })
