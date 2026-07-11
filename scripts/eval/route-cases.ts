@@ -19,10 +19,10 @@
  * The #195 monitoring loop (judge sweep over new traffic → human arbitration
  * → cases land here) is what grows the genuinely-external share over time.
  *
- * Grown from the #195 spike/stress sets (2026-07-10): 61 cases validated at
- * 100% clear-label accuracy (haiku, zero-shot), judge-validated 122/122
- * (sonnet-4.5), then extended with the systematic verb × noun-phrase ×
- * role-signal sweep this file's sections lay out.
+ * Grown from the #195 spike/stress sets (2026-07-10), then extended with the
+ * systematic verb × noun-phrase × role-signal sweep this file's sections lay
+ * out. The set is expected to keep growing (judge-sweep arbitrations land
+ * here) — per-run validation numbers live in #195/PRs, not in this header.
  */
 
 import type { Route } from '../../src/lib/route-classifier.js'
@@ -87,7 +87,8 @@ export const ROUTE_CASES: RouteCase[] = [
   { id: 'cap-eng-judgment', expected: 'narrate', source: 'synthetic', question: "What work best represents Sunny's engineering judgment?" },
   { id: 'cap-led-projects', expected: 'narrate', source: 'synthetic', question: 'Has Sunny led any projects end to end?' },
 
-  // ── synthetic: fit-check sweep — fit verbs × role-signal types (all open_match_tool) ──
+  // ── synthetic: fit sweep — procedure invocations (open_match_tool) vs fit
+  // QUESTIONS (narrate, per the 2026-07-10 spec pivot; see each case's note) ──
   { id: 'fit-assess-devops', expected: 'open_match_tool', source: 'synthetic', question: 'Assess Sunny against a Senior DevOps Engineer opening — AWS, Terraform, on-call ownership.' },
   { id: 'fit-run-check-stripe', expected: 'open_match_tool', source: 'synthetic', question: 'Could you run a fit check for a Staff Frontend role at Stripe?' },
   { id: 'fit-match-jd-product', expected: 'open_match_tool', source: 'synthetic', question: "Match Sunny's background to this JD: Product Engineer, early-stage, full-stack TypeScript, design sense a plus." },

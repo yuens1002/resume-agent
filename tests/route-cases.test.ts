@@ -1,7 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ROUTE_CASES } from '../scripts/eval/route-cases.js'
-import { ROUTES, ROUTE_CLASSIFIER_RULE } from '../src/lib/route-classifier.js'
+
+// route-classifier.ts imports ai.ts, which fail-fast throws at module load
+// when OPENROUTER_API_KEY is unset (e.g. CI unit-test runs). These tests only
+// validate constants — provide a harmless dummy key and import dynamically so
+// no real key is required. (route-cases.ts is safe to import statically: its
+// route-classifier import is type-only and erased at runtime.)
+process.env.OPENROUTER_API_KEY ??= 'unit-test-dummy-key'
+const { ROUTES, ROUTE_CLASSIFIER_RULE } = await import('../src/lib/route-classifier.js')
 
 test('route cases: ids are unique', () => {
   const ids = ROUTE_CASES.map((c) => c.id)

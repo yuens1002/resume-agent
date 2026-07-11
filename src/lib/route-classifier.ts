@@ -17,8 +17,9 @@
  *
  * The judge loop (#195 monitoring design) reuses classifyRoute with a
  * modelOverride — a different, stronger model whose trust is established by
- * matching the human-labeled golden set (validated 122/122 with
- * anthropic/claude-sonnet-4.5 on 2026-07-10).
+ * matching the human-labeled golden set at 100% before its labels count
+ * (run `npm run eval:route -- --model <id>`; validation results are recorded
+ * per-run in #195/PRs rather than baked in here, since the set grows).
  */
 
 import { generateObject } from 'ai'
