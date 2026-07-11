@@ -9,7 +9,7 @@ import { parseJSON, salvageTrailingSourcesBlock } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
-import { buildSystemPrompt, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
+import { buildSystemPrompt, deriveCandidateName, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import type { QueryResponse } from '../types.js'
@@ -40,6 +40,17 @@ async function fetchProfile() {
     profileCache = { data: result.data, expiresAt: now + PROFILE_CACHE_TTL_MS }
   }
   return result
+}
+
+/**
+ * Candidate name for scorer call sites outside the request path (the eval
+ * runner). Derived from the same live profile `queryProfile` reads — never a
+ * hardcoded literal (#202). Exported so `scripts/eval/run-eval.ts` can wire
+ * the real name into `scoreAnswer` without duplicating the profile fetch.
+ */
+export async function fetchCandidateName(): Promise<string> {
+  const { data: profile } = await fetchProfile()
+  return deriveCandidateName(profile)
 }
 
 // ── Thoughts version cache ───────────────────────────────
@@ -267,6 +278,19 @@ export function buildQueryPrompt(
 // above) — computed once at module load from the actual prompt/routing-rule
 // source, not maintained by hand. Any edit to a RULE_* constant or the
 // classifier's rule text automatically changes this value.
+//
+// Known, accepted deviation (#202 profile-name decoupling): this call uses
+// `buildSystemPrompt`'s default (token) candidate-name argument because the
+// profile is fetched from Supabase asynchronously and isn't available at
+// module-load time — see `buildSystemPrompt`'s own doc comment in
+// query-prompt.ts. That means this hash's *value* differs from pre-#202
+// main (which baked the literal name directly into the rule constants),
+// even though the served prompt (built per-request with the derived name via
+// `deriveCandidateName`) is byte-identical to main for the live profile. This
+// is harmless: PROMPT_VERSION only keys the per-process in-memory response
+// cache, which is already empty after every deploy, and profile-name changes
+// are independently covered by the `profileUpdatedAt` cache dimension. Signed
+// off as an accepted one-time cache-key value change, not a behavior change.
 const PROMPT_VERSION = computePromptVersion(
   buildSystemPrompt('json', 'cited'),
   buildSystemPrompt('json', 'conversational'),
@@ -435,7 +459,7 @@ export async function queryProfile(
       generateText({
         model: getModel(),
         maxTokens,
-        system: buildSystemPrompt('json', style),
+        system: buildSystemPrompt('json', style, deriveCandidateName(profile)),
         prompt,
       }),
     cap,
@@ -508,7 +532,7 @@ export async function queryProfileStream(
   return streamText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
-    system: buildSystemPrompt('stream', args.style ?? 'cited'),
+    system: buildSystemPrompt('stream', args.style ?? 'cited', deriveCandidateName(profile)),
     prompt,
   })
 }

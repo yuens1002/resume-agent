@@ -1,5 +1,7 @@
 # `/query` Engagement Rules
 
+> This doc's examples mirror the live profile; fork-local by design, see #202.
+
 The behavior contract for `/query` and `/public-mcp ask_candidate`. The system prompt is generated from this spec by [`src/lib/query-prompt.ts`](../src/lib/query-prompt.ts); the rule constants there mirror this document one-to-one. Edit both in lockstep.
 
 The on-demand eval harness in [`scripts/eval/run-eval.ts`](../scripts/eval/run-eval.ts) is how you check whether a real model under a real prompt actually honors these rules. Run `npm run eval:query -- --help` for invocation; a few representative commands live in the [README](../README.md#query-engagement-rules--eval).

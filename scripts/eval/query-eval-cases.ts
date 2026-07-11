@@ -3,6 +3,11 @@
  * `src/lib/eval-query-types.ts` so the rubric can import them without a
  * cross-`rootDir` reference.
  *
+ * These cases run against the live profile; any candidate-name mentions in
+ * `mustNotClaim` / question text mirror it and are fork-local by design
+ * (see #202) — genericizing them loses the concrete grounding these cases
+ * exist to check.
+ *
  * Each case names a category, a representative question, and the *characteristics*
  * an honest answer should have. The rubric in `src/lib/eval-query-answer.ts`
  * scores against these characteristics — never against literal example phrasings
