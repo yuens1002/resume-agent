@@ -12,9 +12,17 @@ import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
 import { buildSystemPrompt, deriveCandidateName, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
+import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
+
+// Project slugs excluded from candidate-facing output (#176) — same env var
+// and parsing as /resume (src/routes/resume.ts), shared via
+// src/lib/hidden-projects.ts. Computed once at module load, mirroring
+// resume.ts's HIDE_FROM_PROJECTS. Unset (the current prod default) parses to
+// an empty Set, which `filterVisibleProjects` treats as a no-op.
+const HIDE_FROM_PROJECTS = parseHiddenProjectSlugs(process.env.HIDE_FROM_PROJECTS)
 
 // ── Profile cache ────────────────────────────────────────
 // Profile changes at most a few times per day (via MCP or sync).
@@ -200,6 +208,12 @@ export function buildQueryPrompt(
   thoughts: string[],
   question: string,
   callerHint?: string | null,
+  // Project slugs to exclude from the injected profile data, in addition to
+  // shown_projects (below). Defaults to the module-level HIDE_FROM_PROJECTS
+  // (#176) so real call sites need not pass it; tests can pass an explicit
+  // Set to exercise the filter without depending on process.env at module
+  // load time.
+  hiddenSlugs: Set<string> = HIDE_FROM_PROJECTS,
 ): string {
   const parts: string[] = []
   // Parse shown_projects from the raw, untruncated callerHint — sanitizeCallerHint
@@ -239,9 +253,16 @@ export function buildQueryPrompt(
     profile && typeof profile === 'object' && Array.isArray((profile as { projects?: unknown }).projects)
       ? {
           ...(profile as object),
-          projects: sortProjectsByRecency(
-            (profile as { projects: Array<{ slug: string; started?: string; git_evidence?: { last_push_at?: string } }> }).projects,
-          ).filter((p) => !shownSlugs.includes(p.slug)),
+          // shown_projects (already-served, per-conversation) and
+          // HIDE_FROM_PROJECTS (deliberately hidden, #176) are both applied
+          // by removal — the model never sees either as data to reconstruct
+          // from a sibling cross-reference.
+          projects: filterVisibleProjects(
+            sortProjectsByRecency(
+              (profile as { projects: Array<{ slug: string; started?: string; git_evidence?: { last_push_at?: string } }> }).projects,
+            ).filter((p) => !shownSlugs.includes(p.slug)),
+            hiddenSlugs,
+          ),
         }
       : profile
   // Name the project count explicitly in the heading — the model was

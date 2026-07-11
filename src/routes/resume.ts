@@ -8,23 +8,17 @@ import { parseJSON } from '../lib/parse-json.js'
 import { scoreResume, PASS_THRESHOLD, type RubricResult } from '../lib/score-resume.js'
 import { stripBannedPhrases } from '../lib/strip-banned.js'
 import { queryRelevantThoughts } from '../lib/thoughts-query.js'
+import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import type { ResumeResponse } from '../types.js'
 
 const RESUME_MODEL = process.env.RESUME_MODEL ?? 'openai/gpt-4o-mini'
 const RESUME_MODEL_B = process.env.RESUME_MODEL_B ?? RESUME_MODEL
-const HIDE_FROM_PROJECTS = new Set(
-  (process.env.HIDE_FROM_PROJECTS ?? '').split(',').map(s => s.trim()).filter(Boolean)
-)
+const HIDE_FROM_PROJECTS = parseHiddenProjectSlugs(process.env.HIDE_FROM_PROJECTS)
 
-export function filterVisibleProjects(projects: unknown, hidden: Set<string>): unknown {
-  if (!Array.isArray(projects) || hidden.size === 0) return projects
-  return (projects as unknown[]).filter(
-    (p): p is import('../types.js').Project =>
-      p !== null && typeof p === 'object' &&
-      typeof (p as { slug?: unknown }).slug === 'string' &&
-      !hidden.has((p as { slug: string }).slug)
-  )
-}
+// Re-exported for backward compatibility — the shared implementation now
+// lives in src/lib/hidden-projects.ts (#176), but existing tests and any
+// other consumers still import it from here.
+export { filterVisibleProjects }
 
 const app = new Hono()
 

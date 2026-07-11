@@ -205,6 +205,98 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
   })
 })
 
+describe('buildQueryPrompt — HIDE_FROM_PROJECTS filtering (#176)', () => {
+  const PROFILE_WITH_PROJECTS = {
+    contact: { name: 'Alex', email: 'alex@example.com' },
+    projects: [
+      { slug: 'brew-guide', name: 'Brew Guide', started: '2025-01' },
+      { slug: 'internal-tool', name: 'Internal Tool', started: '2025-06' },
+      { slug: 'artisan-roast', name: 'Artisan Roast', started: '2025-03' },
+    ],
+  }
+
+  it('drops the hidden project from the injected profile JSON', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What projects has Alex built?',
+      undefined,
+      new Set(['internal-tool']),
+    )
+    assert.ok(!prompt.includes('"internal-tool"'), 'internal-tool should be filtered out of profile data')
+    assert.ok(prompt.includes('"brew-guide"'), 'non-hidden project should remain')
+    assert.ok(prompt.includes('"artisan-roast"'), 'non-hidden project should remain')
+  })
+
+  it('the project-count heading reflects the filtered count, not the raw count', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What projects has Alex built?',
+      undefined,
+      new Set(['internal-tool']),
+    )
+    assert.ok(prompt.includes('# Profile data (2 projects)'), 'heading should count only the 2 visible projects')
+  })
+
+  it('composes with shown_projects — both exclusions apply together', () => {
+    const prompt = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What else has Alex built?',
+      'shown_projects: brew-guide',
+      new Set(['internal-tool']),
+    )
+    assert.ok(!prompt.includes('"brew-guide"'), 'shown_projects exclusion should still apply')
+    assert.ok(!prompt.includes('"internal-tool"'), 'HIDE_FROM_PROJECTS exclusion should still apply')
+    assert.ok(prompt.includes('"artisan-roast"'), 'the one genuinely remaining project should stay')
+  })
+
+  // Both default-call-shape tests below assert behavior that only holds when
+  // HIDE_FROM_PROJECTS is genuinely unset in the running process (dev shells
+  // load .env.local, which may set it) — skip rather than fail on a machine
+  // where the precondition doesn't hold. CI runs them.
+  const hiddenEnvSet = (process.env.HIDE_FROM_PROJECTS ?? '').trim() !== ''
+
+  it('is a no-op when the hidden set is empty (default — HIDE_FROM_PROJECTS unset)', { skip: hiddenEnvSet && 'HIDE_FROM_PROJECTS is set in this environment' }, () => {
+    const withDefault = buildQueryPrompt(PROFILE_WITH_PROJECTS, [], 'What projects has Alex built?')
+    const withExplicitEmpty = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      [],
+      'What projects has Alex built?',
+      undefined,
+      new Set(),
+    )
+    assert.equal(withDefault, withExplicitEmpty)
+    assert.ok(withDefault.includes('"brew-guide"'))
+    assert.ok(withDefault.includes('"internal-tool"'))
+    assert.ok(withDefault.includes('"artisan-roast"'))
+  })
+
+  // Invariant (#176 spec): with HIDE_FROM_PROJECTS unset — the current
+  // production state — the built prompt must be byte-identical to the
+  // pre-#176 unfiltered path. Build the prompt via the pre-#176 call shape
+  // (4 args, no hidden-set override) and assert it exactly matches building
+  // the same prompt with an explicit empty hidden set (the unfiltered path,
+  // since filterVisibleProjects treats an empty Set as a pure no-op).
+  it('byte-identical to the unfiltered path when HIDE_FROM_PROJECTS is unset (invariant)', { skip: hiddenEnvSet && 'HIDE_FROM_PROJECTS is set in this environment' }, () => {
+    const preExisting = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      ['some retrieved observation'],
+      'Tell me about the projects',
+      'recruiter',
+    )
+    const unfiltered = buildQueryPrompt(
+      PROFILE_WITH_PROJECTS,
+      ['some retrieved observation'],
+      'Tell me about the projects',
+      'recruiter',
+      new Set(),
+    )
+    assert.equal(preExisting, unfiltered)
+  })
+})
+
 // Regression coverage for a live incident: a cached response for the exact
 // "Show recent work" starter-chip question kept serving pre-#181's broken
 // open_match_tool routing well after the prompt/tool-description fix shipped,
