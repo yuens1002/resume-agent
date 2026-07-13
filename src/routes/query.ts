@@ -510,7 +510,14 @@ export async function queryProfile(
     // non-empty follow_up_suggestions). Enforce it deterministically rather
     // than editing the prompt, which has a history of displacing unrelated
     // behavior when touched.
-    if (isDeclineShapedAnswer(parsed.answer)) {
+    //
+    // Gated on an empty sources array (review fix, PR #217): a decline
+    // phrase alone isn't sufficient — a legitimate capability-gap answer
+    // ("does not appear to have direct AWS experience, but ... [1]") can
+    // contain the same substring while citing sources and legitimately
+    // wanting its follow-up kept. True off-topic/no-data declines carry no
+    // sources; a citation-backed gap answer does.
+    if (isDeclineShapedAnswer(parsed.answer) && (parsed.sources?.length ?? 0) === 0) {
       parsed.follow_up_suggestions = []
     }
   }
