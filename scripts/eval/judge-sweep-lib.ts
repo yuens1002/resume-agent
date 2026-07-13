@@ -22,6 +22,8 @@
  */
 
 import type { Route } from '../../src/lib/route-classifier.js'
+import { escapeRegExp } from '../../src/lib/eval-query-answer.js'
+import { DEFAULT_CANDIDATE_NAME } from '../../src/lib/query-prompt.js'
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -66,6 +68,34 @@ export interface JudgedEntry {
   servedRoute: Route
   judgeRoute: Route
   lastObserved: string
+}
+
+// ── Redaction ────────────────────────────────────────────────
+
+/**
+ * Replace every whole-word, case-insensitive occurrence of the candidate's
+ * real (first) name with `DEFAULT_CANDIDATE_NAME` ("Alex") — the same
+ * fork-agnostic placeholder already used throughout route-cases.ts and the
+ * eval fixtures. Applied to every observed question as early as possible
+ * (judge-sweep.ts, right after the Supabase fetch) so no fork's real name
+ * ever reaches the judge call, the stdout report, or — most importantly —
+ * the public GitHub arbitration issue body.
+ *
+ * Must run BEFORE normalizeQuestion/dedupe: dedup compares this run's
+ * questions against both route-cases.ts (which already stores promoted
+ * questions with the real name swapped for "Alex" by convention) and
+ * previously-filed issue text (which, once this redaction ships, will also
+ * carry "Alex"). Redacting here keeps both sides of every dedupe comparison
+ * on the same footing.
+ *
+ * Word-boundary-safe via Unicode property classes (not `\b`, which is
+ * ASCII-only and would misfire around non-ASCII names) so redaction can't
+ * clip into or out of an adjacent word.
+ */
+export function redactCandidateName(question: string, candidateName: string): string {
+  if (!candidateName) return question
+  const re = new RegExp(String.raw`(?<![\p{L}\p{N}_])${escapeRegExp(candidateName)}(?![\p{L}\p{N}_])`, 'giu')
+  return question.replace(re, DEFAULT_CANDIDATE_NAME)
 }
 
 // ── Normalization + dedupe ──────────────────────────────────

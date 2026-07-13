@@ -3,10 +3,13 @@
  * `src/lib/eval-query-types.ts` so the rubric can import them without a
  * cross-`rootDir` reference.
  *
- * These cases run against the live profile; any candidate-name mentions in
- * `mustNotClaim` / question text mirror it and are fork-local by design
- * (see #202) — genericizing them loses the concrete grounding these cases
- * exist to check.
+ * These cases run against the live profile. Overclaim checks that must catch
+ * a name-phrased answer (the model prefers the candidate's name over "the
+ * candidate" per RULE_VOICE, so a generic-only check would miss it) use
+ * `CANDIDATE_NAME_TOKEN` from `query-prompt.ts` rather than a hardcoded
+ * literal name — `scoreAnswer` substitutes in the real name derived from the
+ * live profile at score time, so no fork's real name lives in this source
+ * file (superseded the earlier #202 fork-local-literal approach).
  *
  * Each case names a category, a representative question, and the *characteristics*
  * an honest answer should have. The rubric in `src/lib/eval-query-answer.ts`
@@ -17,6 +20,7 @@
  */
 
 import type { EvalCase } from '../../src/lib/eval-query-types.js'
+import { CANDIDATE_NAME_TOKEN } from '../../src/lib/query-prompt.js'
 
 export type { EvalCase, EvalCategory, EvalExpect, BinaryExpect, CapabilityExpect, BehavioralExpect, OffTopicExpect, AdversarialExpect, NoDataExpect } from '../../src/lib/eval-query-types.js'
 
@@ -68,7 +72,7 @@ export const EVAL_CASES: EvalCase[] = [
         'manages a Kubernetes cluster',
         'operates Kubernetes',
         'k8s cluster the candidate manages',
-        'Sunny runs Kubernetes',
+        `${CANDIDATE_NAME_TOKEN} runs Kubernetes`,
         'the candidate runs Kubernetes',
       ],
     },
