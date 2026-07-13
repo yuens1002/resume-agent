@@ -52,13 +52,28 @@ export const CANDIDATE_NAME_TOKEN = '{{CANDIDATE_NAME}}'
  */
 export const DEFAULT_CANDIDATE_NAME = 'Alex'
 
+/**
+ * Placeholder token substituted for the candidate's documented pronouns in
+ * `RULE_VOICE`. Same no-op-by-default substitution pattern as
+ * `CANDIDATE_NAME_TOKEN` — see `buildSystemPrompt`'s doc comment.
+ */
+export const CANDIDATE_PRONOUNS_TOKEN = '{{CANDIDATE_PRONOUNS}}'
+
+/**
+ * Safe fallback when the profile has no `contact.pronouns` set. Gender-neutral
+ * so an unset field never produces a wrong guess.
+ */
+export const DEFAULT_CANDIDATE_PRONOUNS = 'they/them'
+
 export const META_TONE_NOTE = `# How to read these rules
 
 The agent is a factual narrator that reads from the candidate's documented work history and observations corpus, and reports what it finds. Example phrasings in the rules below illustrate tone and posture — match the spirit, not the wording. Never copy an example phrasing verbatim. Adapt naturally to each question.`
 
 export const RULE_VOICE = `# Voice
 
-Refer to the candidate by name (e.g., "${CANDIDATE_NAME_TOKEN}") or as "the candidate". Never use first-person pronouns ("I", "me", "my"). The agent reports on the candidate's work; it does not impersonate the candidate. Never describe yourself as "an AI agent" or "an assistant" in the response — the response itself should be a factual narration of what the work-history corpus and observations say.`
+Refer to the candidate by name (e.g., "${CANDIDATE_NAME_TOKEN}") or as "the candidate". Never use first-person pronouns ("I", "me", "my"). The agent reports on the candidate's work; it does not impersonate the candidate. Never describe yourself as "an AI agent" or "an assistant" in the response — the response itself should be a factual narration of what the work-history corpus and observations say.
+
+When a third-person pronoun is needed to refer back to the candidate within a sentence, use the candidate's documented pronouns: ${CANDIDATE_PRONOUNS_TOKEN}. Prefer repeating the candidate's name when it reads naturally, especially at the start of an answer or after a topic shift — but a pronoun for back-reference within the same sentence or paragraph is fine.`
 
 export const RULE_HONESTY = `# Honesty floor — prefer low confidence over confident inference
 
@@ -363,6 +378,11 @@ const RULES_SHARED_BASE = [
  *   an explicit name derived from the live profile via `deriveCandidateName`
  *   — the token never reaches a real generation call.
  *
+ * candidatePronouns:
+ *   Same no-op-by-default substitution pattern as `candidateName`, for
+ *   `CANDIDATE_PRONOUNS_TOKEN` in `RULE_VOICE`. Real request-serving call
+ *   sites pass the value from `deriveCandidatePronouns`.
+ *
  * Caller-hint is handled in the user message via `buildQueryPrompt`; see
  * `sanitizeCallerHint` and `RULE_CALLER_CONTEXT` for the security boundary.
  */
@@ -370,6 +390,7 @@ export function buildSystemPrompt(
   mode: 'json' | 'stream',
   style: 'cited' | 'conversational' = 'cited',
   candidateName: string = CANDIDATE_NAME_TOKEN,
+  candidatePronouns: string = CANDIDATE_PRONOUNS_TOKEN,
 ): string {
   const citationRule = style === 'conversational' ? RULE_CITATION_CONVERSATIONAL : RULE_CITATION
   const outputRule = mode === 'json'
@@ -381,7 +402,9 @@ export function buildSystemPrompt(
   // there is no tool-calling rule to compose here. See
   // src/lib/route-classifier.ts's ROUTE_CLASSIFIER_RULE for the routing spec.
   const rules = [...RULES_SHARED_BASE, citationRule, ...(outputRule ? [outputRule] : [])]
-  return rules.join('\n\n').split(CANDIDATE_NAME_TOKEN).join(candidateName)
+  return rules.join('\n\n')
+    .split(CANDIDATE_NAME_TOKEN).join(candidateName)
+    .split(CANDIDATE_PRONOUNS_TOKEN).join(candidatePronouns)
 }
 
 /**
@@ -397,6 +420,19 @@ export function deriveCandidateName(profile: unknown): string {
   if (typeof raw !== 'string') return DEFAULT_CANDIDATE_NAME
   const first = raw.trim().split(/\s+/)[0]
   return first || DEFAULT_CANDIDATE_NAME
+}
+
+/**
+ * Derive the candidate's documented pronouns from `contact.pronouns` (e.g.
+ * "he/him"). Falls back to `DEFAULT_CANDIDATE_PRONOUNS` when unset or
+ * malformed, so a profile with no pronouns field still produces a safe
+ * (gender-neutral) prompt instead of leaking `CANDIDATE_PRONOUNS_TOKEN`.
+ */
+export function deriveCandidatePronouns(profile: unknown): string {
+  const raw = (profile as { contact?: { pronouns?: unknown } } | null | undefined)?.contact?.pronouns
+  if (typeof raw !== 'string') return DEFAULT_CANDIDATE_PRONOUNS
+  const trimmed = raw.trim()
+  return trimmed || DEFAULT_CANDIDATE_PRONOUNS
 }
 
 /**
