@@ -7,6 +7,7 @@ export interface Contact {
   github?: string
   website?: string
   calendly?: string
+  pronouns?: string   // e.g. "he/him" — used by /query to refer back to the candidate correctly; falls back to a neutral default when absent
 }
 
 export interface Skill {

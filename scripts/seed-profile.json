@@ -4,7 +4,8 @@
     "email": "you@example.com",
     "calendly": "https://calendly.com/your-handle/intro",
     "github": "https://github.com/your-handle",
-    "linkedin": "https://linkedin.com/in/your-handle/"
+    "linkedin": "https://linkedin.com/in/your-handle/",
+    "pronouns": "they/them"
   },
   "summary": "A brief professional summary — your focus area, years of experience, and key strengths.",
   "skills": [
