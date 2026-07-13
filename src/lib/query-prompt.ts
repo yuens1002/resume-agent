@@ -426,13 +426,17 @@ export function deriveCandidateName(profile: unknown): string {
  * Derive the candidate's documented pronouns from `contact.pronouns` (e.g.
  * "he/him"). Falls back to `DEFAULT_CANDIDATE_PRONOUNS` when unset or
  * malformed, so a profile with no pronouns field still produces a safe
- * (gender-neutral) prompt instead of leaking `CANDIDATE_PRONOUNS_TOKEN`.
+ * (gender-neutral) prompt instead of leaking `CANDIDATE_PRONOUNS_TOKEN`. Runs
+ * through `sanitizeCallerHint` — this value lands directly in the system
+ * prompt, so it gets the same control-char-stripping/whitespace-collapsing
+ * treatment as the asker-controlled caller hint, even though it comes from
+ * the profile owner rather than an untrusted asker.
  */
 export function deriveCandidatePronouns(profile: unknown): string {
   const raw = (profile as { contact?: { pronouns?: unknown } } | null | undefined)?.contact?.pronouns
   if (typeof raw !== 'string') return DEFAULT_CANDIDATE_PRONOUNS
-  const trimmed = raw.trim()
-  return trimmed || DEFAULT_CANDIDATE_PRONOUNS
+  const sanitized = sanitizeCallerHint(raw)
+  return sanitized || DEFAULT_CANDIDATE_PRONOUNS
 }
 
 /**
