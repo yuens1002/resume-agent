@@ -31,7 +31,7 @@ import type {
   AdversarialExpect,
 } from './eval-query-types.js'
 import type { QueryResponse } from '../types.js'
-import { DEFAULT_CANDIDATE_NAME } from './query-prompt.js'
+import { CANDIDATE_NAME_TOKEN, DEFAULT_CANDIDATE_NAME } from './query-prompt.js'
 import { FACTUAL_DECLINE_PHRASES } from './decline-phrases.js'
 
 export interface RuleResult {
@@ -118,10 +118,16 @@ function ruleBinary(answer: string, expect: BinaryExpect): RuleResult[] {
   return rules
 }
 
-function ruleCapability(answer: string, expect: CapabilityExpect): RuleResult[] {
+function ruleCapability(answer: string, expect: CapabilityExpect, candidateName: string): RuleResult[] {
   const lower = answer.toLowerCase()
   const mentionsGap = lower.includes(expect.namesGap.toLowerCase())
-  const inflated = expect.mustNotClaim.find((c) => lower.includes(c.toLowerCase()))
+  // mustNotClaim entries may carry CANDIDATE_NAME_TOKEN (e.g. fork-agnostic
+  // overclaim checks like "{{CANDIDATE_NAME}} runs Kubernetes") instead of a
+  // hardcoded literal name — substitute the real derived name before matching,
+  // same no-literal-name-in-source pattern as buildSystemPrompt.
+  const inflated = expect.mustNotClaim
+    .map((c) => c.split(CANDIDATE_NAME_TOKEN).join(candidateName))
+    .find((c) => lower.includes(c.toLowerCase()))
   const rules: RuleResult[] = [
     {
       rule: 'capability-names-gap',
@@ -221,8 +227,11 @@ function ruleAdversarial(answer: string, expect: AdversarialExpect): RuleResult[
 
 // Escape a candidate name for safe embedding inside a RegExp source — a name
 // with regex metacharacters (rare, but not impossible on a forked profile)
-// must not be treated as a pattern.
-function escapeRegExp(s: string): string {
+// must not be treated as a pattern. Exported for reuse by
+// scripts/eval/judge-sweep-lib.ts, which needs the same name-safe-regex
+// primitive to redact the candidate's real name out of production questions
+// before they land in a public GitHub arbitration issue.
+export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
@@ -399,7 +408,7 @@ export function scoreAnswer(
       rules.push(ruleCitesSource(parsed.answer))
       break
     case 'capability':
-      rules.push(...ruleCapability(parsed.answer, caseDef.expect))
+      rules.push(...ruleCapability(parsed.answer, caseDef.expect, candidateName))
       rules.push(ruleCitesSource(parsed.answer))
       break
     case 'behavioral':

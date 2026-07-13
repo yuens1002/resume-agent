@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { scoreAnswer, buildJudgePrompt } from '../src/lib/eval-query-answer.js'
+import { CANDIDATE_NAME_TOKEN } from '../src/lib/query-prompt.js'
 import type { EvalCase } from '../scripts/eval/query-eval-cases.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -370,6 +371,33 @@ describe('capability rule', () => {
       makeResponse(withCitations('Alex has not run Kubernetes in production — infrastructure has been Railway and managed PaaS [1].')),
     )
     assert.equal(score.rules.find((r) => r.rule === 'capability-no-overclaim')!.pass, true)
+  })
+
+  it('substitutes CANDIDATE_NAME_TOKEN in mustNotClaim with the real candidate name (no hardcoded literal name in source)', () => {
+    const k8sCase: EvalCase = {
+      id: 'fixture-k8s-token',
+      category: 'capability',
+      question: 'Kubernetes?',
+      expect: {
+        category: 'capability',
+        namesGap: 'Kubernetes',
+        allowsAdjacent: ['Railway'],
+        mustNotClaim: [`${CANDIDATE_NAME_TOKEN} runs Kubernetes`],
+      },
+    }
+    const overclaim = scoreAnswer(
+      k8sCase,
+      makeResponse(withCitations('Jamie runs Kubernetes in production [1].')),
+      'Jamie',
+    ).rules.find((r) => r.rule === 'capability-no-overclaim')!
+    assert.equal(overclaim.pass, false, 'must flag the overclaim once the token is substituted with the real name')
+
+    const clean = scoreAnswer(
+      k8sCase,
+      makeResponse(withCitations('Jamie has not run Kubernetes in production — infrastructure has been Railway [1].')),
+      'Jamie',
+    ).rules.find((r) => r.rule === 'capability-no-overclaim')!
+    assert.equal(clean.pass, true, 'the natural disclaimer must not false-positive')
   })
 })
 

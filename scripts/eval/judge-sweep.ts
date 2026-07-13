@@ -35,6 +35,7 @@ import './eval-env.js'
 import { execFileSync } from 'node:child_process'
 import { supabase } from '../../src/lib/supabase.js'
 import { classifyRoute } from '../../src/lib/route-classifier.js'
+import { fetchCandidateName } from '../../src/routes/query.js'
 import { ROUTE_CASES } from './route-cases.js'
 import {
   ARBITRATION_LABEL,
@@ -50,6 +51,7 @@ import {
   formatReport,
   issueTitle,
   normalizeQuestion,
+  redactCandidateName,
   type Disagreement,
   type JudgedEntry,
   type ObservedRow,
@@ -113,8 +115,8 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const rows = (data ?? []) as ObservedRow[]
-  if (rows.length === QUERY_ROW_CAP) {
+  const rawRows = (data ?? []) as ObservedRow[]
+  if (rawRows.length === QUERY_ROW_CAP) {
     // The window returned exactly the row cap — almost certainly truncated. The sweep
     // must never silently claim full-window coverage it doesn't have.
     process.stderr.write(
@@ -122,6 +124,16 @@ async function main(): Promise<void> {
         `the ${WINDOW_DAYS}d window is likely truncated and some questions were not swept.\n`,
     )
   }
+
+  // Redact the candidate's real name out of every question as early as
+  // possible — before dedup, judging, the stdout report, or (especially) the
+  // public GitHub arbitration issue body. See redactCandidateName's doc
+  // comment: this also keeps dedupe consistent with route-cases.ts, which
+  // already stores promoted questions with the real name swapped for
+  // DEFAULT_CANDIDATE_NAME by convention.
+  const candidateName = await fetchCandidateName()
+  const rows = rawRows.map((r) => ({ ...r, question: redactCandidateName(r.question, candidateName) }))
+
   const distinct = distinctByNormalizedQuestion(rows)
 
   const routeCaseQuestions = ROUTE_CASES.map((c) => normalizeQuestion(c.question))
