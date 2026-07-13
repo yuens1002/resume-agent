@@ -58,27 +58,27 @@ test('normalizeQuestion: case-only and whitespace-only variants normalize identi
 // ── redactCandidateName ──────────────────────────────────────
 
 test('redactCandidateName: replaces a whole-word, case-insensitive name match with DEFAULT_CANDIDATE_NAME', () => {
-  assert.equal(redactCandidateName('Would Sunny be a good hire?', 'Sunny'), 'Would Alex be a good hire?')
-  assert.equal(redactCandidateName('would SUNNY be a good hire?', 'Sunny'), 'would Alex be a good hire?')
+  assert.equal(redactCandidateName('Would Jamie be a good hire?', 'Jamie'), 'Would Alex be a good hire?')
+  assert.equal(redactCandidateName('would JAMIE be a good hire?', 'Jamie'), 'would Alex be a good hire?')
 })
 
 test('redactCandidateName: replaces every occurrence, not just the first', () => {
   assert.equal(
-    redactCandidateName('Is Sunny a fit? Has Sunny shipped anything with Rust?', 'Sunny'),
+    redactCandidateName('Is Jamie a fit? Has Jamie shipped anything with Rust?', 'Jamie'),
     'Is Alex a fit? Has Alex shipped anything with Rust?',
   )
 })
 
 test('redactCandidateName: does not clip into a longer word containing the name as a substring', () => {
-  assert.equal(redactCandidateName('Sunnyvale is a city, not the candidate', 'Sunny'), 'Sunnyvale is a city, not the candidate')
+  assert.equal(redactCandidateName('Jamieson is a common surname, not the candidate', 'Jamie'), 'Jamieson is a common surname, not the candidate')
 })
 
 test('redactCandidateName: no-op when the name does not appear in the question', () => {
-  assert.equal(redactCandidateName('Does the candidate know Rust?', 'Sunny'), 'Does the candidate know Rust?')
+  assert.equal(redactCandidateName('Does the candidate know Rust?', 'Jamie'), 'Does the candidate know Rust?')
 })
 
 test('redactCandidateName: no-op on an empty candidate name', () => {
-  assert.equal(redactCandidateName('Would Sunny be a good hire?', ''), 'Would Sunny be a good hire?')
+  assert.equal(redactCandidateName('Would Jamie be a good hire?', ''), 'Would Jamie be a good hire?')
 })
 
 // ── deriveServedRoute ────────────────────────────────────────
