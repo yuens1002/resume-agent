@@ -32,6 +32,7 @@ import type {
 } from './eval-query-types.js'
 import type { QueryResponse } from '../types.js'
 import { DEFAULT_CANDIDATE_NAME } from './query-prompt.js'
+import { FACTUAL_DECLINE_PHRASES } from './decline-phrases.js'
 
 export interface RuleResult {
   rule: string
@@ -217,20 +218,6 @@ function ruleAdversarial(answer: string, expect: AdversarialExpect): RuleResult[
     },
   ]
 }
-
-// Factual-decline phrasings the agent might use for an in-scope-but-no-data
-// question. Known-value substrings, not example phrasings from the spec — these
-// describe the *shape* of an honest decline. The rubric accepts any of them.
-const FACTUAL_DECLINE_PHRASES: readonly string[] = [
-  'outside the scope',
-  'not in the candidate',
-  'does not appear to have',
-  "doesn't appear to have",
-  'no documented',
-  'not documented',
-  'not in the work history',
-  'no relevant work history',
-]
 
 // Escape a candidate name for safe embedding inside a RegExp source — a name
 // with regex metacharacters (rare, but not impossible on a forked profile)

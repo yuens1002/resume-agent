@@ -13,6 +13,7 @@ import { buildSystemPrompt, deriveCandidateName, parseShownProjectSlugs, sanitiz
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
+import { isDeclineShapedAnswer } from '../lib/decline-phrases.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -501,6 +502,24 @@ export async function queryProfile(
   // unhandled throw; it flows on to the same downstream handling as before.
   if (typeof parsed.answer === 'string') {
     parsed.answer = salvageTrailingSourcesBlock(raw, parsed.answer)
+
+    // #215: the v2 contract is "the decline is the answer; no follow-up
+    // offers" for off-topic/no-data declines, but that's prompt-only
+    // guidance and the model doesn't reliably comply for the no-data case
+    // (its sibling gap examples — binary, capability — are worked with
+    // non-empty follow_up_suggestions). Enforce it deterministically rather
+    // than editing the prompt, which has a history of displacing unrelated
+    // behavior when touched.
+    //
+    // Gated on an empty sources array (review fix, PR #217): a decline
+    // phrase alone isn't sufficient — a legitimate capability-gap answer
+    // ("does not appear to have direct AWS experience, but ... [1]") can
+    // contain the same substring while citing sources and legitimately
+    // wanting its follow-up kept. True off-topic/no-data declines carry no
+    // sources; a citation-backed gap answer does.
+    if (isDeclineShapedAnswer(parsed.answer) && (parsed.sources?.length ?? 0) === 0) {
+      parsed.follow_up_suggestions = []
+    }
   }
 
   const response: QueryResponse = {
