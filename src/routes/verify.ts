@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import { loadPublicKeyFromEnv, verifyEvidenceSignature, fingerprint as computeFingerprint } from '../lib/oep-key.js'
 import type { GitEvidence } from '../types.js'
 
@@ -15,15 +15,14 @@ app.get('/git-evidence', async (c) => {
   const slug = c.req.query('slug')
   if (!slug) return c.json({ error: 'Missing required query param: slug' }, 400)
 
-  const { data, error } = await supabase
-    .from('public_profile')
-    .select('projects, contact')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const result = await fetchProfile()
 
-  if (error || !data) return c.json({ error: 'Profile not found' }, 404)
+  if (result.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[result.kind]
+    return c.json(body, status)
+  }
 
-  const projects = (data.projects ?? []) as Array<Record<string, unknown>>
+  const projects = (result.profile.projects ?? []) as Array<Record<string, unknown>>
   const project = projects.find(p => p.slug === slug)
   if (!project) return c.json({ error: `Project '${slug}' not found` }, 404)
 

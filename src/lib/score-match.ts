@@ -1,6 +1,6 @@
 import { generateText } from 'ai'
 import { getModel } from './ai.js'
-import { supabase } from './supabase.js'
+import { fetchProfile } from './profile-cache.js'
 import { parseJSON } from './parse-json.js'
 import type { MatchResponse, MatchScoring } from '../types.js'
 
@@ -8,6 +8,10 @@ const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
 
 export class ProfileNotFoundError extends Error {
   constructor() { super('Profile not found') }
+}
+
+export class ProfileUnavailableError extends Error {
+  constructor() { super('Profile temporarily unavailable') }
 }
 
 interface RawScores {
@@ -70,18 +74,18 @@ Respond ONLY with valid JSON. No prose, no markdown fences.
   "verdict": "one sentence explaining the overall fit honestly"
 }`
 
-// Returns MatchResponse on success, null on model/parse failure, throws ProfileNotFoundError if profile is missing.
+// Returns MatchResponse on success, null on model/parse failure. Throws
+// ProfileNotFoundError if the profile row is absent, ProfileUnavailableError
+// if the data source is unreachable and no cached copy exists.
 export async function scoreMatch(
   jobDescription: string,
   callerHint?: string,
 ): Promise<MatchResponse | null> {
-  const { data: profile, error } = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const profileResult = await fetchProfile()
 
-  if (error || !profile) throw new ProfileNotFoundError()
+  if (profileResult.kind === 'not_found') throw new ProfileNotFoundError()
+  if (profileResult.kind === 'unavailable') throw new ProfileUnavailableError()
+  const profile = profileResult.profile
 
   const systemPrompt = callerHint
     ? `${SCORING_RUBRIC}\n\nCaller context: ${callerHint}`

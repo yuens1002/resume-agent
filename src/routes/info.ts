@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import { loadPublicKeyFromEnv } from '../lib/oep-key.js'
 import type { VerificationStatus } from '../types.js'
 
@@ -42,19 +42,16 @@ function computeVerificationStatus(profile: Record<string, unknown>): Verificati
 }
 
 app.get('/', async (c) => {
-  const { data, error } = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const result = await fetchProfile()
 
-  if (error) {
-    return c.json({ error: 'Profile not found' }, 404)
+  if (result.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[result.kind]
+    return c.json(body, status)
   }
 
   return c.json({
-    ...data,
-    verification_status: computeVerificationStatus(data as Record<string, unknown>),
+    ...result.profile,
+    verification_status: computeVerificationStatus(result.profile as Record<string, unknown>),
   })
 })
 

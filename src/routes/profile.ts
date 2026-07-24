@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
+import { invalidateProfileCache } from '../lib/profile-cache.js'
 
 const app = new Hono()
 
@@ -48,6 +49,7 @@ app.patch('/', zValidator('json', schema), async (c) => {
     return c.json({ error: error.message }, 500)
   }
 
+  invalidateProfileCache()
   return c.json(data)
 })
 

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import { getModel } from '../lib/ai.js'
 import { generateText } from 'ai'
 import { parseJSON } from '../lib/parse-json.js'
@@ -74,15 +75,13 @@ export function injectProjectUrls(
 app.post('/', zValidator('json', schema), async (c) => {
   const { job_description, framing_hints } = c.req.valid('json')
 
-  const { data: profile, error } = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const profileResult = await fetchProfile()
 
-  if (error || !profile) {
-    return c.json({ error: 'Profile not found' }, 404)
+  if (profileResult.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[profileResult.kind]
+    return c.json(body, status)
   }
+  const profile = profileResult.profile
 
   const systemPrompt = `You are a professional resume writer optimizing for ATS (Applicant Tracking Systems) and human recruiter review. Generate a tailored resume for the candidate based on their profile and the target job description.
 

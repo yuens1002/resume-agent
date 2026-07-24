@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import type { Project } from '../types.js'
 
 const app = new Hono()
@@ -7,17 +7,14 @@ const app = new Hono()
 // GET /projects — project list: summary fields only (excludes highlights, problem, architecture, impact)
 // Includes url/repo/started intentionally — useful for list consumers without the full narrative payload
 app.get('/', async (c) => {
-  const { data, error } = await supabase
-    .from('public_profile')
-    .select('projects')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const result = await fetchProfile()
 
-  if (error || !data) {
-    return c.json({ error: 'Profile not found' }, 404)
+  if (result.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[result.kind]
+    return c.json(body, status)
   }
 
-  const projects: Project[] = data.projects ?? []
+  const projects: Project[] = result.profile.projects ?? []
 
   return c.json(
     projects.map(({ name, slug, description, role, tech, status, started, url, repo, cover }) => ({
@@ -40,17 +37,14 @@ app.get('/', async (c) => {
 app.get('/:slug', async (c) => {
   const slug = c.req.param('slug')
 
-  const { data, error } = await supabase
-    .from('public_profile')
-    .select('projects')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const result = await fetchProfile()
 
-  if (error || !data) {
-    return c.json({ error: 'Profile not found' }, 404)
+  if (result.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[result.kind]
+    return c.json(body, status)
   }
 
-  const projects: Project[] = data.projects ?? []
+  const projects: Project[] = result.profile.projects ?? []
   const project = projects.find((p) => p.slug === slug)
 
   if (!project) {
