@@ -14,6 +14,7 @@ import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '..
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import { isDeclineShapedAnswer } from '../lib/decline-phrases.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import type { QueryResponse } from '../types.js'
 
 const app = new Hono()
@@ -25,32 +26,6 @@ const app = new Hono()
 // an empty Set, which `filterVisibleProjects` treats as a no-op.
 const HIDE_FROM_PROJECTS = parseHiddenProjectSlugs(process.env.HIDE_FROM_PROJECTS)
 
-// ── Profile cache ────────────────────────────────────────
-// Profile changes at most a few times per day (via MCP or sync).
-// A 5-min TTL eliminates one Supabase round-trip per request.
-// Intentional tradeoff: callers may see data up to 5 minutes stale after
-// a profile update. Acceptable given how infrequently the profile changes.
-
-interface ProfileCache { data: unknown; expiresAt: number }
-let profileCache: ProfileCache | null = null
-const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000
-
-async function fetchProfile() {
-  const now = Date.now()
-  if (profileCache && now < profileCache.expiresAt) {
-    return { data: profileCache.data, error: null }
-  }
-  const result = await supabase
-    .from('public_profile')
-    .select('*')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
-  if (!result.error && result.data) {
-    profileCache = { data: result.data, expiresAt: now + PROFILE_CACHE_TTL_MS }
-  }
-  return result
-}
-
 /**
  * Candidate name for scorer call sites outside the request path (the eval
  * runner). Derived from the same live profile `queryProfile` reads — never a
@@ -58,8 +33,8 @@ async function fetchProfile() {
  * the real name into `scoreAnswer` without duplicating the profile fetch.
  */
 export async function fetchCandidateName(): Promise<string> {
-  const { data: profile } = await fetchProfile()
-  return deriveCandidateName(profile)
+  const result = await fetchProfile()
+  return deriveCandidateName(result.kind === 'ok' ? result.profile : null)
 }
 
 // ── Thoughts version cache ───────────────────────────────
@@ -389,6 +364,10 @@ export interface ProfileNotFoundError {
   kind: 'profile_not_found'
 }
 
+export interface ProfileUnavailableError {
+  kind: 'profile_unavailable'
+}
+
 export interface ParseError {
   kind: 'parse_error'
   raw: string
@@ -397,14 +376,16 @@ export interface ParseError {
 /** Non-streaming query — returns a structured QueryResponse or a typed error. */
 export async function queryProfile(
   args: QueryProfileArgs,
-): Promise<QueryResponse | ProfileNotFoundError | ParseError> {
+): Promise<QueryResponse | ProfileNotFoundError | ProfileUnavailableError | ParseError> {
   // Fetch profile + OB1 version token in parallel — both are in-process cached
   // and usually synchronous; parallel fetch keeps cold-start cost minimal.
-  const [{ data: profile, error }, thoughtsVersion] = await Promise.all([
+  const [profileResult, thoughtsVersion] = await Promise.all([
     fetchProfile(),
     fetchThoughtsVersion(),
   ])
-  if (error || !profile) return { kind: 'profile_not_found' }
+  if (profileResult.kind === 'not_found') return { kind: 'profile_not_found' }
+  if (profileResult.kind === 'unavailable') return { kind: 'profile_unavailable' }
+  const profile = profileResult.profile
 
   const profileUpdatedAt = (profile as { updated_at?: string }).updated_at ?? ''
 
@@ -556,16 +537,16 @@ export async function queryProfile(
 /** Streaming variant — returns the streamText result for caller-controlled consumption. */
 export async function queryProfileStream(
   args: QueryProfileArgs,
-): Promise<ReturnType<typeof streamText> | ProfileNotFoundError> {
+): Promise<ReturnType<typeof streamText> | ProfileNotFoundError | ProfileUnavailableError> {
   const skipThoughts = isBinaryQuestion(args.question)
-  const [{ data: profile, error }, thoughts] = await Promise.all([
+  const [profileResult, thoughts] = await Promise.all([
     fetchProfile(),
     skipThoughts ? Promise.resolve([]) : queryRelevantThoughtsForQuestion(args.question),
   ])
 
-  if (error || !profile) {
-    return { kind: 'profile_not_found' }
-  }
+  if (profileResult.kind === 'not_found') return { kind: 'profile_not_found' }
+  if (profileResult.kind === 'unavailable') return { kind: 'profile_unavailable' }
+  const profile = profileResult.profile
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
@@ -622,8 +603,9 @@ async function handleQuery(
     // Conversational mode relies on the JSON sources[] array; stream returns plain text with no
     // JSON envelope, so conversational attribution cannot be emitted. Fall back to cited.
     const result = await queryProfileStream({ question, callerHint, style: 'cited' })
-    if ('kind' in result && result.kind === 'profile_not_found') {
-      return c.json({ error: 'Profile not found' }, 404)
+    if ('kind' in result) {
+      const { status, body } = PROFILE_ERROR_HTTP[result.kind === 'profile_not_found' ? 'not_found' : 'unavailable']
+      return c.json(body, status)
     }
 
     // Tee the stream: forward bytes to the client, collect text for post-hoc logging.
@@ -664,7 +646,8 @@ async function handleQuery(
   const result = await queryProfile({ question, callerHint, style: effectiveStyle })
 
   if ('kind' in result) {
-    if (result.kind === 'profile_not_found') return c.json({ error: 'Profile not found' }, 404)
+    if (result.kind === 'profile_not_found') return c.json(PROFILE_ERROR_HTTP.not_found.body, PROFILE_ERROR_HTTP.not_found.status)
+    if (result.kind === 'profile_unavailable') return c.json(PROFILE_ERROR_HTTP.unavailable.body, PROFILE_ERROR_HTTP.unavailable.status)
     return c.json({ error: 'Failed to parse agent response' }, 500)
   }
 

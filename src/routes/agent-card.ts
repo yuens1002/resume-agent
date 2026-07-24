@@ -1,16 +1,15 @@
 import { Hono } from 'hono'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile } from '../lib/profile-cache.js'
 import { loadPublicKeyFromEnv } from '../lib/oep-key.js'
 
 const app = new Hono()
 
 // A2A-compliant agent card for autodiscovery by employer AI systems
 app.get('/', async (c) => {
-  const { data } = await supabase
-    .from('public_profile')
-    .select('contact, availability')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  // Best-effort: the card renders with generic fallbacks when the profile is
+  // unavailable, so autodiscovery never breaks on a data-source blip.
+  const result = await fetchProfile()
+  const data = result.kind === 'ok' ? result.profile : undefined
 
   const baseUrl = (process.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, '')
 

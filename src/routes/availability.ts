@@ -1,26 +1,25 @@
 import { Hono } from 'hono'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 
 const app = new Hono()
 
 app.get('/', async (c) => {
-  const { data, error } = await supabase
-    .from('public_profile')
-    .select('availability, contact, updated_at')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
+  const result = await fetchProfile()
 
-  if (error) {
-    return c.json({ error: 'Profile not found' }, 404)
+  if (result.kind !== 'ok') {
+    const { status, body } = PROFILE_ERROR_HTTP[result.kind]
+    return c.json(body, status)
   }
 
+  const { availability, contact, updated_at } = result.profile
+
   return c.json({
-    availability: data.availability,
+    availability,
     contact: {
-      email: data.contact?.email,
-      calendly: data.contact?.calendly,
+      email: contact?.email,
+      calendly: contact?.calendly,
     },
-    updated_at: data.updated_at,
+    updated_at,
   })
 })
 

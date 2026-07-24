@@ -22,7 +22,7 @@ import { z } from 'zod'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { queryProfile, queryProfileStream } from './query.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
-import { supabase } from '../lib/supabase.js'
+import { fetchProfile } from '../lib/profile-cache.js'
 import type { QueryResponse } from '../types.js'
 
 interface RequestContext {
@@ -64,12 +64,9 @@ export function narrateActionIntentForSurface(
 
 /** Best-effort lookup of the profile's published website URL, for the narrated pointer above. */
 async function fetchProfileWebsiteUrl(): Promise<string | undefined> {
-  const { data } = await supabase
-    .from('public_profile')
-    .select('contact')
-    .eq('id', '00000000-0000-0000-0000-000000000001')
-    .single()
-  return (data as { contact?: { website?: string } } | null)?.contact?.website
+  const result = await fetchProfile()
+  if (result.kind !== 'ok') return undefined
+  return (result.profile as { contact?: { website?: string } }).contact?.website
 }
 
 function buildPublicServer(reqCtx: RequestContext): McpServer {
@@ -111,9 +108,12 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
 
       if (stream) {
         const streamResult = await queryProfileStream({ question, callerHint })
-        if ('kind' in streamResult && streamResult.kind === 'profile_not_found') {
+        if ('kind' in streamResult) {
+          const message = streamResult.kind === 'profile_not_found'
+            ? 'Profile not found.'
+            : 'Profile temporarily unavailable — retry shortly.'
           return {
-            content: [{ type: 'text' as const, text: 'Profile not found.' }],
+            content: [{ type: 'text' as const, text: message }],
             isError: true,
           }
         }
@@ -160,7 +160,9 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
       if ('kind' in result) {
         const message = result.kind === 'profile_not_found'
           ? 'Profile not found.'
-          : 'Failed to parse agent response.'
+          : result.kind === 'profile_unavailable'
+            ? 'Profile temporarily unavailable — retry shortly.'
+            : 'Failed to parse agent response.'
         return { content: [{ type: 'text' as const, text: message }], isError: true }
       }
 

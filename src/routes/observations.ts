@@ -70,7 +70,13 @@ app.get('/', async (c) => {
   }
 
   const { data, error } = await q
-  if (error) return c.json({ error: error.message }, 500)
+  if (error) {
+    // Never echo error.message to the public: upstream failures can carry
+    // whole HTML error pages (observed: a Cloudflare error page during the
+    // 2026-07-24 Supabase outage). Log it (bounded), return a generic body.
+    console.error(`[observations] list fetch failed: ${error.message.slice(0, 300)}`)
+    return c.json({ error: 'Failed to load observations — retry shortly' }, 503)
+  }
 
   // Topic scope: an explicit `?topic` (single tag) overrides the owner-configured
   // default scope. Matching is case-insensitive (see hasAnyTopic) so casing variants
@@ -110,7 +116,10 @@ app.get('/:id', async (c) => {
     .eq('id', id)
     .limit(1)
 
-  if (error) return c.json({ error: error.message }, 500)
+  if (error) {
+    console.error(`[observations] detail fetch failed: ${error.message.slice(0, 300)}`)
+    return c.json({ error: 'Failed to load observation — retry shortly' }, 503)
+  }
 
   const row = (data?.[0] ?? null) as ThoughtRow | null
   if (!row || !isPublicThought(row.metadata)) return c.json({ error: 'Not found' }, 404)

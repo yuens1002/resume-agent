@@ -8,6 +8,7 @@ import { jwtVerify } from 'jose'
 import { generateText, embed } from 'ai'
 import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
+import { invalidateProfileCache } from '../lib/profile-cache.js'
 import { parseJSON } from '../lib/parse-json.js'
 import { scoreMatch } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
@@ -306,6 +307,7 @@ function buildServer(): McpServer {
           return { content: [{ type: 'text' as const, text: `Failed to update profile: ${message}` }], isError: true }
         }
 
+        invalidateProfileCache()
         const updated = Object.keys(updates).join(', ')
         return { content: [{ type: 'text' as const, text: `Profile updated — fields changed: ${updated}` }] }
       } catch (err: unknown) {
@@ -383,6 +385,7 @@ function buildServer(): McpServer {
           return { content: [{ type: 'text' as const, text: `Failed to save project: ${message}` }], isError: true }
         }
 
+        invalidateProfileCache()
         const label = (input.name ?? input.slug)
         return { content: [{ type: 'text' as const, text: `Project "${label}" (${input.slug}) ${action}.` }] }
       } catch (err: unknown) {
@@ -431,6 +434,7 @@ function buildServer(): McpServer {
           return { content: [{ type: 'text' as const, text: `Failed to save publication: ${message}` }], isError: true }
         }
 
+        invalidateProfileCache()
         const label = (input.title ?? input.slug)
         return { content: [{ type: 'text' as const, text: `Publication "${label}" (${input.slug}) ${result.action}.` }] }
       } catch (err: unknown) {
