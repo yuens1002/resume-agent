@@ -139,7 +139,7 @@ When you fork this, your agent inherits four concrete commitments — enforced b
 | Table | Access | Purpose |
 |---|---|---|
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
-| `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: **authored** `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`) |
+| `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`). Within the first stream, `metadata.source` separates hand-written notes (`mcp`) from machine entries (`sync`, `telemetry`) — surfaced as `authored` on `/observations` |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
@@ -289,10 +289,22 @@ Browsable list of the candidate's **public-eligible OB1 observations** — the d
 
 > **`/observations` = the authored *why*** · **`/verify` = the *proven what*** (Ed25519-signed git evidence per project, a different data path) · **`/query` grounds on both.**
 
-Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Filters: `?topic=` (OB1 tag, **case-insensitive** so casing variants resolve to one trail), `?type=` (override the default; e.g. `reference`), `?since=YYYY-MM-DD`, `?limit=` (1–100, default 25). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated, case-insensitive) when set, otherwise the most recent public observations. *Note: topic matching normalizes case but not synonyms — `OEP` and `Open Employment Protocol` are distinct tags; list both in `OBSERVATIONS_TOPICS` to union them in the default view.*
+**Authored notes vs machine entries.** `type` alone can't separate them: the nightly sync writes its own `type: "observation"` rows (VERSION DRIFT warnings), and the resume path writes rubric-failure telemetry the same way. Every item therefore carries **`authored`** — `true` for a hand-written note, `false` for a machine-generated sync/telemetry entry.
+
+`?authored=1` / `?authored=0` filters on it server-side, applied *before* `limit` (so `?authored=1&limit=25` returns 25 authored notes rather than whatever survives filtering a mixed page). **The default listing is unchanged** — omitting the param returns both classes exactly as before, so nothing breaks for an existing consumer, and the `?type=reference` escape hatch keeps working.
+
+The flag comes from an **allowlist** of authored `metadata.source` values (`mcp`, the private MCP `capture_thought` path), not a denylist of machine ones — so a machine writer added later is `authored: false` by default instead of silently passing as authored.
+
+The filter is echoed in the response envelope **when it was requested**, which doubles as a **capability probe** on exactly the call a filtering client makes: `?authored=1` against a deployment predating this field silently returns the unfiltered list with a `200` and plausible JSON, and the absence of the key is the only way to tell that apart from a filter that was honored.
+
+The envelope also carries `total` (how many matched the filters) and `truncated` (whether `limit` cut the list short), so a consumer can tell a complete page from a capped one instead of inferring it from `count`.
+
+Private thoughts (`metadata.private: true`) are always excluded — the same boundary as `/query` — and a private or unknown id returns `404`, never `403` (the surface never confirms a private thought's existence). Filters: `?topic=` (OB1 tag, **case-insensitive** so casing variants resolve to one trail), `?type=` (override the default; e.g. `reference`), `?authored=` (`1`/`0`; omitted returns both), `?since=YYYY-MM-DD`, `?limit=` (1–500, default 25 — the ceiling is high enough for a sitemap generator to take every authored note in one request, since there's no browsing UI to paginate). Without `topic`, the listing is scoped to the `OBSERVATIONS_TOPICS` env (comma-separated, case-insensitive) when set, otherwise the most recent public observations. *Note: topic matching normalizes case but not synonyms — `OEP` and `Open Employment Protocol` are distinct tags; list both in `OBSERVATIONS_TOPICS` to union them in the default view.*
 
 ```bash
 curl "https://your-agent-domain.com/observations?topic=OEP&limit=5"          # authored OEP trail
+curl "https://your-agent-domain.com/observations?authored=1&limit=500"       # every authored note, one request
+curl "https://your-agent-domain.com/observations?authored=0"                 # machine sync/telemetry entries
 curl "https://your-agent-domain.com/observations?type=reference&topic=resume-agent"  # the changelog ledger
 curl "https://your-agent-domain.com/observations/<id>"                       # one premise, by stable id
 ```

@@ -20,10 +20,13 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import {
   isPublicThought,
+  isAuthoredThought,
   shapeObservation,
   hasAnyTopic,
+  parseAuthoredFilter,
   parseTopicScope,
   isUuid,
+  AUTHORED_THOUGHT_SOURCES,
   DEFAULT_OBSERVATION_TYPES,
 } from '../src/lib/observations.js'
 
@@ -55,6 +58,22 @@ describe('observations helpers', () => {
     assert.deepEqual(o.topics, ['OEP', 'employment'])
     assert.equal(o.content, 'a dated premise')
     assert.equal(o.url, 'https://agent.example.com/observations/a431455d-eaed-4d74-91d3-4e098fa7fbd2')
+  })
+
+  it('shapeObservation: carries the authored flag from metadata.source', () => {
+    const row = (metadata: Record<string, unknown> | null) => ({
+      id: 'a431455d-eaed-4d74-91d3-4e098fa7fbd2',
+      content: 'c',
+      metadata,
+      created_at: '2026-06-01T00:00:00.000Z',
+    })
+    assert.equal(shapeObservation(row({ type: 'observation', source: 'mcp' }), 'https://h').authored, true)
+    // the nightly sync's VERSION DRIFT warnings — type: observation, like an authored note
+    assert.equal(
+      shapeObservation(row({ type: 'observation', source: 'sync', topics: ['version_drift'] }), 'https://h').authored,
+      false,
+    )
+    assert.equal(shapeObservation(row(null), 'https://h').authored, false)
   })
 
   it('shapeObservation: tolerates missing metadata', () => {
@@ -89,6 +108,51 @@ describe('observations helpers', () => {
     assert.equal(isUuid('not-a-uuid'), false)
     assert.equal(isUuid('../../etc/passwd'), false)
     assert.equal(isUuid(''), false)
+  })
+
+  it('isAuthoredThought: allowlist — only a known authored source counts', () => {
+    assert.equal(isAuthoredThought({ source: 'mcp' }), true)
+    // machine writers
+    assert.equal(isAuthoredThought({ source: 'sync' }), false)
+    assert.equal(isAuthoredThought({ source: 'enrichment' }), false)
+    assert.equal(isAuthoredThought({ source: 'telemetry' }), false)
+    // a source-less row is machine telemetry from a writer that predates the
+    // convention — NOT an authored note (#222)
+    assert.equal(isAuthoredThought({ type: 'observation' }), false)
+    assert.equal(isAuthoredThought(null), false)
+    assert.equal(isAuthoredThought(undefined), false)
+    // non-string source must not be coerced into a match
+    assert.equal(isAuthoredThought({ source: ['mcp'] }), false)
+    // the point of the allowlist: a machine source nobody has heard of yet
+    // stays out of the authored view instead of silently passing
+    assert.equal(isAuthoredThought({ source: 'some-future-bot' }), false)
+  })
+
+  it('AUTHORED_THOUGHT_SOURCES: excludes every known machine writer', () => {
+    const authored = AUTHORED_THOUGHT_SOURCES as readonly string[]
+    assert.deepEqual([...authored], ['mcp'])
+    for (const machine of ['sync', 'enrichment', 'telemetry']) {
+      assert.equal(authored.includes(machine), false, `${machine} must not be an authored source`)
+    }
+  })
+
+  it('parseAuthoredFilter: tri-state — authored only, machine only, or no filter', () => {
+    assert.equal(parseAuthoredFilter('1'), true)
+    assert.equal(parseAuthoredFilter('true'), true)
+    assert.equal(parseAuthoredFilter('YES'), true)
+    assert.equal(parseAuthoredFilter(''), true) // bare ?authored reads as the flag
+    assert.equal(parseAuthoredFilter('0'), false)
+    assert.equal(parseAuthoredFilter('false'), false)
+    assert.equal(parseAuthoredFilter('No'), false)
+  })
+
+  it('parseAuthoredFilter: absent means NO filter — the default listing is unchanged', () => {
+    // Additive by design. The absent case is what keeps every pre-existing
+    // consumer — and every explicit ?type=, including the `reference` ledger,
+    // whose rows are all machine-written — returning exactly what it did before.
+    assert.equal(parseAuthoredFilter(undefined), undefined)
+    // Junk is ignored rather than rejected, as with ?since / ?limit.
+    assert.equal(parseAuthoredFilter('banana'), undefined)
   })
 
   it('DEFAULT_OBSERVATION_TYPES: the authored "why" layer, excluding the reference ledger', () => {

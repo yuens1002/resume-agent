@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase.js'
 import {
   isPublicThought,
   shapeObservation,
-  hasAnyTopic,
+  buildObservationsListing,
+  parseAuthoredFilter,
   parseTopicScope,
   isUuid,
   DEFAULT_OBSERVATION_TYPES,
@@ -16,10 +17,20 @@ const baseUrlOf = (url: string): string =>
   (process.env.PUBLIC_URL ?? new URL(url).origin).replace(/\/$/, '')
 
 // Topic is matched in app code (case-insensitive), so we fetch the per-type window and
-// filter in memory. The ceiling sits above the largest single thought type (the
-// `reference` ledger) so a `?topic` filter sees *every* candidate of that type, not just
-// the most recent — otherwise `?type=reference&topic=…` could miss matches outside the
-// window. Revisit if any one type ever grows past this.
+// filter in memory.
+//
+// This ceiling was chosen to sit above the largest single thought type so a `?topic`
+// filter would see *every* candidate of that type rather than only the most recent.
+// That is no longer true and hasn't been for a while: the `reference` ledger is at
+// 3,485 rows against this 1,000 ceiling, so `?type=reference&topic=…` already misses
+// matches older than the window. Pre-existing and independent of the authored filter
+// (#222) — the split runs over whatever this returns either way — but the guarantee
+// this comment used to claim is gone, so it should not keep claiming it.
+//
+// Raising the number only moves the cliff and costs a bigger in-memory fetch on a
+// public endpoint; the real fix is pushing topic matching into SQL alongside paging.
+// The handler now logs when a request actually hits the ceiling, so the condition
+// reports itself instead of depending on someone rereading this comment.
 const FETCH_CEILING = 1000
 
 /**
@@ -33,11 +44,20 @@ const FETCH_CEILING = 1000
  * ledger ("what shipped"). The ledger still grounds `/query` and `/resume`; fetch it
  * here explicitly with `?type=reference`.
  *
+ * Every item carries `authored` (#222): true for a hand-written note, false for
+ * a machine-generated sync/telemetry entry — the two classes the endpoint's own
+ * `note` distinguishes but that `?type=` could not separate, since the nightly
+ * sync's VERSION DRIFT warnings are `type: "observation"` like everything else.
+ * Additive: the default listing is unchanged and returns both classes; a
+ * consumer opts in with `?authored=`.
+ *
  * Query params:
- *   - `topic`  — filter by an OB1 topic tag (case-insensitive)
- *   - `type`   — override the type filter (e.g. `reference` for the changelog ledger)
- *   - `since`  — only observations on/after this date (YYYY-MM-DD)
- *   - `limit`  — 1–100, default 25
+ *   - `topic`    — filter by an OB1 topic tag (case-insensitive)
+ *   - `type`     — override the type filter (e.g. `reference` for the changelog ledger)
+ *   - `since`    — only observations on/after this date (YYYY-MM-DD)
+ *   - `authored` — `1` authored notes only, `0` machine entries only; omitted
+ *                  returns both (the default is unchanged)
+ *   - `limit`    — 1–500, default 25
  *
  * Without `topic`, the listing is scoped to `OBSERVATIONS_TOPICS` (comma-separated
  * env, case-insensitive) when set; otherwise it returns the most recent public
@@ -47,9 +67,15 @@ app.get('/', async (c) => {
   const topic = c.req.query('topic')?.trim()
   const type = c.req.query('type')?.trim()
   const since = c.req.query('since')?.trim()
+  const authored = parseAuthoredFilter(c.req.query('authored'))
   const limitRaw = Number(c.req.query('limit'))
+  // Ceiling raised 100 → 500 (#222 follow-on): the consumer is a server-rendered,
+  // sitemap-listed page that wants every authored note in one request, and there
+  // is no browsing UI to paginate. Costs nothing at the DB layer — the query
+  // already fetches up to FETCH_CEILING rows and this only widens the in-memory
+  // slice taken from them. Revisit if authored notes approach FETCH_CEILING.
   const limit = Number.isFinite(limitRaw)
-    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 500)
     : 25
 
   // Type filter is applied at the DB layer (before LIMIT) so a small, older type isn't
@@ -83,21 +109,29 @@ app.get('/', async (c) => {
   // of the same tag — e.g. "open employment protocol" vs "Open Employment Protocol" —
   // resolve to one trail.
   const envScope = parseTopicScope(process.env.OBSERVATIONS_TOPICS)
-  const wantedTopics = topic ? [topic] : envScope
   const baseUrl = baseUrlOf(c.req.url)
 
-  const filtered = ((data ?? []) as ThoughtRow[])
-    .filter((r) => isPublicThought(r.metadata))
-    .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
-    .slice(0, limit)
+  const rows = (data ?? []) as ThoughtRow[]
 
+  // The fetch window is the one bound this endpoint can't express in its
+  // response, so make it say something when it's reached rather than relying on
+  // someone remembering the comment above. A full window means the filters ran
+  // over a truncated set and the `total` below is itself a floor, not a count.
+  if (rows.length >= FETCH_CEILING) {
+    console.warn(
+      `[observations] fetch hit FETCH_CEILING (${FETCH_CEILING}) for type=${type ?? 'default'} — ` +
+      'filters ran over a truncated window; move filtering into SQL with paging.',
+    )
+  }
+
+  // Filtering, ordering, and envelope shaping live in buildObservationsListing
+  // so they can be tested against fixture rows without a database — this route
+  // is the only part that needs one. See that function for why the filter order
+  // and the pre-limit slice are load-bearing.
   c.header('Cache-Control', 'public, max-age=300')
   return c.json({
-    count: filtered.length,
-    scope: topic ? { topic } : envScope.length ? { topics: envScope } : { recent: true },
-    types: type ? [type] : [...DEFAULT_OBSERVATION_TYPES],
-    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
-    observations: filtered.map((r) => shapeObservation(r, baseUrl)),
+    ...buildObservationsListing(rows, { topic, envScope, type, authored, limit, baseUrl }),
+    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Each item carries `authored`: true for a hand-written note, false for a machine-generated sync/telemetry entry (e.g. VERSION DRIFT warnings); filter server-side with ?authored=1 or ?authored=0. Excludes the git-sync changelog ledger by default; pass ?type=reference for that. `total` and `truncated` report what matched vs what this page returned. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
   })
 })
 
