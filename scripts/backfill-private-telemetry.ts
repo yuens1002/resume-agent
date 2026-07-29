@@ -40,13 +40,20 @@ interface Row {
 }
 
 /** A class of machine-written rows to un-publish, selected by OB1 topic tag. */
-interface Target {
+export interface Target {
   label: string
   topic: string
   why: string
 }
 
-const TARGETS: readonly Target[] = [
+/**
+ * Exported so a test can assert the selector actually matches what the producer
+ * writes, rather than both sides pinning the same string literal independently.
+ * `RUBRIC_FAILURE_METADATA.topics` in src/routes/resume.ts is the other half of
+ * that pair: rename the topic there and this script silently stops matching,
+ * which no literal-pinning test would catch.
+ */
+export const TARGETS: readonly Target[] = [
   {
     label: 'rubric telemetry',
     topic: 'resume-failure',
@@ -148,7 +155,16 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('[backfill] failed:', err instanceof Error ? err.message : err)
-  process.exitCode = 1
-})
+// Only run when invoked directly. Importing this module (the coupling test in
+// tests/telemetry-privacy.test.ts reads TARGETS from it) must not execute a
+// backfill as a side effect. Same guard shape as scripts/verify-oep-domain.ts.
+const isMain =
+  import.meta.url === `file://${process.argv[1]}` ||
+  import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))
+
+if (isMain) {
+  main().catch((err) => {
+    console.error('[backfill] failed:', err instanceof Error ? err.message : err)
+    process.exitCode = 1
+  })
+}

@@ -38,9 +38,14 @@ let RUBRIC_FAILURE_METADATA: Readonly<{
   private: boolean
   topics: readonly string[]
 }>
+let TARGETS: ReadonlyArray<{ topic: string }>
 
 before(async () => {
+  // Both dynamic, for the same reason: each module reaches the supabase client
+  // at load. The backfill script additionally guards its `main()` behind an
+  // is-main check so importing it here reads TARGETS without running a backfill.
   ;({ RUBRIC_FAILURE_METADATA } = await import('../src/routes/resume.js'))
+  ;({ TARGETS } = await import('../scripts/backfill-private-telemetry.js'))
 })
 
 describe('rubric-failure telemetry metadata', () => {
@@ -59,10 +64,19 @@ describe('rubric-failure telemetry metadata', () => {
     assert.equal(RUBRIC_FAILURE_METADATA.source, 'telemetry')
   })
 
-  it('keeps the topics the backfill and existing rows are selected by', () => {
-    // scripts/backfill-private-telemetry.ts selects on 'resume-failure'; a
-    // rename here would silently orphan future rows from that repair path.
-    assert.deepEqual([...RUBRIC_FAILURE_METADATA.topics], ['resume-failure', 'rubric'])
+  it('is selectable by the backfill script — asserted against its actual selectors', () => {
+    // The relation, not a literal on each side. Previously this pinned
+    // ['resume-failure', 'rubric'] here while the script pinned
+    // topic: 'resume-failure' there, with only a comment claiming they must
+    // agree — so renaming the topic and updating this literal would have left
+    // the script silently matching nothing. Now the two are compared.
+    const selectors = TARGETS.map((t) => t.topic)
+    const covered = RUBRIC_FAILURE_METADATA.topics.filter((t) => selectors.includes(t))
+    assert.ok(
+      covered.length > 0,
+      `no backfill selector (${selectors.join(', ')}) matches the producer's topics ` +
+      `(${RUBRIC_FAILURE_METADATA.topics.join(', ')}) — the repair path would match nothing`,
+    )
   })
 
   it('is frozen through the nested topics array, not just at the top level', () => {
