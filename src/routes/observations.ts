@@ -39,14 +39,17 @@ const FETCH_CEILING = 1000
  * a machine-generated sync/telemetry entry — the two classes the endpoint's own
  * `note` distinguishes but that `?type=` could not separate, since the nightly
  * sync's VERSION DRIFT warnings are `type: "observation"` like everything else.
+ * **The listing is authored-only by default** ({@link DEFAULT_AUTHORED_FILTER}):
+ * this surface is crawled, and a crawler arriving with no query params should
+ * get the reasoning trail, not telemetry.
  *
  * Query params:
  *   - `topic`    — filter by an OB1 topic tag (case-insensitive)
  *   - `type`     — override the type filter (e.g. `reference` for the changelog ledger)
  *   - `since`    — only observations on/after this date (YYYY-MM-DD)
- *   - `authored` — `1` for authored notes only, `0` for machine entries only;
- *                  omitted returns both (the default is unchanged, additive)
- *   - `limit`    — 1–100, default 25
+ *   - `authored` — `1` authored notes only (default), `0` machine entries only,
+ *                  `all` for both
+ *   - `limit`    — 1–500, default 25
  *
  * Without `topic`, the listing is scoped to `OBSERVATIONS_TOPICS` (comma-separated
  * env, case-insensitive) when set; otherwise it returns the most recent public
@@ -58,8 +61,13 @@ app.get('/', async (c) => {
   const since = c.req.query('since')?.trim()
   const authored = parseAuthoredFilter(c.req.query('authored'))
   const limitRaw = Number(c.req.query('limit'))
+  // Ceiling raised 100 → 500 (#222 follow-on): the consumer is a server-rendered,
+  // sitemap-listed page that wants every authored note in one request, and there
+  // is no browsing UI to paginate. Costs nothing at the DB layer — the query
+  // already fetches up to FETCH_CEILING rows and this only widens the in-memory
+  // slice taken from them. Revisit if authored notes approach FETCH_CEILING.
   const limit = Number.isFinite(limitRaw)
-    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
+    ? Math.min(Math.max(Math.trunc(limitRaw), 1), 500)
     : 25
 
   // Type filter is applied at the DB layer (before LIMIT) so a small, older type isn't
@@ -97,9 +105,9 @@ app.get('/', async (c) => {
   const baseUrl = baseUrlOf(c.req.url)
 
   // The authored/machine split is applied BEFORE the limit slice, so
-  // `?authored=1&limit=25` returns 25 authored notes rather than whatever
-  // survives filtering a mixed page of 25 — the reason this is a server-side
-  // param and not just a per-item field (#222).
+  // `?limit=25` returns 25 authored notes rather than whatever survives
+  // filtering a mixed page of 25 — the reason this is a server-side filter and
+  // not just a per-item field (#222).
   //
   // Bounded, like the topic filter above, by the FETCH_CEILING window: the
   // filter runs over the most recent FETCH_CEILING rows of the requested
@@ -111,7 +119,7 @@ app.get('/', async (c) => {
   const filtered = ((data ?? []) as ThoughtRow[])
     .filter((r) => isPublicThought(r.metadata))
     .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
-    .filter((r) => authored === undefined || isAuthoredThought(r.metadata) === authored)
+    .filter((r) => authored === 'all' || isAuthoredThought(r.metadata) === authored)
     .slice(0, limit)
 
   c.header('Cache-Control', 'public, max-age=300')
@@ -119,10 +127,14 @@ app.get('/', async (c) => {
     count: filtered.length,
     scope: topic ? { topic } : envScope.length ? { topics: envScope } : { recent: true },
     types: type ? [type] : [...DEFAULT_OBSERVATION_TYPES],
-    // Echoed only when the filter was actually requested, so the default
-    // response shape is unchanged for existing consumers.
-    ...(authored === undefined ? {} : { authored }),
-    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Each item carries `authored`: true for a hand-written note, false for a machine-generated sync/telemetry entry (e.g. VERSION DRIFT warnings); filter server-side with ?authored=1 or ?authored=0. Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
+    // Always echoed, including for the default. Doubles as a capability probe
+    // for consumers: the key is absent on any deployment predating #222, so
+    // `'authored' in response` distinguishes "the server applied this filter"
+    // from "the server silently ignored an unknown param" — the failure mode a
+    // client otherwise can't detect, since an ignored param still returns 200
+    // with plausible JSON.
+    authored,
+    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Returns hand-authored notes only by default; machine-generated sync/telemetry entries (e.g. VERSION DRIFT warnings) are available via ?authored=0, and ?authored=all returns both. Each item carries an `authored` boolean. Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
     observations: filtered.map((r) => shapeObservation(r, baseUrl)),
   })
 })

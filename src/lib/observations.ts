@@ -57,20 +57,40 @@ export function isAuthoredThought(metadata: Record<string, unknown> | null | und
 }
 
 /**
- * Parse the `?authored=` query param into a tri-state filter: `true` (authored
- * notes only), `false` (machine entries only), or `undefined` (no filter — the
- * default, so the listing stays backward-compatible).
- *
- * A bare `?authored` with no value reads as `true` — the usual flag convention.
- * An unrecognized value is ignored rather than rejected, matching how `?since`
- * and `?limit` already treat junk on this surface.
+ * What a resolved `?authored=` filter can ask for: authored notes only (`true`),
+ * machine entries only (`false`), or no filtering at all (`'all'`).
  */
-export function parseAuthoredFilter(raw: string | undefined): boolean | undefined {
-  if (raw === undefined) return undefined
+export type AuthoredFilter = boolean | 'all'
+
+/**
+ * The filter applied when `?authored=` is absent — **authored notes only**.
+ *
+ * This surface is crawled: `/observations` is server-rendered into a sitemap,
+ * and a crawler arriving with no query params is the common case, not the edge
+ * one. Defaulting to the authored trail means the indexable content is the
+ * hand-written reasoning the endpoint's own `note` has always advertised,
+ * rather than sync warnings and telemetry that read as thin content. Machine
+ * entries stay one explicit `?authored=0` away, and `?authored=all` restores
+ * the pre-#222 mixed listing.
+ */
+export const DEFAULT_AUTHORED_FILTER: AuthoredFilter = true
+
+/**
+ * Resolve the `?authored=` query param, applying {@link DEFAULT_AUTHORED_FILTER}
+ * when it is absent or unrecognized.
+ *
+ * Accepted: `1|true|yes` or a bare `?authored` with no value (authored only);
+ * `0|false|no` (machine only); `all|any|both` (no filter). Case-insensitive. An
+ * unrecognized value falls back to the default rather than being rejected,
+ * matching how `?since` and `?limit` already treat junk on this surface.
+ */
+export function parseAuthoredFilter(raw: string | undefined): AuthoredFilter {
+  if (raw === undefined) return DEFAULT_AUTHORED_FILTER
   const v = raw.trim().toLowerCase()
   if (v === '' || v === '1' || v === 'true' || v === 'yes') return true
   if (v === '0' || v === 'false' || v === 'no') return false
-  return undefined
+  if (v === 'all' || v === 'any' || v === 'both') return 'all'
+  return DEFAULT_AUTHORED_FILTER
 }
 
 export interface PublicObservation {

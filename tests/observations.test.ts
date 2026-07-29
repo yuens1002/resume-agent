@@ -27,6 +27,7 @@ import {
   parseTopicScope,
   isUuid,
   AUTHORED_THOUGHT_SOURCES,
+  DEFAULT_AUTHORED_FILTER,
   DEFAULT_OBSERVATION_TYPES,
 } from '../src/lib/observations.js'
 
@@ -136,7 +137,7 @@ describe('observations helpers', () => {
     }
   })
 
-  it('parseAuthoredFilter: tri-state — true, false, or no filter', () => {
+  it('parseAuthoredFilter: authored only, machine only, or all', () => {
     assert.equal(parseAuthoredFilter('1'), true)
     assert.equal(parseAuthoredFilter('true'), true)
     assert.equal(parseAuthoredFilter('YES'), true)
@@ -144,9 +145,19 @@ describe('observations helpers', () => {
     assert.equal(parseAuthoredFilter('0'), false)
     assert.equal(parseAuthoredFilter('false'), false)
     assert.equal(parseAuthoredFilter('No'), false)
-    // absent, and junk (ignored rather than rejected, as with ?since / ?limit)
-    assert.equal(parseAuthoredFilter(undefined), undefined)
-    assert.equal(parseAuthoredFilter('banana'), undefined)
+    // the pre-#222 mixed listing, now opt-in
+    assert.equal(parseAuthoredFilter('all'), 'all')
+    assert.equal(parseAuthoredFilter('ANY'), 'all')
+    assert.equal(parseAuthoredFilter('both'), 'all')
+  })
+
+  it('parseAuthoredFilter: absent or junk falls back to the authored-only default', () => {
+    // The crawler case: no query params at all must not serve telemetry.
+    assert.equal(parseAuthoredFilter(undefined), DEFAULT_AUTHORED_FILTER)
+    assert.equal(DEFAULT_AUTHORED_FILTER, true)
+    // Junk falls back rather than being rejected, as with ?since / ?limit —
+    // and the fallback direction is the safe one, not the mixed listing.
+    assert.equal(parseAuthoredFilter('banana'), true)
   })
 
   it('DEFAULT_OBSERVATION_TYPES: the authored "why" layer, excluding the reference ledger', () => {

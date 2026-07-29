@@ -209,7 +209,7 @@ app.get('/', (c) => {
         get: {
           operationId: 'listObservations',
           summary: 'Browse the candidate\'s authored reasoning/premise trail',
-          description: 'Returns public-eligible OB1 observations — the dated, authored "why and lessons" notes behind the profile (types observation/idea/task), each with a stable URL for citation. Every item carries an "authored" boolean separating hand-written notes from machine-generated sync/telemetry entries; filter with authored=1 or authored=0. Excludes the git-sync changelog ledger (type=reference) by default; pass type=reference to read it. Private notes are always excluded.',
+          description: 'Returns public-eligible OB1 observations — the dated, authored "why and lessons" notes behind the profile (types observation/idea/task), each with a stable URL for citation. Hand-authored notes only by default; machine-generated sync/telemetry entries are available via authored=0, and authored=all returns both. Every item carries an "authored" boolean. Excludes the git-sync changelog ledger (type=reference) by default; pass type=reference to read it. Private notes are always excluded.',
           parameters: [
             { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an OB1 topic tag (case-insensitive)' },
             { name: 'type', in: 'query', required: false, schema: { type: 'string', enum: ['observation', 'idea', 'task', 'reference'] }, description: 'Override the default type filter (observation/idea/task). Use "reference" for the git/changelog ledger.' },
@@ -218,8 +218,8 @@ app.get('/', (c) => {
             // (empty value, reads as true), which an enum can't express — a
             // stricter schema here would make generated clients reject values
             // the endpoint actually honors.
-            { name: 'authored', in: 'query', required: false, schema: { type: 'string' }, description: 'Restrict to authored notes or to machine-generated sync/telemetry entries. Truthy: 1, true, yes, or a bare ?authored with no value. Falsy: 0, false, no. Case-insensitive; an unrecognized value is ignored. Omitted returns both classes. Applied before the limit, so authored=1&limit=25 yields 25 authored notes.' },
-            { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+            { name: 'authored', in: 'query', required: false, schema: { type: 'string', default: '1' }, description: 'Which class of entry to return. Authored notes (the default): 1, true, yes, or a bare ?authored with no value. Machine sync/telemetry entries: 0, false, no. Both: all, any, both. Case-insensitive; an unrecognized value falls back to the default. Applied before the limit, so limit=25 yields 25 authored notes rather than the authored remainder of a mixed page.' },
+            { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 25 } },
           ],
           responses: {
             '200': {
@@ -232,7 +232,7 @@ app.get('/', (c) => {
                       count: { type: 'integer' },
                       scope: { type: 'object', description: 'The active topic scope: {topic}, {topics}, or {recent:true}' },
                       types: { type: 'array', items: { type: 'string' }, description: 'The thought types included (default observation/idea/task, or the explicit ?type)' },
-                      authored: { type: 'boolean', description: 'Echo of the ?authored filter. Present only when the filter was requested.' },
+                      authored: { description: 'The filter that was applied: true (authored only, the default), false (machine entries only), or "all". Always present — its absence identifies a deployment predating this field.', oneOf: [{ type: 'boolean' }, { type: 'string', enum: ['all'] }] },
                       note: { type: 'string', description: 'Human-readable description of what this surface returns' },
                       observations: {
                         type: 'array',
