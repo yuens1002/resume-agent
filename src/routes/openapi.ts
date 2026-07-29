@@ -218,7 +218,7 @@ app.get('/', (c) => {
             // (empty value, reads as true), which an enum can't express — a
             // stricter schema here would make generated clients reject values
             // the endpoint actually honors.
-            { name: 'authored', in: 'query', required: false, schema: { type: 'string', default: '1' }, description: 'Which class of entry to return. Authored notes (the default): 1, true, yes, or a bare ?authored with no value. Machine sync/telemetry entries: 0, false, no. Both: all, any, both. Case-insensitive; an unrecognized value falls back to the default. Applied before the limit, so limit=25 yields 25 authored notes rather than the authored remainder of a mixed page.' },
+            { name: 'authored', in: 'query', required: false, schema: { type: 'string', default: '1' }, description: 'Which class of entry to return. Authored notes (the default): 1, true, yes, or a bare ?authored with no value. Machine sync/telemetry entries: 0, false, no. Both: all, any, both. Case-insensitive; an unrecognized value falls back to the default. Applied before the limit, so limit=25 yields 25 authored notes rather than the authored remainder of a mixed page. The authored default applies only within the authored layer (observation/idea/task) — an explicit type outside it, such as reference, returns both classes, since that ledger is machine-written by definition and filtering it to authored-only would empty it. An explicit authored value always wins.' },
             { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 500, default: 25 } },
           ],
           responses: {

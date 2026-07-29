@@ -93,6 +93,38 @@ export function parseAuthoredFilter(raw: string | undefined): AuthoredFilter {
   return DEFAULT_AUTHORED_FILTER
 }
 
+/**
+ * Resolve the effective authored filter from `?authored=` **and** `?type=`.
+ *
+ * The authored/machine split is only meaningful *inside* the authored layer
+ * ({@link DEFAULT_OBSERVATION_TYPES}). `reference` is the git-sync changelog
+ * ledger — machine-written by definition — so applying the authored default to
+ * an explicit `?type=reference` doesn't filter it, it empties it: every ledger
+ * row is `source: 'enrichment'`, so `isAuthoredThought` is false for all of
+ * them and nothing survives. Same for the other sync-written types
+ * (`review_needed`, `notification`).
+ *
+ * That would have silently broken the documented escape hatch — the README, the
+ * route's doc comment, and the `note` in the response body all say "pass
+ * `?type=reference`" for the ledger, and it would have returned an empty list
+ * while still saying so.
+ *
+ * So: an explicit `?type=` **outside** the authored layer opts out of the
+ * authored default. A type *inside* it keeps the default — `?type=observation`
+ * must not start serving VERSION DRIFT rows, which is the exact noise the
+ * default exists to keep out of a crawled surface. An explicit `?authored=`
+ * always wins over both, so every combination stays reachable.
+ */
+export function resolveAuthoredFilter(
+  raw: string | undefined,
+  type: string | undefined,
+): AuthoredFilter {
+  if (raw !== undefined) return parseAuthoredFilter(raw)
+  const typeIsAuthoredLayer =
+    !type || (DEFAULT_OBSERVATION_TYPES as readonly string[]).includes(type)
+  return typeIsAuthoredLayer ? DEFAULT_AUTHORED_FILTER : 'all'
+}
+
 export interface PublicObservation {
   id: string
   date: string // YYYY-MM-DD
