@@ -27,6 +27,52 @@ export interface ThoughtRow {
  */
 export const DEFAULT_OBSERVATION_TYPES = ['observation', 'idea', 'task'] as const
 
+/**
+ * `metadata.source` values that mean *a human wrote this note by hand*. Today
+ * that is exactly the private MCP `capture_thought` path (`src/routes/mcp.ts`
+ * stamps `source: 'mcp'`); the nightly git sync stamps `'sync'`/`'enrichment'`.
+ *
+ * Deliberately an ALLOWLIST of authored sources rather than a denylist of
+ * machine ones. A denylist has the same failure mode as the consumer-side topic
+ * heuristic this signal replaces (#222): the day a new machine writer appears,
+ * its rows silently pass as authored. With an allowlist a new producer is
+ * `authored: false` until it is explicitly added here — the fail-closed
+ * direction for a crawlable surface.
+ *
+ * A *missing* `source` is therefore not authored, which also matches the data:
+ * every source-less public thought in the live table is machine telemetry from
+ * writers that predate the convention (`RESUME_RUBRIC_FAILURE` rows, duplicate
+ * job-application logs), not a hand-written note.
+ */
+export const AUTHORED_THOUGHT_SOURCES = ['mcp'] as const
+
+/**
+ * Whether a thought is an authored note (the reasoning trail) as opposed to a
+ * machine-generated sync/telemetry entry. See {@link AUTHORED_THOUGHT_SOURCES}
+ * for why this is an allowlist.
+ */
+export function isAuthoredThought(metadata: Record<string, unknown> | null | undefined): boolean {
+  const source = metadata?.source
+  return typeof source === 'string' && (AUTHORED_THOUGHT_SOURCES as readonly string[]).includes(source)
+}
+
+/**
+ * Parse the `?authored=` query param into a tri-state filter: `true` (authored
+ * notes only), `false` (machine entries only), or `undefined` (no filter — the
+ * default, so the listing stays backward-compatible).
+ *
+ * A bare `?authored` with no value reads as `true` — the usual flag convention.
+ * An unrecognized value is ignored rather than rejected, matching how `?since`
+ * and `?limit` already treat junk on this surface.
+ */
+export function parseAuthoredFilter(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined
+  const v = raw.trim().toLowerCase()
+  if (v === '' || v === '1' || v === 'true' || v === 'yes') return true
+  if (v === '0' || v === 'false' || v === 'no') return false
+  return undefined
+}
+
 export interface PublicObservation {
   id: string
   date: string // YYYY-MM-DD
@@ -35,6 +81,12 @@ export interface PublicObservation {
   topics: string[]
   content: string
   url: string
+  /**
+   * True for a hand-authored note, false for a machine-generated sync/telemetry
+   * entry (e.g. the nightly sync's VERSION DRIFT warnings). Lets a consumer
+   * separate the two classes without guessing from topics or content length.
+   */
+  authored: boolean
 }
 
 /**
@@ -60,6 +112,7 @@ export function shapeObservation(row: ThoughtRow, baseUrl: string): PublicObserv
     topics,
     content: row.content,
     url: `${baseUrl.replace(/\/$/, '')}/observations/${row.id}`,
+    authored: isAuthoredThought(m),
   }
 }
 

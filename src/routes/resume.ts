@@ -246,7 +246,12 @@ Respond with structured JSON:
           ].join(' | ')
           await supabase.from('thoughts').insert({
             content: failureThought,
-            metadata: { type: 'observation', topics: ['resume-failure', 'rubric'] },
+            // `source: 'telemetry'` is what makes this row machine-generated to
+            // the `/observations` authored/machine split (#222) — the allowlist
+            // in src/lib/observations.ts already excludes an unstamped row, but
+            // naming the producer keeps the classification explicit and
+            // greppable rather than resting on an absent field.
+            metadata: { type: 'observation', source: 'telemetry', topics: ['resume-failure', 'rubric'] },
           })
         } catch (err) {
           console.error('[resume] Failed to log rubric failure to OB1:', err instanceof Error ? err.message : err)

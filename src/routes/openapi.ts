@@ -209,11 +209,12 @@ app.get('/', (c) => {
         get: {
           operationId: 'listObservations',
           summary: 'Browse the candidate\'s authored reasoning/premise trail',
-          description: 'Returns public-eligible OB1 observations — the dated, authored "why and lessons" notes behind the profile (types observation/idea/task), each with a stable URL for citation. Excludes the git-sync changelog ledger (type=reference) by default; pass type=reference to read it. Private notes are always excluded.',
+          description: 'Returns public-eligible OB1 observations — the dated, authored "why and lessons" notes behind the profile (types observation/idea/task), each with a stable URL for citation. Every item carries an "authored" boolean separating hand-written notes from machine-generated sync/telemetry entries; filter with authored=1 or authored=0. Excludes the git-sync changelog ledger (type=reference) by default; pass type=reference to read it. Private notes are always excluded.',
           parameters: [
             { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an OB1 topic tag (case-insensitive)' },
             { name: 'type', in: 'query', required: false, schema: { type: 'string', enum: ['observation', 'idea', 'task', 'reference'] }, description: 'Override the default type filter (observation/idea/task). Use "reference" for the git/changelog ledger.' },
             { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date' }, description: 'Only observations on or after this date (YYYY-MM-DD)' },
+            { name: 'authored', in: 'query', required: false, schema: { type: 'string', enum: ['1', '0', 'true', 'false'] }, description: 'Restrict to authored notes (1/true) or to machine-generated sync/telemetry entries (0/false). Omitted returns both. Applied before the limit, so authored=1&limit=25 yields 25 authored notes.' },
             { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
           ],
           responses: {
@@ -227,6 +228,7 @@ app.get('/', (c) => {
                       count: { type: 'integer' },
                       scope: { type: 'object', description: 'The active topic scope: {topic}, {topics}, or {recent:true}' },
                       types: { type: 'array', items: { type: 'string' }, description: 'The thought types included (default observation/idea/task, or the explicit ?type)' },
+                      authored: { type: 'boolean', description: 'Echo of the ?authored filter. Present only when the filter was requested.' },
                       note: { type: 'string', description: 'Human-readable description of what this surface returns' },
                       observations: {
                         type: 'array',
@@ -239,6 +241,7 @@ app.get('/', (c) => {
                             topics: { type: 'array', items: { type: 'string' } },
                             content: { type: 'string' },
                             url: { type: 'string', format: 'uri', description: 'Stable URL for this observation (GET returns the single record)' },
+                            authored: { type: 'boolean', description: 'True for a hand-written note; false for a machine-generated sync/telemetry entry (e.g. a VERSION DRIFT warning).' },
                           },
                         },
                       },

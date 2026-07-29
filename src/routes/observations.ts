@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import { supabase } from '../lib/supabase.js'
 import {
   isPublicThought,
+  isAuthoredThought,
   shapeObservation,
   hasAnyTopic,
+  parseAuthoredFilter,
   parseTopicScope,
   isUuid,
   DEFAULT_OBSERVATION_TYPES,
@@ -33,11 +35,18 @@ const FETCH_CEILING = 1000
  * ledger ("what shipped"). The ledger still grounds `/query` and `/resume`; fetch it
  * here explicitly with `?type=reference`.
  *
+ * Every item carries `authored` (#222): true for a hand-written note, false for
+ * a machine-generated sync/telemetry entry — the two classes the endpoint's own
+ * `note` distinguishes but that `?type=` could not separate, since the nightly
+ * sync's VERSION DRIFT warnings are `type: "observation"` like everything else.
+ *
  * Query params:
- *   - `topic`  — filter by an OB1 topic tag (case-insensitive)
- *   - `type`   — override the type filter (e.g. `reference` for the changelog ledger)
- *   - `since`  — only observations on/after this date (YYYY-MM-DD)
- *   - `limit`  — 1–100, default 25
+ *   - `topic`    — filter by an OB1 topic tag (case-insensitive)
+ *   - `type`     — override the type filter (e.g. `reference` for the changelog ledger)
+ *   - `since`    — only observations on/after this date (YYYY-MM-DD)
+ *   - `authored` — `1` for authored notes only, `0` for machine entries only;
+ *                  omitted returns both (the default is unchanged, additive)
+ *   - `limit`    — 1–100, default 25
  *
  * Without `topic`, the listing is scoped to `OBSERVATIONS_TOPICS` (comma-separated
  * env, case-insensitive) when set; otherwise it returns the most recent public
@@ -47,6 +56,7 @@ app.get('/', async (c) => {
   const topic = c.req.query('topic')?.trim()
   const type = c.req.query('type')?.trim()
   const since = c.req.query('since')?.trim()
+  const authored = parseAuthoredFilter(c.req.query('authored'))
   const limitRaw = Number(c.req.query('limit'))
   const limit = Number.isFinite(limitRaw)
     ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100)
@@ -86,9 +96,14 @@ app.get('/', async (c) => {
   const wantedTopics = topic ? [topic] : envScope
   const baseUrl = baseUrlOf(c.req.url)
 
+  // The authored/machine split is applied BEFORE the limit slice, so
+  // `?authored=1&limit=25` returns 25 authored notes rather than whatever
+  // survives filtering a mixed page of 25 — the reason this is a server-side
+  // param and not just a per-item field (#222).
   const filtered = ((data ?? []) as ThoughtRow[])
     .filter((r) => isPublicThought(r.metadata))
     .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
+    .filter((r) => authored === undefined || isAuthoredThought(r.metadata) === authored)
     .slice(0, limit)
 
   c.header('Cache-Control', 'public, max-age=300')
@@ -96,7 +111,10 @@ app.get('/', async (c) => {
     count: filtered.length,
     scope: topic ? { topic } : envScope.length ? { topics: envScope } : { recent: true },
     types: type ? [type] : [...DEFAULT_OBSERVATION_TYPES],
-    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
+    // Echoed only when the filter was actually requested, so the default
+    // response shape is unchanged for existing consumers.
+    ...(authored === undefined ? {} : { authored }),
+    note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Each item carries `authored`: true for a hand-written note, false for a machine-generated sync/telemetry entry (e.g. VERSION DRIFT warnings); filter server-side with ?authored=1 or ?authored=0. Excludes the git-sync changelog ledger by default; pass ?type=reference for that. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
     observations: filtered.map((r) => shapeObservation(r, baseUrl)),
   })
 })
