@@ -214,7 +214,11 @@ app.get('/', (c) => {
             { name: 'topic', in: 'query', required: false, schema: { type: 'string' }, description: 'Filter by an OB1 topic tag (case-insensitive)' },
             { name: 'type', in: 'query', required: false, schema: { type: 'string', enum: ['observation', 'idea', 'task', 'reference'] }, description: 'Override the default type filter (observation/idea/task). Use "reference" for the git/changelog ledger.' },
             { name: 'since', in: 'query', required: false, schema: { type: 'string', format: 'date' }, description: 'Only observations on or after this date (YYYY-MM-DD)' },
-            { name: 'authored', in: 'query', required: false, schema: { type: 'string', enum: ['1', '0', 'true', 'false'] }, description: 'Restrict to authored notes (1/true) or to machine-generated sync/telemetry entries (0/false). Omitted returns both. Applied before the limit, so authored=1&limit=25 yields 25 authored notes.' },
+            // No enum: the server also accepts yes/no and a bare `?authored`
+            // (empty value, reads as true), which an enum can't express — a
+            // stricter schema here would make generated clients reject values
+            // the endpoint actually honors.
+            { name: 'authored', in: 'query', required: false, schema: { type: 'string' }, description: 'Restrict to authored notes or to machine-generated sync/telemetry entries. Truthy: 1, true, yes, or a bare ?authored with no value. Falsy: 0, false, no. Case-insensitive; an unrecognized value is ignored. Omitted returns both classes. Applied before the limit, so authored=1&limit=25 yields 25 authored notes.' },
             { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
           ],
           responses: {
@@ -237,7 +241,9 @@ app.get('/', (c) => {
                           properties: {
                             id: { type: 'string' },
                             date: { type: 'string', format: 'date' },
-                            type: { type: 'string' },
+                            // Nullable: shapeObservation emits null when the
+                            // row carries no metadata.type.
+                            type: { type: 'string', nullable: true },
                             topics: { type: 'array', items: { type: 'string' } },
                             content: { type: 'string' },
                             url: { type: 'string', format: 'uri', description: 'Stable URL for this observation (GET returns the single record)' },

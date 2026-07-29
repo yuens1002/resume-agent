@@ -100,6 +100,14 @@ app.get('/', async (c) => {
   // `?authored=1&limit=25` returns 25 authored notes rather than whatever
   // survives filtering a mixed page of 25 — the reason this is a server-side
   // param and not just a per-item field (#222).
+  //
+  // Bounded, like the topic filter above, by the FETCH_CEILING window: the
+  // filter runs over the most recent FETCH_CEILING rows of the requested
+  // type(s), not the whole table. A full page is therefore guaranteed only
+  // while `limit` matching rows exist inside that window — true by a wide
+  // margin today (174 authored rows against a 1000-row ceiling), but the
+  // filter would need to move into SQL alongside real paging before this
+  // endpoint could promise it unconditionally.
   const filtered = ((data ?? []) as ThoughtRow[])
     .filter((r) => isPublicThought(r.metadata))
     .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
