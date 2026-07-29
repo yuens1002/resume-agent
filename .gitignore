@@ -26,6 +26,12 @@ Thumbs.db
 # claude code
 .claude/
 
+# codex local hooks
+.codex/
+
+# ad-hoc one-off scripts (the /scratch workflow) — never part of a change
+.scratch/
+
 # opencode.ai local config
 opencode.json
 

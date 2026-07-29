@@ -19,13 +19,18 @@ const baseUrlOf = (url: string): string =>
 // Topic is matched in app code (case-insensitive), so we fetch the per-type window and
 // filter in memory.
 //
-// This ceiling was chosen to sit above the largest single thought type so a `?topic`
+// This ceiling was chosen "to sit above the largest single thought type" so a `?topic`
 // filter would see *every* candidate of that type rather than only the most recent.
-// That is no longer true and hasn't been for a while: the `reference` ledger is at
-// 3,485 rows against this 1,000 ceiling, so `?type=reference&topic=…` already misses
-// matches older than the window. Pre-existing and independent of the authored filter
-// (#222) — the split runs over whatever this returns either way — but the guarantee
-// this comment used to claim is gone, so it should not keep claiming it.
+// That was never true. When the value was set to 1000 (#132, 2026-06-02) the
+// `reference` ledger already held 2,158 rows; the 300 it replaced (#131, the day
+// before) faced 1,999. Today the ledger is at 3,485. So `?type=reference&topic=…` has
+// been silently incomplete since this endpoint shipped — it returns matches from the
+// most recent 1,000 rows and quietly omits everything older.
+//
+// Pre-existing and independent of the authored filter (#222): the split runs over
+// whatever this returns either way. Recorded here rather than left as a stale
+// guarantee, because the failure is invisible from the response — a capped result
+// looks exactly like a complete one.
 //
 // Raising the number only moves the cliff and costs a bigger in-memory fetch on a
 // public endpoint; the real fix is pushing topic matching into SQL alongside paging.
