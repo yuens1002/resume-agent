@@ -69,11 +69,19 @@ async function fetchProfileWebsiteUrl(): Promise<string | undefined> {
   return (result.profile as { contact?: { website?: string } }).contact?.website
 }
 
+/**
+ * The single tool this server exposes. Shared between the MCP registration and
+ * the GET descriptor (#223) so the two cannot drift: a descriptor that
+ * advertises a tool name the server doesn't register is worse than the 404 the
+ * descriptor replaced, because it fails at call time instead of at discovery.
+ */
+export const PUBLIC_TOOL_NAME = 'ask_candidate'
+
 function buildPublicServer(reqCtx: RequestContext): McpServer {
   const server = new McpServer({ name: 'resume-agent-public', version: '1.0.0' })
 
   server.registerTool(
-    'ask_candidate',
+    PUBLIC_TOOL_NAME,
     {
       title: 'Ask the Candidate',
       description:
@@ -252,7 +260,7 @@ function buildDescriptor(pathname: string): Record<string, unknown> {
     },
     tools: [
       {
-        name: 'ask_candidate',
+        name: PUBLIC_TOOL_NAME,
         description: 'Ask a natural-language question about this candidate\'s skills, experience, or background.',
         arguments: {
           question: 'string (required) — natural-language question about the candidate',
@@ -266,7 +274,7 @@ function buildDescriptor(pathname: string): Record<string, unknown> {
       id: 1,
       method: 'tools/call',
       params: {
-        name: 'ask_candidate',
+        name: PUBLIC_TOOL_NAME,
         arguments: { question: 'What is the candidate\'s experience with TypeScript?' },
       },
     },

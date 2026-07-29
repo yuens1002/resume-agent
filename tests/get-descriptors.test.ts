@@ -124,6 +124,47 @@ describe('GET /public-mcp — descriptor for crawlers, 405 for MCP clients', () 
     assert.equal(res.headers.get('allow'), 'POST')
   })
 
+  it('advertises the tool this server actually registers, not a stale copy', async () => {
+    // The invariant, not the literal. Both sides of this comparison are read at
+    // runtime: the descriptor from GET, the registration from a real tools/list
+    // round-trip through the MCP transport. Asserting `name === 'ask_candidate'`
+    // on the descriptor alone would stay green after a rename of the registered
+    // tool, leaving the descriptor advertising a name that fails at call time —
+    // the failure this endpoint exists to prevent.
+    //
+    // tools/list is a protocol call, not a tool invocation: no model, no DB.
+    const res = await fetch(`${baseUrl}/public-mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    })
+    assert.ok(res.ok, `tools/list should succeed, got ${res.status}`)
+
+    // The transport answers as SSE — pull the JSON out of the data: frame.
+    const raw = await res.text()
+    const payload = JSON.parse(raw.slice(raw.indexOf('{"result"')))
+    const registered = payload.result.tools as Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }>
+
+    const descriptor = (await (await fetch(`${baseUrl}/public-mcp`)).json()) as {
+      tools: Array<{ name: string; arguments: Record<string, unknown> }>
+    }
+
+    assert.deepEqual(
+      descriptor.tools.map((t) => t.name),
+      registered.map((t) => t.name),
+      'descriptor must advertise exactly the registered tool set',
+    )
+
+    // Same trap one level down: the descriptor restates the argument shape in
+    // prose, so a zod schema change would leave it describing arguments the
+    // tool no longer takes. Compare the key sets.
+    assert.deepEqual(
+      Object.keys(descriptor.tools[0].arguments).sort(),
+      Object.keys(registered[0].inputSchema?.properties ?? {}).sort(),
+      'descriptor argument names must match the tool inputSchema',
+    )
+  })
+
   it('carries CORS headers and still enforces the origin allowlist', async () => {
     const ok = await fetch(`${baseUrl}/public-mcp`)
     assert.ok(ok.headers.get('access-control-allow-origin'), 'CORS header must be present')
