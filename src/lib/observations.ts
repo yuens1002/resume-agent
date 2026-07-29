@@ -57,72 +57,26 @@ export function isAuthoredThought(metadata: Record<string, unknown> | null | und
 }
 
 /**
- * What a resolved `?authored=` filter can ask for: authored notes only (`true`),
- * machine entries only (`false`), or no filtering at all (`'all'`).
- */
-export type AuthoredFilter = boolean | 'all'
-
-/**
- * The filter applied when `?authored=` is absent — **authored notes only**.
+ * Parse the `?authored=` query param into a tri-state filter: `true` (authored
+ * notes only), `false` (machine entries only), or `undefined` (**no filter** —
+ * the default, so the listing stays backward-compatible).
  *
- * This surface is crawled: `/observations` is server-rendered into a sitemap,
- * and a crawler arriving with no query params is the common case, not the edge
- * one. Defaulting to the authored trail means the indexable content is the
- * hand-written reasoning the endpoint's own `note` has always advertised,
- * rather than sync warnings and telemetry that read as thin content. Machine
- * entries stay one explicit `?authored=0` away, and `?authored=all` restores
- * the pre-#222 mixed listing.
- */
-export const DEFAULT_AUTHORED_FILTER: AuthoredFilter = true
-
-/**
- * Resolve the `?authored=` query param, applying {@link DEFAULT_AUTHORED_FILTER}
- * when it is absent or unrecognized.
+ * Additive by design: the default listing returns both classes exactly as it
+ * always has, and a consumer opts in to filtering. The indexed surface is the
+ * server-rendered page on the frontend, which passes `?authored=1` — the API
+ * itself is a data source, not the thing in the sitemap, so the default here
+ * doesn't need to change to keep thin content out of search results.
  *
- * Accepted: `1|true|yes` or a bare `?authored` with no value (authored only);
- * `0|false|no` (machine only); `all|any|both` (no filter). Case-insensitive. An
- * unrecognized value falls back to the default rather than being rejected,
- * matching how `?since` and `?limit` already treat junk on this surface.
+ * A bare `?authored` with no value reads as `true` — the usual flag convention.
+ * An unrecognized value is ignored rather than rejected, matching how `?since`
+ * and `?limit` already treat junk on this surface.
  */
-export function parseAuthoredFilter(raw: string | undefined): AuthoredFilter {
-  if (raw === undefined) return DEFAULT_AUTHORED_FILTER
+export function parseAuthoredFilter(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined
   const v = raw.trim().toLowerCase()
   if (v === '' || v === '1' || v === 'true' || v === 'yes') return true
   if (v === '0' || v === 'false' || v === 'no') return false
-  if (v === 'all' || v === 'any' || v === 'both') return 'all'
-  return DEFAULT_AUTHORED_FILTER
-}
-
-/**
- * Resolve the effective authored filter from `?authored=` **and** `?type=`.
- *
- * The authored/machine split is only meaningful *inside* the authored layer
- * ({@link DEFAULT_OBSERVATION_TYPES}). `reference` is the git-sync changelog
- * ledger — machine-written by definition — so applying the authored default to
- * an explicit `?type=reference` doesn't filter it, it empties it: every ledger
- * row is `source: 'enrichment'`, so `isAuthoredThought` is false for all of
- * them and nothing survives. Same for the other sync-written types
- * (`review_needed`, `notification`).
- *
- * That would have silently broken the documented escape hatch — the README, the
- * route's doc comment, and the `note` in the response body all say "pass
- * `?type=reference`" for the ledger, and it would have returned an empty list
- * while still saying so.
- *
- * So: an explicit `?type=` **outside** the authored layer opts out of the
- * authored default. A type *inside* it keeps the default — `?type=observation`
- * must not start serving VERSION DRIFT rows, which is the exact noise the
- * default exists to keep out of a crawled surface. An explicit `?authored=`
- * always wins over both, so every combination stays reachable.
- */
-export function resolveAuthoredFilter(
-  raw: string | undefined,
-  type: string | undefined,
-): AuthoredFilter {
-  if (raw !== undefined) return parseAuthoredFilter(raw)
-  const typeIsAuthoredLayer =
-    !type || (DEFAULT_OBSERVATION_TYPES as readonly string[]).includes(type)
-  return typeIsAuthoredLayer ? DEFAULT_AUTHORED_FILTER : 'all'
+  return undefined
 }
 
 export interface PublicObservation {

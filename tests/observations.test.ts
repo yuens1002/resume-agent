@@ -24,11 +24,9 @@ import {
   shapeObservation,
   hasAnyTopic,
   parseAuthoredFilter,
-  resolveAuthoredFilter,
   parseTopicScope,
   isUuid,
   AUTHORED_THOUGHT_SOURCES,
-  DEFAULT_AUTHORED_FILTER,
   DEFAULT_OBSERVATION_TYPES,
 } from '../src/lib/observations.js'
 
@@ -138,7 +136,7 @@ describe('observations helpers', () => {
     }
   })
 
-  it('parseAuthoredFilter: authored only, machine only, or all', () => {
+  it('parseAuthoredFilter: tri-state — authored only, machine only, or no filter', () => {
     assert.equal(parseAuthoredFilter('1'), true)
     assert.equal(parseAuthoredFilter('true'), true)
     assert.equal(parseAuthoredFilter('YES'), true)
@@ -146,51 +144,15 @@ describe('observations helpers', () => {
     assert.equal(parseAuthoredFilter('0'), false)
     assert.equal(parseAuthoredFilter('false'), false)
     assert.equal(parseAuthoredFilter('No'), false)
-    // the pre-#222 mixed listing, now opt-in
-    assert.equal(parseAuthoredFilter('all'), 'all')
-    assert.equal(parseAuthoredFilter('ANY'), 'all')
-    assert.equal(parseAuthoredFilter('both'), 'all')
   })
 
-  it('resolveAuthoredFilter: an explicit ?type outside the authored layer opts out of the default', () => {
-    // The regression this pins: `reference` is the git-sync ledger, every row
-    // `source: 'enrichment'`, so applying the authored default doesn't filter
-    // it — it empties it, while the response `note` still advertises
-    // ?type=reference as the way to read it.
-    assert.equal(resolveAuthoredFilter(undefined, 'reference'), 'all')
-    // Same for the other sync-written types.
-    assert.equal(resolveAuthoredFilter(undefined, 'review_needed'), 'all')
-    assert.equal(resolveAuthoredFilter(undefined, 'notification'), 'all')
-    // An unknown type is treated as outside the layer — fail toward returning
-    // rows rather than toward a silently empty list.
-    assert.equal(resolveAuthoredFilter(undefined, 'some-future-type'), 'all')
-  })
-
-  it('resolveAuthoredFilter: a type inside the authored layer keeps the default', () => {
-    // ?type=observation must NOT start serving VERSION DRIFT rows — that noise
-    // is exactly what the authored default exists to keep off a crawled surface.
-    for (const t of DEFAULT_OBSERVATION_TYPES) {
-      assert.equal(resolveAuthoredFilter(undefined, t), true, `type=${t} should keep the authored default`)
-    }
-    assert.equal(resolveAuthoredFilter(undefined, undefined), true)
-  })
-
-  it('resolveAuthoredFilter: an explicit ?authored always wins over the type inference', () => {
-    // Every combination stays reachable.
-    assert.equal(resolveAuthoredFilter('1', 'reference'), true)
-    assert.equal(resolveAuthoredFilter('0', 'reference'), false)
-    assert.equal(resolveAuthoredFilter('all', 'observation'), 'all')
-    assert.equal(resolveAuthoredFilter('0', 'observation'), false)
-    assert.equal(resolveAuthoredFilter('0', undefined), false)
-  })
-
-  it('parseAuthoredFilter: absent or junk falls back to the authored-only default', () => {
-    // The crawler case: no query params at all must not serve telemetry.
-    assert.equal(parseAuthoredFilter(undefined), DEFAULT_AUTHORED_FILTER)
-    assert.equal(DEFAULT_AUTHORED_FILTER, true)
-    // Junk falls back rather than being rejected, as with ?since / ?limit —
-    // and the fallback direction is the safe one, not the mixed listing.
-    assert.equal(parseAuthoredFilter('banana'), true)
+  it('parseAuthoredFilter: absent means NO filter — the default listing is unchanged', () => {
+    // Additive by design. The absent case is what keeps every pre-existing
+    // consumer — and every explicit ?type=, including the `reference` ledger,
+    // whose rows are all machine-written — returning exactly what it did before.
+    assert.equal(parseAuthoredFilter(undefined), undefined)
+    // Junk is ignored rather than rejected, as with ?since / ?limit.
+    assert.equal(parseAuthoredFilter('banana'), undefined)
   })
 
   it('DEFAULT_OBSERVATION_TYPES: the authored "why" layer, excluding the reference ledger', () => {
