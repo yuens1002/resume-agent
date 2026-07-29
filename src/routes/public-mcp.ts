@@ -204,8 +204,11 @@ const publicMcpRoute = new Hono()
  * the private `/mcp` surface it also serves really is POST-only — advertising a
  * method there that 404s would trade one wrong signal for another.
  *
- * Only preflight responses are affected: a plain descriptor fetch is a CORS
- * "simple request" and is never preflighted.
+ * This block is set on every response from this route, but the added `GET` only
+ * ever *means* anything on the preflight: `Access-Control-Allow-Methods` is
+ * read by the browser from the OPTIONS response, and is inert on the descriptor
+ * and 405 responses that also carry it. A plain descriptor fetch is a CORS
+ * "simple request" and is never preflighted at all.
  */
 const publicCorsHeaders = {
   ...corsHeaders,
@@ -235,7 +238,14 @@ function buildDescriptor(pathname: string): Record<string, unknown> {
     transport: 'MCP (Model Context Protocol) over HTTP — Streamable HTTP, stateless. No session is established; every request is self-contained and no mcp-session-id is issued.',
     protocol: 'JSON-RPC 2.0',
     description: 'Ask a natural-language question about this candidate. Answers are grounded in the candidate\'s canonical published profile — not inferred by the calling model.',
-    auth: 'none — public and rate-limited (30 requests/minute per IP)',
+    auth: 'none required — this endpoint is public',
+    // Scoped to unauthenticated callers on purpose: the global middleware lets
+    // a valid owner API key bypass the bucket, and every caller who can read
+    // this descriptor is by definition in the unauthenticated case. Stating a
+    // flat "30/min, no exceptions" would be inaccurate; spelling out the bypass
+    // would advertise it to exactly the audience that shouldn't be probing for
+    // it. Naming the scope is both true and useful.
+    rate_limit: '30 requests per minute per IP for unauthenticated callers',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
