@@ -184,6 +184,19 @@ Production verified: repeat hits on `Did you build resume-agent?`, `Show recent 
 
 ## Public API endpoints
 
+### Advertised endpoints answer a GET
+
+`llms.txt` and `robots.txt` publish these URLs to crawlers and LLM browse tools, which means the first thing that reaches them is a **GET** — including on the endpoints that only *do* anything on POST. A bare `404 Not Found` there is a broken promise to exactly the audience a machine-readable surface exists for: an agent that fetches an advertised URL to learn how to call it gets no method hint, no schema, no pointer to the working call.
+
+So `POST /query`, `POST /match`, and `/public-mcp` each answer a plain GET with a **self-descriptor** — `endpoint`, `method`, `description`, `body`, `response`, `example` — at `200`. POST behaviour is untouched.
+
+```bash
+curl "https://your-agent-domain.com/match"       # → { endpoint, method: "POST", body: {…}, example: {…} }
+curl "https://your-agent-domain.com/public-mcp"  # → transport, protocol, tools: [ask_candidate], example JSON-RPC call
+```
+
+`200` over the more literally correct `405` is deliberate: it matches what `GET /query` has always done and is friendlier to naive crawlers. **One exception** — a GET to `/public-mcp` carrying `Accept: text/event-stream` is a real MCP client trying to open the server→client SSE stream of Streamable HTTP. This server is stateless and offers no such stream, and the MCP spec says a server that doesn't SHOULD answer `405 Method Not Allowed`, so that caller gets `405` + `Allow: POST` — with the descriptor still in the body. Each caller gets the answer its protocol expects.
+
 ### `GET /.well-known/agent-card.json`
 A2A v1.0-compliant agent card (canonical path per RFC 8615). `/.well-known/agent.json` redirects here (301).
 
@@ -339,7 +352,7 @@ Response (default, `stream: false`):
 ```
 
 ### `POST /match`
-Feed a job description, get a fit assessment back.
+Feed a job description, get a fit assessment back. A **`GET /match`** returns a self-descriptor (method, body schema, response shape, example) rather than a 404 — see [Advertised endpoints answer a GET](#advertised-endpoints-answer-a-get).
 
 Request:
 ```json
@@ -415,6 +428,8 @@ No authentication required. Rate-limited to 30 req/min per IP (shared bucket wit
 Responses come back grounded in the candidate's canonical published profile — the calling AI cannot fabricate answers "in the candidate's voice" as long as it goes through this connector.
 
 The tool exposed is called `ask_candidate`. It's the only tool on the public MCP; all other structured-data endpoints (`/info`, `/availability`, `/match`, `/projects`) remain available as HTTP for clients that prefer raw JSON.
+
+A plain `GET` on the connector URL returns a self-descriptor naming the transport, the tool, and its argument shape — see [Advertised endpoints answer a GET](#advertised-endpoints-answer-a-get). MCP clients are unaffected: a GET asking for the SSE stream still gets `405` + `Allow: POST`.
 
 ---
 

@@ -240,7 +240,7 @@ Add a section documenting `/public-mcp` alongside `/mcp`, explaining the public 
 
 - AC-1: POST `/public-mcp` without credentials — returns 2xx (no auth required)
 - AC-2: POST `/public-mcp` response — no `mcp-session-id` header
-- AC-3: GET `/public-mcp` — returns 404
+- AC-3: GET `/public-mcp` — returns a self-descriptor (200), or `405` + `Allow: POST` when the caller asks for an SSE stream (`Accept: text/event-stream`). *Superseded #223: originally "returns 404". The endpoint is advertised in `llms.txt`, so a bare 404 was the answer crawlers got; the 405 branch preserves the spec-correct signal for real MCP clients, which is what the original 404 stood in for.*
 - AC-4: DELETE `/public-mcp` — returns 404
 - AC-5: CORS headers present on responses
 - AC-6: Disallowed origin → 403 (same origin allowlist as private route)

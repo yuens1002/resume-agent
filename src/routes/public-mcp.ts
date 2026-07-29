@@ -69,11 +69,19 @@ async function fetchProfileWebsiteUrl(): Promise<string | undefined> {
   return (result.profile as { contact?: { website?: string } }).contact?.website
 }
 
+/**
+ * The single tool this server exposes. Shared between the MCP registration and
+ * the GET descriptor (#223) so the two cannot drift: a descriptor that
+ * advertises a tool name the server doesn't register is worse than the 404 the
+ * descriptor replaced, because it fails at call time instead of at discovery.
+ */
+export const PUBLIC_TOOL_NAME = 'ask_candidate'
+
 function buildPublicServer(reqCtx: RequestContext): McpServer {
   const server = new McpServer({ name: 'resume-agent-public', version: '1.0.0' })
 
   server.registerTool(
-    'ask_candidate',
+    PUBLIC_TOOL_NAME,
     {
       title: 'Ask the Candidate',
       description:
@@ -198,11 +206,127 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
 
 const publicMcpRoute = new Hono()
 
+/**
+ * This route answers GET as well as POST (the #223 descriptor below), so its
+ * preflight has to say so. The shared `corsHeaders` block is left alone because
+ * the private `/mcp` surface it also serves really is POST-only — advertising a
+ * method there that 404s would trade one wrong signal for another.
+ *
+ * This block is set on every response from this route, but the added `GET` only
+ * ever *means* anything on the preflight: `Access-Control-Allow-Methods` is
+ * read by the browser from the OPTIONS response, and is inert on the descriptor
+ * and 405 responses that also carry it. A plain descriptor fetch is a CORS
+ * "simple request" and is never preflighted at all.
+ */
+const publicCorsHeaders = {
+  ...corsHeaders,
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+} as const
+
 // CORS preflight — no auth required
 publicMcpRoute.options('*', (c) => {
   const originErr = checkOrigin(c)
   if (originErr) return originErr
-  return c.text('ok', 200, corsHeaders)
+  return c.text('ok', 200, publicCorsHeaders)
+})
+
+/**
+ * The self-descriptor served to a GET (#223). Names the transport, the single
+ * tool, and its argument shape, so an agent that fetches the advertised URL to
+ * learn how to call it gets an answer instead of a bare 404.
+ *
+ * Kept beside the tool registration above deliberately: if `ask_candidate`'s
+ * arguments change, both the schema and this description need the edit, and
+ * they are two screens apart rather than two files apart.
+ */
+function buildDescriptor(pathname: string): Record<string, unknown> {
+  return {
+    endpoint: pathname,
+    method: 'POST',
+    transport: 'MCP (Model Context Protocol) over HTTP — Streamable HTTP, stateless. No session is established; every request is self-contained and no mcp-session-id is issued.',
+    protocol: 'JSON-RPC 2.0',
+    description: 'Ask a natural-language question about this candidate. Answers are grounded in the candidate\'s canonical published profile — not inferred by the calling model.',
+    auth: 'none required — this endpoint is public',
+    // Scoped to unauthenticated callers on purpose: the global middleware lets
+    // a valid owner API key bypass the bucket, and every caller who can read
+    // this descriptor is by definition in the unauthenticated case. Stating a
+    // flat "30/min, no exceptions" would be inaccurate; spelling out the bypass
+    // would advertise it to exactly the audience that shouldn't be probing for
+    // it. Naming the scope is both true and useful.
+    rate_limit: '30 requests per minute per IP for unauthenticated callers',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    },
+    tools: [
+      {
+        name: PUBLIC_TOOL_NAME,
+        description: 'Ask a natural-language question about this candidate\'s skills, experience, or background.',
+        arguments: {
+          question: 'string (required) — natural-language question about the candidate',
+          context: 'string (optional) — caller context, e.g. "ATS", "recruiter", "ai-agent". Adjusts tone.',
+          stream: 'boolean (optional, default false) — stream the answer via MCP progress notifications',
+        },
+      },
+    ],
+    example: {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: PUBLIC_TOOL_NAME,
+        arguments: { question: 'What is the candidate\'s experience with TypeScript?' },
+      },
+    },
+    // A crawler that can't speak JSON-RPC still has a way in.
+    related: {
+      same_answers_over_plain_http: 'POST /query',
+      machine_schema: 'GET /openapi.json',
+    },
+  }
+}
+
+/**
+ * GET /public-mcp — descriptor for crawlers, 405 for MCP clients (#223).
+ *
+ * `llms.txt` advertises this URL and `robots.txt` invites crawlers, so it gets
+ * fetched with a GET; it used to answer with a bare 13-byte `404 Not Found`
+ * (Google Search Console logged it as such). Two different callers issue that
+ * GET, and they want opposite answers:
+ *
+ *   - A crawler or a human pasting the URL wants to know what lives here → 200
+ *     with the self-descriptor, matching what `GET /query` returns.
+ *   - A real MCP client sending `Accept: text/event-stream` is trying to open
+ *     the server→client SSE stream of Streamable HTTP. This server is stateless
+ *     and offers no such stream, and the MCP spec says a server that doesn't
+ *     SHOULD answer that GET with `405 Method Not Allowed`. Handing it a 200
+ *     `application/json` body instead would be a worse signal than the 404 it
+ *     used to get.
+ *
+ * So the Accept header decides, and each caller gets the answer its protocol
+ * expects. The 405 still carries the descriptor as its body — there is no
+ * reason to make it less informative than the 200.
+ */
+publicMcpRoute.get('*', (c) => {
+  const originErr = checkOrigin(c)
+  if (originErr) return originErr
+
+  const descriptor = buildDescriptor(new URL(c.req.url).pathname)
+  const wantsSse = (c.req.header('accept') ?? '').toLowerCase().includes('text/event-stream')
+
+  if (wantsSse) {
+    return c.json(
+      {
+        ...descriptor,
+        error: 'Method Not Allowed — this MCP server is stateless and does not offer a GET SSE stream. Send JSON-RPC requests as POST.',
+      },
+      405,
+      { ...publicCorsHeaders, Allow: 'POST' },
+    )
+  }
+
+  c.header('Cache-Control', 'public, max-age=3600')
+  return c.json(descriptor, 200, publicCorsHeaders)
 })
 
 // POST — stateless: fresh server + transport per request, no auth
