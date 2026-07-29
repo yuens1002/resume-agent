@@ -72,6 +72,32 @@ export function injectProjectUrls(
   })
 }
 
+/**
+ * Metadata stamped on the rubric-failure telemetry row written below.
+ *
+ * `private: true` is the load-bearing part. These rows embed the first 200
+ * characters of the submitted job description, and without the flag they are
+ * public-eligible — `isPublicThought` treats a missing `private` as public, so
+ * an unstamped row is readable at `GET /observations?topic=rubric` by anyone
+ * who guesses the tag. That was live: 100+ rows carrying real employer JD text
+ * were publicly crawlable. The flag keeps them fully visible to the owner via
+ * the private MCP while removing them from every public surface.
+ *
+ * `source: 'telemetry'` names the producer so the `/observations` authored vs
+ * machine split (#222) classifies these explicitly rather than by the absence
+ * of a field.
+ *
+ * Exported as a frozen constant so the privacy invariant is unit-testable
+ * without driving a full résumé generation, and so a future edit to this object
+ * trips a test rather than silently republishing job descriptions.
+ */
+export const RUBRIC_FAILURE_METADATA = Object.freeze({
+  type: 'observation',
+  source: 'telemetry',
+  private: true,
+  topics: ['resume-failure', 'rubric'],
+} as const)
+
 app.post('/', zValidator('json', schema), async (c) => {
   const { job_description, framing_hints } = c.req.valid('json')
 
@@ -246,7 +272,7 @@ Respond with structured JSON:
           ].join(' | ')
           await supabase.from('thoughts').insert({
             content: failureThought,
-            metadata: { type: 'observation', topics: ['resume-failure', 'rubric'] },
+            metadata: { ...RUBRIC_FAILURE_METADATA, topics: [...RUBRIC_FAILURE_METADATA.topics] },
           })
         } catch (err) {
           console.error('[resume] Failed to log rubric failure to OB1:', err instanceof Error ? err.message : err)
