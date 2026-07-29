@@ -2,9 +2,8 @@ import { Hono } from 'hono'
 import { supabase } from '../lib/supabase.js'
 import {
   isPublicThought,
-  isAuthoredThought,
   shapeObservation,
-  hasAnyTopic,
+  buildObservationsListing,
   parseAuthoredFilter,
   parseTopicScope,
   isUuid,
@@ -110,27 +109,14 @@ app.get('/', async (c) => {
   // of the same tag — e.g. "open employment protocol" vs "Open Employment Protocol" —
   // resolve to one trail.
   const envScope = parseTopicScope(process.env.OBSERVATIONS_TOPICS)
-  const wantedTopics = topic ? [topic] : envScope
   const baseUrl = baseUrlOf(c.req.url)
 
-  // The authored/machine split is applied BEFORE the limit slice, so
-  // `?authored=1&limit=25` returns 25 authored notes rather than whatever
-  // survives filtering a mixed page of 25 — the reason this is a server-side
-  // param and not just a per-item field (#222).
-  //
-  // Bounded, like the topic filter above, by the FETCH_CEILING window: the
-  // filter runs over the most recent FETCH_CEILING rows of the requested
-  // type(s), not the whole table. A full page is therefore guaranteed only
-  // while `limit` matching rows exist inside that window — true by a wide
-  // margin today (174 authored rows against a 1000-row ceiling), but the
-  // filter would need to move into SQL alongside real paging before this
-  // endpoint could promise it unconditionally.
   const rows = (data ?? []) as ThoughtRow[]
 
   // The fetch window is the one bound this endpoint can't express in its
   // response, so make it say something when it's reached rather than relying on
   // someone remembering the comment above. A full window means the filters ran
-  // over a truncated set and `total` below is itself a floor, not a count.
+  // over a truncated set and the `total` below is itself a floor, not a count.
   if (rows.length >= FETCH_CEILING) {
     console.warn(
       `[observations] fetch hit FETCH_CEILING (${FETCH_CEILING}) for type=${type ?? 'default'} — ` +
@@ -138,32 +124,14 @@ app.get('/', async (c) => {
     )
   }
 
-  const matched = rows
-    .filter((r) => isPublicThought(r.metadata))
-    .filter((r) => hasAnyTopic(r.metadata, wantedTopics))
-    .filter((r) => authored === undefined || isAuthoredThought(r.metadata) === authored)
-  const filtered = matched.slice(0, limit)
-
+  // Filtering, ordering, and envelope shaping live in buildObservationsListing
+  // so they can be tested against fixture rows without a database — this route
+  // is the only part that needs one. See that function for why the filter order
+  // and the pre-limit slice are load-bearing.
   c.header('Cache-Control', 'public, max-age=300')
   return c.json({
-    count: filtered.length,
-    // What matched vs what was returned. `count` alone can't tell a consumer
-    // whether it saw everything or hit the limit — it silently comes up short.
-    // `total` is bounded by the FETCH_CEILING window (see above), so it is a
-    // floor rather than a table-wide count; `truncated` is exact.
-    total: matched.length,
-    truncated: matched.length > filtered.length,
-    scope: topic ? { topic } : envScope.length ? { topics: envScope } : { recent: true },
-    types: type ? [type] : [...DEFAULT_OBSERVATION_TYPES],
-    // Echoed only when the filter was actually requested, so the default
-    // response shape is unchanged for existing consumers. Doubles as a
-    // capability probe on exactly the call a filtering client makes: `?authored=1`
-    // against a deployment predating #222 silently returns the unfiltered list
-    // with a 200 and plausible JSON, and the absence of this key is the only
-    // way to tell that apart from a filter that was honored.
-    ...(authored === undefined ? {} : { authored }),
+    ...buildObservationsListing(rows, { topic, envScope, type, authored, limit, baseUrl }),
     note: 'Public-eligible OB1 observations — the dated, authored reasoning trail (the "why"). Each item carries `authored`: true for a hand-written note, false for a machine-generated sync/telemetry entry (e.g. VERSION DRIFT warnings); filter server-side with ?authored=1 or ?authored=0. Excludes the git-sync changelog ledger by default; pass ?type=reference for that. `total` and `truncated` report what matched vs what this page returned. Private thoughts are excluded; each item has a stable URL for citation. See README "GET /observations" and OEP EVIDENCE-GRAPH.md.',
-    observations: filtered.map((r) => shapeObservation(r, baseUrl)),
   })
 })
 
