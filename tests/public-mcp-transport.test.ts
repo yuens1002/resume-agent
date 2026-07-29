@@ -48,15 +48,29 @@ describe('AC-2: POST /public-mcp response — no mcp-session-id header', () => {
   })
 })
 
-// ── AC-3: GET /public-mcp returns 404 ────────────────────────
+// ── AC-3: GET /public-mcp — descriptor, or 405 for an SSE client ──
+//
+// Was "returns 404" until #223. The endpoint is advertised in llms.txt, so a
+// bare 404 was what crawlers following it got; a plain GET now returns the
+// self-descriptor instead. A client asking for the server→client SSE stream
+// still gets the spec's 405, which is what the old 404 stood in for.
 
-describe('AC-3: GET /public-mcp returns 404', () => {
-  it('GET returns 404 or 405 (no SSE stream endpoint)', async () => {
+describe('AC-3: GET /public-mcp returns a self-descriptor', () => {
+  it('plain GET returns 200 with the endpoint descriptor', async () => {
     const res = await fetch(PUBLIC_MCP_URL, { method: 'GET' })
-    assert.ok(
-      [404, 405].includes(res.status),
-      `Expected 404 or 405, got ${res.status}`,
-    )
+    assert.equal(res.status, 200, `Expected 200 descriptor, got ${res.status}`)
+    const body = (await res.json()) as { method?: string; tools?: Array<{ name?: string }> }
+    assert.equal(body.method, 'POST')
+    assert.equal(body.tools?.[0]?.name, 'ask_candidate')
+  })
+
+  it('GET with Accept: text/event-stream returns 405 + Allow: POST (no SSE stream endpoint)', async () => {
+    const res = await fetch(PUBLIC_MCP_URL, {
+      method: 'GET',
+      headers: { Accept: 'text/event-stream' },
+    })
+    assert.equal(res.status, 405, `Expected 405, got ${res.status}`)
+    assert.equal(res.headers.get('allow'), 'POST')
   })
 })
 

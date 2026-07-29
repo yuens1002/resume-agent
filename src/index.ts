@@ -133,6 +133,6 @@ serve({ fetch: app.fetch, port }, () => {
   const authMode = process.env.AUTH_MODE ?? 'open'
   console.log(`resume-agent running on http://localhost:${port}`)
   console.log('[routes] GET /, /health, /openapi.json, /qr, /info, /availability, /projects, /projects/:slug, /observations, /observations/:id, /try, /.well-known/agent-card.json, /.well-known/agent-card (agent.json → 301)')
-  console.log(`[routes] POST /query, /match | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
+  console.log(`[routes] POST /query, /match, /public-mcp (a GET on each returns a self-descriptor) | POST /resume (auth: ${authMode}) | PATCH /profile (auth: key)`)
   console.log('[middleware] rate-limit: 30 req/min per IP (excludes OPTIONS, /health)')
 })
