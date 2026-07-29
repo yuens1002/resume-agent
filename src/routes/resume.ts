@@ -89,13 +89,16 @@ export function injectProjectUrls(
  *
  * Exported as a frozen constant so the privacy invariant is unit-testable
  * without driving a full résumé generation, and so a future edit to this object
- * trips a test rather than silently republishing job descriptions.
+ * trips a test rather than silently republishing job descriptions. `topics` is
+ * frozen separately — `Object.freeze` is shallow, and an unfrozen nested array
+ * would leave a `.push()` free to mutate the constant every later write reads
+ * from.
  */
 export const RUBRIC_FAILURE_METADATA = Object.freeze({
   type: 'observation',
   source: 'telemetry',
   private: true,
-  topics: ['resume-failure', 'rubric'],
+  topics: Object.freeze(['resume-failure', 'rubric']),
 } as const)
 
 app.post('/', zValidator('json', schema), async (c) => {

@@ -13,6 +13,14 @@
  * predicate the public surface uses, so this checks the actual consequence
  * rather than restating the literal.
  *
+ * `src/routes/resume.ts` reaches the supabase and model clients at module load
+ * and both throw on missing env, so the dummy values below have to be in place
+ * *before* it is evaluated. ESM hoists static imports above the module body, so
+ * a top-level `import` of the route would load it before these assignments ever
+ * run — passing locally, where dotenv finds a real `.env.local`, and failing in
+ * CI, where it does not. Hence the dynamic import inside `before`, the same
+ * pattern tests/observations.test.ts and tests/get-descriptors.test.ts use.
+ *
  * Run: npm run test:unit
  */
 
@@ -20,10 +28,20 @@ process.env.SUPA_PROJECT_URL ??= 'http://localhost:54321'
 process.env.SUPA_SERVICE_ROLE ??= 'test-dummy-key'
 process.env.OPENROUTER_API_KEY ??= 'test-dummy-key'
 
-import { describe, it } from 'node:test'
+import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { RUBRIC_FAILURE_METADATA } from '../src/routes/resume.js'
 import { isPublicThought } from '../src/lib/observations.js'
+
+let RUBRIC_FAILURE_METADATA: Readonly<{
+  type: string
+  source: string
+  private: boolean
+  topics: readonly string[]
+}>
+
+before(async () => {
+  ;({ RUBRIC_FAILURE_METADATA } = await import('../src/routes/resume.js'))
+})
 
 describe('rubric-failure telemetry metadata', () => {
   it('is private — the row carries submitted job-description text', () => {
@@ -45,5 +63,16 @@ describe('rubric-failure telemetry metadata', () => {
     // scripts/backfill-private-telemetry.ts selects on 'resume-failure'; a
     // rename here would silently orphan future rows from that repair path.
     assert.deepEqual([...RUBRIC_FAILURE_METADATA.topics], ['resume-failure', 'rubric'])
+  })
+
+  it('is frozen through the nested topics array, not just at the top level', () => {
+    // Object.freeze is shallow. Without freezing topics too, a stray push()
+    // would mutate the shared constant every subsequent write reads from.
+    assert.equal(Object.isFrozen(RUBRIC_FAILURE_METADATA), true)
+    assert.equal(Object.isFrozen(RUBRIC_FAILURE_METADATA.topics), true)
+    assert.throws(
+      () => (RUBRIC_FAILURE_METADATA.topics as string[]).push('injected'),
+      TypeError,
+    )
   })
 })
