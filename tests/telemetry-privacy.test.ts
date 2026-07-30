@@ -30,7 +30,7 @@ process.env.OPENROUTER_API_KEY ??= 'test-dummy-key'
 
 import { describe, it, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { isPublicThought } from '../src/lib/observations.js'
+import { isPublicThought, isAuthoredThought } from '../src/lib/observations.js'
 
 let RUBRIC_FAILURE_METADATA: Readonly<{
   type: string
@@ -38,7 +38,7 @@ let RUBRIC_FAILURE_METADATA: Readonly<{
   private: boolean
   topics: readonly string[]
 }>
-let TARGETS: ReadonlyArray<{ topic: string }>
+let TARGETS: ReadonlyArray<{ topic: string; source: string; contentPattern: RegExp }>
 
 before(async () => {
   // Both dynamic, for the same reason: each module reaches the supabase client
@@ -87,6 +87,38 @@ describe('rubric-failure telemetry metadata', () => {
     assert.throws(
       () => (RUBRIC_FAILURE_METADATA.topics as string[]).push('injected'),
       TypeError,
+    )
+  })
+})
+
+describe('backfill source repair — never labels a machine row as authored', () => {
+  it('every target source is outside the authored allowlist', () => {
+    // The repair pass rewrites metadata.source. If any target named an
+    // authored source it would re-create the exact misclassification it
+    // exists to undo — 122 machine rows had acquired source: 'mcp' from
+    // update_thought's old fallback.
+    for (const t of TARGETS) {
+      assert.equal(
+        isAuthoredThought({ source: t.source }),
+        false,
+        `target source "${t.source}" must not classify as authored`,
+      )
+    }
+  })
+
+  it('the rubric target matches what the producer actually writes', () => {
+    const rubric = TARGETS.find((t) => t.topic === 'resume-failure')
+    assert.ok(rubric, 'rubric target present')
+    // Both halves of the pair, compared rather than pinned twice.
+    assert.equal(rubric.source, RUBRIC_FAILURE_METADATA.source)
+    assert.ok(
+      rubric.contentPattern.test('RESUME_RUBRIC_FAILURE: best_score=3.9/4 | JD: …'),
+      'content signature matches the producer output shape',
+    )
+    assert.equal(
+      rubric.contentPattern.test('A hand-written note about resume failures'),
+      false,
+      'signature must not match an authored note carrying the same topic',
     )
   })
 })

@@ -28,14 +28,32 @@ export function buildThoughtMetadata(
 }
 
 /**
+ * Stamped on an updated thought whose existing metadata carries no usable
+ * `source`. Deliberately NOT `'mcp'`.
+ *
+ * `'mcp'` was the original fallback, when `source` was provenance and nothing
+ * read it. #222 changed that: `AUTHORED_THOUGHT_SOURCES` (src/lib/observations.ts)
+ * treats `'mcp'` as the marker of a hand-authored note, so the old fallback meant
+ * *any* edit to a source-less row silently promoted machine output to authored.
+ * That is not hypothetical — 122 rows whose content is literally
+ * `RESUME_RUBRIC_FAILURE: …` and `Applied to …` now carry `source: 'mcp'`,
+ * acquired by being edited through `update_thought` during a privacy sweep.
+ *
+ * `'unknown'` is outside the allowlist, so an unlabelled row stays classified as
+ * not-authored — the fail-closed direction for a crawlable surface, and the same
+ * choice the allowlist itself makes.
+ */
+export const UNKNOWN_THOUGHT_SOURCE = 'unknown'
+
+/**
  * Decide the `source` and `private` flags to stamp on a thought being updated.
  *
- * `source` is preserved from the existing row (falling back to "mcp" only if
- * missing or malformed). `private` is preserved from the existing row UNLESS
- * the caller passes an explicit boolean override — `undefined` means "leave
- * unchanged", not "make public". This mirrors the capture-side invariant in
- * buildThoughtMetadata: the privacy flag is always caller-controlled, never
- * inferred from extracted text.
+ * `source` is preserved from the existing row, falling back to
+ * {@link UNKNOWN_THOUGHT_SOURCE} if missing or malformed. `private` is preserved
+ * from the existing row UNLESS the caller passes an explicit boolean override —
+ * `undefined` means "leave unchanged", not "make public". This mirrors the
+ * capture-side invariant in buildThoughtMetadata: the privacy flag is always
+ * caller-controlled, never inferred from extracted text.
  */
 export function resolveThoughtUpdateOpts(
   existingMeta: unknown,
@@ -45,7 +63,7 @@ export function resolveThoughtUpdateOpts(
     existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)
       ? (existingMeta as Record<string, unknown>)
       : {}
-  const source = typeof meta.source === 'string' && meta.source.length > 0 ? meta.source : 'mcp'
+  const source = typeof meta.source === 'string' && meta.source.length > 0 ? meta.source : UNKNOWN_THOUGHT_SOURCE
   const existingPrivate = meta.private === true
   const nextPrivate = override.private !== undefined ? override.private : existingPrivate
   return { source, private: nextPrivate }
