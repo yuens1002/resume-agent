@@ -12,7 +12,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY, parseCommitCount, buildRepoStats, detectGitProvider } from '../scripts/sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY, parseCommitCount, buildRepoStats, detectGitProvider, buildEmploymentDeltaMetadata } from '../scripts/sync-helpers.js'
+import { isPublicThought } from '../src/lib/observations.js'
 
 // ── splitChangelogSections (re-implemented for test) ─────
 
@@ -366,5 +367,25 @@ describe('buildRepoStats', () => {
     const stats = buildRepoStats(tree)
     // tests/unit.test.ts, src/__tests__/foo.spec.tsx match; tests/helpers/util.ts matches /tests?/ dir
     assert.ok(stats.test_files >= 2, `expected ≥2 test files, got ${stats.test_files}`)
+  })
+})
+
+describe('buildEmploymentDeltaMetadata — employment-delta proposals are owner-only', () => {
+  it('is private — the row carries unapproved proposed résumé bullets', () => {
+    const m = buildEmploymentDeltaMetadata('artisan-roast')
+    assert.equal(m.private, true)
+    // The consequence, not just the literal: the same predicate the public
+    // surface uses must reject it. 60 of these were readable at
+    // ?type=review_needed before the flag was added.
+    assert.equal(isPublicThought(m), false)
+  })
+
+  it('keeps the topic the backfill selects on, and threads the project slug', () => {
+    const m = buildEmploymentDeltaMetadata('resume-agent')
+    const topics = m.topics as string[]
+    assert.ok(topics.includes('review_needed'), 'backfill selects on this topic')
+    assert.ok(topics.includes('resume-agent'), 'project slug is threaded through')
+    assert.equal(m.type, 'review_needed')
+    assert.equal(m.source, 'sync')
   })
 })

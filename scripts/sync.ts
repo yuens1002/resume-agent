@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
 import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
@@ -532,12 +532,9 @@ Rules:
     await supabase.from('thoughts').insert({
       content,
       embedding,
-      metadata: {
-        type: 'review_needed',
-        source: 'sync',
-        project: 'self-employed',
-        topics: ['employment', 'review_needed', projectSlug],
-      },
+      // private: true — these are unapproved proposed résumé bullets.
+      // See buildEmploymentDeltaMetadata for why that flag is load-bearing.
+      metadata: buildEmploymentDeltaMetadata(projectSlug),
     })
     console.log(`  ✔ employment delta proposal written (review via MCP)`)
   } catch {

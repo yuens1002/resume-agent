@@ -64,6 +64,11 @@ export const TARGETS: readonly Target[] = [
     topic: 'job-application',
     why: 'names the employer applied to plus a per-role fit score and gap assessment',
   },
+  {
+    label: 'employment delta proposals',
+    topic: 'review_needed',
+    why: 'LLM-proposed résumé bullets awaiting owner approval, including rejected ones',
+  },
 ]
 
 const APPLY = process.argv.includes('--apply')
