@@ -19,13 +19,20 @@ const baseUrlOf = (url: string): string =>
 // Topic is matched in app code (case-insensitive), so we fetch the per-type window and
 // filter in memory.
 //
-// This ceiling was chosen to sit above the largest single thought type so a `?topic`
+// This ceiling was chosen "to sit above the largest single thought type" so a `?topic`
 // filter would see *every* candidate of that type rather than only the most recent.
-// That is no longer true and hasn't been for a while: the `reference` ledger is at
-// 3,485 rows against this 1,000 ceiling, so `?type=reference&topic=…` already misses
-// matches older than the window. Pre-existing and independent of the authored filter
-// (#222) — the split runs over whatever this returns either way — but the guarantee
-// this comment used to claim is gone, so it should not keep claiming it.
+// That was never true. When the value was set to 1000 (#132, 2026-06-02) the
+// `reference` ledger already held 2,158 rows; the 300 it replaced (#131, the day
+// before) faced 1,999; the ledger was at 3,485 as of 2026-07-29 and grows by roughly
+// 500/month. So `?type=reference&topic=…` has been silently incomplete since this
+// endpoint shipped — it returns matches from the most recent 1,000 rows and quietly
+// omits everything older.
+//
+// Pre-existing and independent of the authored filter (#222): the split runs over
+// whatever this returns either way. Recorded here rather than left as a stale
+// guarantee, because the failure is invisible from the response — a capped result
+// looks exactly like a complete one. Tracked in #232; the fix is to push the filters
+// into SQL so no row-count constant governs correctness.
 //
 // Raising the number only moves the cliff and costs a bigger in-memory fetch on a
 // public endpoint; the real fix is pushing topic matching into SQL alongside paging.
@@ -79,9 +86,11 @@ app.get('/', async (c) => {
     : 25
 
   // Type filter is applied at the DB layer (before LIMIT) so a small, older type isn't
-  // crowded out of the window by a large, freshly-synced one. With FETCH_CEILING above
-  // the largest type's row count, the in-memory topic filter sees the complete per-type
-  // set, so case-insensitive `?topic` matching is exact, not recency-bounded.
+  // crowded out of the window by a large, freshly-synced one. That much holds. What does
+  // NOT hold is the stronger claim this comment used to make — that the window covers a
+  // whole type, making `?topic` matching exact rather than recency-bounded. See
+  // FETCH_CEILING above: it has never covered the `reference` ledger, so a `?topic`
+  // filter against that type is bounded by recency and misses older matches (#232).
   let q = supabase
     .from('thoughts')
     .select('id, content, metadata, created_at')
