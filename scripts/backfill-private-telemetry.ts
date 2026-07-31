@@ -182,8 +182,28 @@ async function main(): Promise<void> {
         else restamped += 1
       }
     }
-    console.log(`Re-stamped ${restamped} rows.
-`)
+    console.log(`Re-stamped ${restamped} rows.`)
+
+    // Verify against the same selectors rather than trusting the update count.
+    // Done here, inside the pass, on purpose: the privacy pass below returns
+    // early when it has nothing to do, so a shared verification block at the
+    // end would be skipped on exactly the run where only source repair
+    // happened — which is the common case once the privacy pass has converged.
+    let stillWrong = 0
+    for (const target of TARGETS) {
+      const rows = await fetchByTopic(target.topic)
+      const bad = rows.filter(
+        (r) => target.contentPattern.test(r.content) && r.metadata?.source !== target.source,
+      ).length
+      stillWrong += bad
+      if (bad) console.error(`  ✗ ${target.label}: ${bad} rows still mis-sourced`)
+    }
+    if (stillWrong) {
+      console.error(`${stillWrong} rows still carry the wrong source — re-run or investigate.`)
+      process.exitCode = 1
+    } else {
+      console.log('Verified: every matching row now carries the source its producer writes.\n')
+    }
   } else if (totalToRestamp) {
     console.log(`Would re-stamp ${totalToRestamp} rows. Re-run with --apply to execute.
 `)

@@ -88,15 +88,15 @@ describe('resolveThoughtUpdateOpts', () => {
     // Was 'mcp' until #222 made that value mean "hand-authored". See
     // UNKNOWN_THOUGHT_SOURCE for why the fallback must stay outside the
     // authored allowlist.
-    assert.equal(resolveThoughtUpdateOpts({}, {}).source, 'unknown')
-    assert.equal(resolveThoughtUpdateOpts({ source: '' }, {}).source, 'unknown')
-    assert.equal(resolveThoughtUpdateOpts({ source: 123 }, {}).source, 'unknown')
+    assert.equal(resolveThoughtUpdateOpts({}, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: '' }, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: 123 }, {}).source, UNKNOWN_THOUGHT_SOURCE)
   })
 
   it('handles null / non-object existing metadata without throwing', () => {
-    assert.deepEqual(resolveThoughtUpdateOpts(null, {}), { source: 'unknown', private: false })
-    assert.deepEqual(resolveThoughtUpdateOpts(undefined, { private: true }), { source: 'unknown', private: true })
-    assert.deepEqual(resolveThoughtUpdateOpts(['array'], {}), { source: 'unknown', private: false })
+    assert.deepEqual(resolveThoughtUpdateOpts(null, {}), { source: UNKNOWN_THOUGHT_SOURCE, private: false })
+    assert.deepEqual(resolveThoughtUpdateOpts(undefined, { private: true }), { source: UNKNOWN_THOUGHT_SOURCE, private: true })
+    assert.deepEqual(resolveThoughtUpdateOpts(['array'], {}), { source: UNKNOWN_THOUGHT_SOURCE, private: false })
   })
 
   it('treats a truthy-but-non-true existing `private` as public', () => {
