@@ -87,6 +87,13 @@ export const TARGETS: readonly Target[] = [
     source: 'sync',
     contentPattern: /^EMPLOYMENT DELTA PROPOSAL/,
   },
+  {
+    label: 'employment sync notifications',
+    topic: 'employment_sync_applied',
+    why: 'publishes the archived previous employment bullets alongside the new ones',
+    source: 'sync',
+    contentPattern: /^\[sync \|.*\| notification\]/,
+  },
 ]
 
 const APPLY = process.argv.includes('--apply')

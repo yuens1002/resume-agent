@@ -253,3 +253,26 @@ export function buildEmploymentDeltaMetadata(projectSlug: string): Record<string
     topics: ['employment', 'review_needed', projectSlug],
   }
 }
+
+/**
+ * Metadata for the notification the sync writes after it automatically replaces
+ * the profile's employment bullets (`notifyEmploymentSyncApplied` in sync.ts).
+ *
+ * `private: true` for the same reason as {@link buildEmploymentDeltaMetadata},
+ * with a wrinkle: the row publishes the new bullets *and* the ones they
+ * replaced, under a "Previous bullets archived" heading. The new set is already
+ * public via `GET /info`; the archived set is not — it is résumé text the owner
+ * has since moved away from, and republishing superseded claims is the same
+ * "not vetted truth" problem the delta proposals had.
+ *
+ * The writer's own log line already treated it as owner-only: "notification
+ * written to OB1 (search \"employment updated\" in private MCP)".
+ */
+export function buildEmploymentNotificationMetadata(): Record<string, unknown> {
+  return {
+    type: 'notification',
+    source: 'sync',
+    private: true,
+    topics: ['employment', 'employment_sync_applied', 'notification'],
+  }
+}

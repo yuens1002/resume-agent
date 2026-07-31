@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
 import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
@@ -1090,11 +1090,9 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
     await supabase.from('thoughts').insert({
       content: notification,
       embedding,
-      metadata: {
-        type: 'notification',
-        source: 'sync',
-        topics: ['employment', 'employment_sync_applied', 'notification'],
-      },
+      // private: true — publishes the archived previous bullets alongside the
+      // new ones. See buildEmploymentNotificationMetadata.
+      metadata: buildEmploymentNotificationMetadata(),
     })
     console.log('  ✔ notification written to OB1 (search "employment updated" in private MCP)')
   } catch (err) {
