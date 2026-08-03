@@ -14,6 +14,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../src/lib/thought-metadata.js'
+import { UNKNOWN_THOUGHT_SOURCE } from '../src/lib/thought-metadata.js'
+import { isAuthoredThought, AUTHORED_THOUGHT_SOURCES } from '../src/lib/observations.js'
 
 describe('buildThoughtMetadata', () => {
   it('passes through extracted content keys and stamps source', () => {
@@ -82,21 +84,51 @@ describe('resolveThoughtUpdateOpts', () => {
     assert.equal(out.private, false)
   })
 
-  it('falls back to source="mcp" when existing source is missing or malformed', () => {
-    assert.equal(resolveThoughtUpdateOpts({}, {}).source, 'mcp')
-    assert.equal(resolveThoughtUpdateOpts({ source: '' }, {}).source, 'mcp')
-    assert.equal(resolveThoughtUpdateOpts({ source: 123 }, {}).source, 'mcp')
+  it('falls back to the unknown source when existing source is missing or malformed', () => {
+    // Was 'mcp' until #222 made that value mean "hand-authored". See
+    // UNKNOWN_THOUGHT_SOURCE for why the fallback must stay outside the
+    // authored allowlist.
+    assert.equal(resolveThoughtUpdateOpts({}, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: '' }, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: 123 }, {}).source, UNKNOWN_THOUGHT_SOURCE)
   })
 
   it('handles null / non-object existing metadata without throwing', () => {
-    assert.deepEqual(resolveThoughtUpdateOpts(null, {}), { source: 'mcp', private: false })
-    assert.deepEqual(resolveThoughtUpdateOpts(undefined, { private: true }), { source: 'mcp', private: true })
-    assert.deepEqual(resolveThoughtUpdateOpts(['array'], {}), { source: 'mcp', private: false })
+    assert.deepEqual(resolveThoughtUpdateOpts(null, {}), { source: UNKNOWN_THOUGHT_SOURCE, private: false })
+    assert.deepEqual(resolveThoughtUpdateOpts(undefined, { private: true }), { source: UNKNOWN_THOUGHT_SOURCE, private: true })
+    assert.deepEqual(resolveThoughtUpdateOpts(['array'], {}), { source: UNKNOWN_THOUGHT_SOURCE, private: false })
   })
 
   it('treats a truthy-but-non-true existing `private` as public', () => {
     // metadata.private comes from JSONB — guard against accidentally truthy strings.
     const out = resolveThoughtUpdateOpts({ source: 'mcp', private: 'yes' }, {})
     assert.equal(out.private, false)
+  })
+})
+
+describe('resolveThoughtUpdateOpts — a source-less row must not become authored', () => {
+  it('falls back to "unknown", not "mcp", when the existing row has no source', () => {
+    // The regression this pins: 'mcp' is the AUTHORED_THOUGHT_SOURCES marker
+    // since #222, so the old fallback meant any edit to a source-less row
+    // promoted machine output to hand-authored. 122 rows acquired
+    // source: 'mcp' that way during a privacy sweep.
+    assert.equal(resolveThoughtUpdateOpts({}, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts(null, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: '' }, {}).source, UNKNOWN_THOUGHT_SOURCE)
+    assert.equal(resolveThoughtUpdateOpts({ source: 42 }, {}).source, UNKNOWN_THOUGHT_SOURCE)
+  })
+
+  it('the fallback is classified as NOT authored by the public surface', () => {
+    // The consequence, not the literal — asserted through the same allowlist
+    // /observations uses.
+    const { source } = resolveThoughtUpdateOpts({ type: 'observation' }, { private: true })
+    assert.equal(isAuthoredThought({ source }), false)
+    assert.equal((AUTHORED_THOUGHT_SOURCES as readonly string[]).includes(source), false)
+  })
+
+  it('still preserves a real source untouched', () => {
+    assert.equal(resolveThoughtUpdateOpts({ source: 'sync' }, {}).source, 'sync')
+    assert.equal(resolveThoughtUpdateOpts({ source: 'mcp' }, {}).source, 'mcp')
+    assert.equal(resolveThoughtUpdateOpts({ source: 'telemetry' }, {}).source, 'telemetry')
   })
 })

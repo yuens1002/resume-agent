@@ -44,6 +44,18 @@ export interface Target {
   label: string
   topic: string
   why: string
+  /**
+   * The `metadata.source` these rows should carry. Used by the source-repair
+   * pass below to undo a misclassification, never to invent provenance.
+   */
+  source: string
+  /**
+   * Content signature for the repair pass. The topic alone is not a safe
+   * selector for rewriting `source` — a hand-written note could legitimately
+   * carry the same tag — so a row is only re-stamped when its content also
+   * matches the shape this producer emits.
+   */
+  contentPattern: RegExp
 }
 
 /**
@@ -58,11 +70,29 @@ export const TARGETS: readonly Target[] = [
     label: 'rubric telemetry',
     topic: 'resume-failure',
     why: 'embeds the first 200 chars of a submitted job description',
+    source: 'telemetry',
+    contentPattern: /^RESUME_RUBRIC_FAILURE:/,
   },
   {
     label: 'job-application logs',
     topic: 'job-application',
     why: 'names the employer applied to plus a per-role fit score and gap assessment',
+    source: 'job-hunt',
+    contentPattern: /^Applied to /,
+  },
+  {
+    label: 'employment delta proposals',
+    topic: 'review_needed',
+    why: 'LLM-proposed résumé bullets awaiting owner approval, including rejected ones',
+    source: 'sync',
+    contentPattern: /^EMPLOYMENT DELTA PROPOSAL/,
+  },
+  {
+    label: 'employment sync notifications',
+    topic: 'employment_sync_applied',
+    why: 'publishes the archived previous employment bullets alongside the new ones',
+    source: 'sync',
+    contentPattern: /^\[sync \|.*\| notification\]/,
   },
 ]
 
@@ -109,8 +139,78 @@ async function main(): Promise<void> {
     console.log()
   }
 
+  // ── Pass 2: source repair ────────────────────────────────
+  //
+  // `update_thought` used to stamp `source: 'mcp'` on any row whose metadata
+  // carried no source (the old fallback in resolveThoughtUpdateOpts). Since
+  // #222, `'mcp'` is the AUTHORED_THOUGHT_SOURCES marker, so machine rows that
+  // were edited through the MCP during a privacy sweep are now labelled
+  // hand-authored. They are private, so nothing leaks today — but un-privatise
+  // one and it reads as an authored note and lands in the sitemap.
+  //
+  // Gated on the content signature, not the topic alone: a hand-written note
+  // could legitimately carry `job-application`, and rewriting its provenance
+  // would be a worse error than the one being fixed.
+  const sourcePlan: Array<{ target: Target; rows: Row[] }> = []
+  let totalToRestamp = 0
+  for (const target of TARGETS) {
+    const rows = await fetchByTopic(target.topic)
+    const wrong = rows.filter(
+      (r) => target.contentPattern.test(r.content) && r.metadata?.source !== target.source,
+    )
+    sourcePlan.push({ target, rows: wrong })
+    totalToRestamp += wrong.length
+    if (wrong.length) {
+      const from = new Map<string, number>()
+      for (const r of wrong) {
+        const k = typeof r.metadata?.source === 'string' ? r.metadata.source : '(none)'
+        from.set(k, (from.get(k) ?? 0) + 1)
+      }
+      const summary = [...from.entries()].map(([k, n]) => `${n} from "${k}"`).join(', ')
+      console.log(`${target.label}: ${wrong.length} rows to re-stamp source → "${target.source}" (${summary})`)
+    }
+  }
+  console.log()
+
+  if (APPLY && totalToRestamp) {
+    let restamped = 0
+    for (const { target, rows } of sourcePlan) {
+      for (const row of rows) {
+        const next = { ...(row.metadata ?? {}), source: target.source }
+        const { error } = await supabase.from('thoughts').update({ metadata: next }).eq('id', row.id)
+        if (error) console.error(`  ✗ source repair ${row.id}: ${error.message}`)
+        else restamped += 1
+      }
+    }
+    console.log(`Re-stamped ${restamped} rows.`)
+
+    // Verify against the same selectors rather than trusting the update count.
+    // Done here, inside the pass, on purpose: the privacy pass below returns
+    // early when it has nothing to do, so a shared verification block at the
+    // end would be skipped on exactly the run where only source repair
+    // happened — which is the common case once the privacy pass has converged.
+    let stillWrong = 0
+    for (const target of TARGETS) {
+      const rows = await fetchByTopic(target.topic)
+      const bad = rows.filter(
+        (r) => target.contentPattern.test(r.content) && r.metadata?.source !== target.source,
+      ).length
+      stillWrong += bad
+      if (bad) console.error(`  ✗ ${target.label}: ${bad} rows still mis-sourced`)
+    }
+    if (stillWrong) {
+      console.error(`${stillWrong} rows still carry the wrong source — re-run or investigate.`)
+      process.exitCode = 1
+    } else {
+      console.log('Verified: every matching row now carries the source its producer writes.\n')
+    }
+  } else if (totalToRestamp) {
+    console.log(`Would re-stamp ${totalToRestamp} rows. Re-run with --apply to execute.
+`)
+  }
+
   if (!totalToUpdate) {
-    console.log('Nothing to do — every targeted row is already private.')
+    console.log('Privacy pass: nothing to do — every targeted row is already private.')
     return
   }
 

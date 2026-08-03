@@ -222,3 +222,57 @@ export function buildRepoStats(tree: Array<{ path: string; type: string }>): Rep
 
   return { total_files, typescript_files, test_files }
 }
+
+/**
+ * Metadata for the employment-delta proposal the sync writes when it detects a
+ * drift between the profile's self-employment bullets and what the projects now
+ * show (`writeEmploymentDeltaProposal` in sync.ts).
+ *
+ * `private: true` is the load-bearing part. These rows carry **LLM-proposed
+ * résumé bullets awaiting owner approval** — by construction that includes
+ * proposals the owner read and rejected. Without the flag they are
+ * public-eligible (`isPublicThought` treats a missing `private` as public), and
+ * 60 of them were readable at `GET /observations?type=review_needed` before this
+ * was fixed. The writer's own log line already called them owner-only —
+ * "employment delta proposal written (review via MCP)" — the metadata just
+ * didn't say so.
+ *
+ * For a surface whose contract is "your agent is your truth", an unapproved
+ * draft claim about the candidate's own work history is the one category that
+ * most directly undercuts it: it is precisely not vetted truth.
+ *
+ * Lives here rather than in sync.ts because that module self-executes on
+ * import, which would make the invariant untestable.
+ */
+export function buildEmploymentDeltaMetadata(projectSlug: string): Record<string, unknown> {
+  return {
+    type: 'review_needed',
+    source: 'sync',
+    private: true,
+    project: 'self-employed',
+    topics: ['employment', 'review_needed', projectSlug],
+  }
+}
+
+/**
+ * Metadata for the notification the sync writes after it automatically replaces
+ * the profile's employment bullets (`notifyEmploymentSyncApplied` in sync.ts).
+ *
+ * `private: true` for the same reason as {@link buildEmploymentDeltaMetadata},
+ * with a wrinkle: the row publishes the new bullets *and* the ones they
+ * replaced, under a "Previous bullets archived" heading. The new set is already
+ * public via `GET /info`; the archived set is not — it is résumé text the owner
+ * has since moved away from, and republishing superseded claims is the same
+ * "not vetted truth" problem the delta proposals had.
+ *
+ * The writer's own log line already treated it as owner-only: "notification
+ * written to OB1 (search \"employment updated\" in private MCP)".
+ */
+export function buildEmploymentNotificationMetadata(): Record<string, unknown> {
+  return {
+    type: 'notification',
+    source: 'sync',
+    private: true,
+    topics: ['employment', 'employment_sync_applied', 'notification'],
+  }
+}
