@@ -91,7 +91,11 @@ function buildServer(): McpServer {
     async ({ query, limit, threshold }) => {
       try {
         const qEmb = await getEmbedding(query)
-        const { data, error } = await supabase.rpc('match_thoughts', {
+        // match_thoughts_owner, not match_thoughts: this is the authenticated
+        // owner-only surface and it must see private thoughts. Since #235 the
+        // default RPC excludes them, so an unguarded read has to be named
+        // explicitly — this call site is the only one that should do so.
+        const { data, error } = await supabase.rpc('match_thoughts_owner', {
           query_embedding: qEmb,
           match_threshold: threshold,
           match_count: limit,
