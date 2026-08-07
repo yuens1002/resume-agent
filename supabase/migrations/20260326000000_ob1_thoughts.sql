@@ -5,7 +5,13 @@ create extension if not exists pgcrypto;
 create extension if not exists vector with schema extensions;
 
 -- 2.2: Thoughts table + indexes
-create table thoughts (
+-- Replay-safe (#237). The index names below are NOT cosmetic: they are the names
+-- PostgreSQL auto-generated on the first run. `create index if not exists` requires an
+-- explicit name, and picking a different one would leave the original in place and build
+-- a second copy alongside it. That is exactly what unnamed `create index` already did
+-- here — a re-run silently produced thoughts_embedding_idx1 / _metadata_idx1 /
+-- _created_at_idx1, ~32 MB of duplicates dropped by 20260807000000_drop_duplicate_indexes.
+create table if not exists thoughts (
   id uuid default gen_random_uuid() primary key,
   content text not null,
   embedding extensions.vector(1536),
@@ -15,14 +21,14 @@ create table thoughts (
 );
 
 -- Index for fast vector similarity search
-create index on thoughts
+create index if not exists thoughts_embedding_idx on thoughts
   using hnsw (embedding extensions.vector_cosine_ops);
 
 -- Index for filtering by metadata fields
-create index on thoughts using gin (metadata);
+create index if not exists thoughts_metadata_idx on thoughts using gin (metadata);
 
 -- Index for date range queries
-create index on thoughts (created_at desc);
+create index if not exists thoughts_created_at_idx on thoughts (created_at desc);
 
 -- Auto-update the updated_at timestamp (table-specific name avoids cross-migration collisions)
 create or replace function thoughts_update_updated_at()
@@ -33,6 +39,7 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists thoughts_updated_at on thoughts;
 create trigger thoughts_updated_at
   before update on thoughts
   for each row
@@ -73,6 +80,7 @@ $$;
 -- 2.4: Row Level Security
 alter table thoughts enable row level security;
 
+drop policy if exists "Service role full access" on thoughts;
 create policy "Service role full access"
   on thoughts
   for all

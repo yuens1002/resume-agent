@@ -6,7 +6,7 @@
 create extension if not exists pg_trgm;
 
 -- ── Table 1: job_applications ─────────────────────────────
-create table job_applications (
+create table if not exists job_applications (
   id                 uuid        primary key default gen_random_uuid(),
 
   -- Core application data
@@ -39,17 +39,17 @@ create table job_applications (
   updated_at         timestamptz not null default now()
 );
 
-create index on job_applications (stage);
-create index on job_applications (applied_at desc);
-create index on job_applications (follow_up_date) where follow_up_date is not null;
+create index if not exists job_applications_stage_idx on job_applications (stage);
+create index if not exists job_applications_applied_at_idx on job_applications (applied_at desc);
+create index if not exists job_applications_follow_up_date_idx on job_applications (follow_up_date) where follow_up_date is not null;
 -- GIN trigram indexes for efficient ILIKE '%...%' search on text columns
-create index job_applications_company_trgm_idx  on job_applications using gin (company       gin_trgm_ops);
-create index job_applications_role_trgm_idx     on job_applications using gin (role          gin_trgm_ops);
-create index job_applications_jd_trgm_idx       on job_applications using gin (job_description gin_trgm_ops);
-create index job_applications_notes_trgm_idx    on job_applications using gin (notes         gin_trgm_ops);
+create index if not exists job_applications_company_trgm_idx  on job_applications using gin (company       gin_trgm_ops);
+create index if not exists job_applications_role_trgm_idx     on job_applications using gin (role          gin_trgm_ops);
+create index if not exists job_applications_jd_trgm_idx       on job_applications using gin (job_description gin_trgm_ops);
+create index if not exists job_applications_notes_trgm_idx    on job_applications using gin (notes         gin_trgm_ops);
 
 -- ── Table 2: application_stages (audit trail) ─────────────
-create table application_stages (
+create table if not exists application_stages (
   id              uuid        primary key default gen_random_uuid(),
   application_id  uuid        not null references job_applications(id) on delete cascade,
   stage           text        not null
@@ -61,10 +61,10 @@ create table application_stages (
   occurred_at     timestamptz not null default now()
 );
 
-create index on application_stages (application_id, occurred_at desc);
+create index if not exists application_stages_application_id_occurred_at_idx on application_stages (application_id, occurred_at desc);
 
 -- ── Table 3: job_contacts ─────────────────────────────────
-create table job_contacts (
+create table if not exists job_contacts (
   id              uuid        primary key default gen_random_uuid(),
   application_id  uuid        not null references job_applications(id) on delete cascade,
 
@@ -78,7 +78,7 @@ create table job_contacts (
   updated_at      timestamptz not null default now()
 );
 
-create index on job_contacts (application_id);
+create index if not exists job_contacts_application_id_idx on job_contacts (application_id);
 
 -- ── Triggers: updated_at ──────────────────────────────────
 create or replace function pipeline_update_updated_at()
@@ -89,10 +89,12 @@ begin
 end;
 $$ language plpgsql;
 
+drop trigger if exists job_applications_updated_at on job_applications;
 create trigger job_applications_updated_at
   before update on job_applications
   for each row execute function pipeline_update_updated_at();
 
+drop trigger if exists job_contacts_updated_at on job_contacts;
 create trigger job_contacts_updated_at
   before update on job_contacts
   for each row execute function pipeline_update_updated_at();
@@ -102,12 +104,15 @@ alter table job_applications   enable row level security;
 alter table application_stages enable row level security;
 alter table job_contacts        enable row level security;
 
+drop policy if exists "Service role full access" on job_applications;
 create policy "Service role full access" on job_applications
   for all using (auth.role() = 'service_role');
 
+drop policy if exists "Service role full access" on application_stages;
 create policy "Service role full access" on application_stages
   for all using (auth.role() = 'service_role');
 
+drop policy if exists "Service role full access" on job_contacts;
 create policy "Service role full access" on job_contacts
   for all using (auth.role() = 'service_role');
 
