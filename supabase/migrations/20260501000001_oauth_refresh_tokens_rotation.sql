@@ -17,6 +17,7 @@ revoke all on table oauth_refresh_tokens from anon;
 revoke all on table oauth_refresh_tokens from authenticated;
 grant all on table oauth_refresh_tokens to service_role;
 
+drop policy if exists "Service role full access" on oauth_refresh_tokens;
 create policy "Service role full access"
   on oauth_refresh_tokens
   for all

@@ -9,6 +9,7 @@ revoke all on table observed_queries from anon;
 revoke all on table observed_queries from authenticated;
 grant all on table observed_queries to service_role;
 
+drop policy if exists "Service role full access" on observed_queries;
 create policy "Service role full access"
   on observed_queries
   for all
