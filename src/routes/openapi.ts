@@ -103,7 +103,7 @@ app.get('/', (c) => {
                   schema: {
                     type: 'object',
                     properties: {
-                      fit_score: { type: 'number', description: 'Overall fit percentage 0–100' },
+                      fit_score: { type: 'number', minimum: 0, maximum: 1, description: 'Overall fit score, 0–1' },
                       matched: { type: 'array', items: { type: 'string' }, description: 'Skills and experience that match' },
                       gaps: { type: 'array', items: { type: 'string' }, description: 'Missing or weak areas' },
                       verdict: { type: 'string' },
