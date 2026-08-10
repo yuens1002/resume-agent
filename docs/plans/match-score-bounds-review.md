@@ -1,12 +1,14 @@
 # /review report — match score bounds (#240)
 
-**Branch:** `main` (uncommitted working tree)
-**Generated:** 2026-08-10
+**Branch:** `fix/match-skills-score-bounds` (PR #241)
+**Generated:** 2026-08-10 — reviewed pre-commit, against the working tree that became commit `baaba06`
 **Iterations to reach verified:** 1
 
 ## Verdict
 
-**Minor issues.** The code change is correct, minimal, and bounded by construction; the full unit suite passes (552/552, 2 skipped) and `tsc --noEmit` is clean. Two findings before commit: the OpenAPI schema documents `fit_score` with the wrong range — directly the contract this fix exists to enforce — and there is no CHANGELOG entry, which this repo treats as part of every change.
+**Minor issues — all resolved in PR #241 before merge.** The code change is correct, minimal, and bounded by construction; the full unit suite passes (552/552, 2 skipped) and `tsc --noEmit` is clean. Two findings were raised at review time and both were fixed in the same PR: the OpenAPI schema documented `fit_score` with the wrong range — directly the contract this fix exists to enforce — and there was no CHANGELOG entry, which this repo treats as part of every change.
+
+A third instance of the same drift was **missed by this review and caught by Copilot**: `openapi.ts:80`, the `/match` operation description, still read *"Returns a percentage score"* after `:106` was corrected. Recorded rather than quietly fixed, because the miss is the lesson — see Inputs for /retro.
 
 ## Structural exception — no in-repo plan
 
@@ -71,6 +73,10 @@ Checked and **not** stale: `docs/workflow.md:117` ("skills 50%, experience 30%, 
 - **Route:** `/backend-architect` → `~/.claude/commands/backend-architect.md`
   **Draft principle:** *"When a numeric field's valid range is the contract consumers rank or threshold on, the range belongs in the published schema and must be verified against the producer whenever the computation changes. A range stated only in prose or implied by example payloads drifts silently — a 0–1 score documented as 0–100 stays undetected because every real value is valid under both readings."*
   **Triggered by:** `openapi.ts:106` advertising 0–100 for a 0–1 field, undetected across every prior change to `/match`.
+
+- **Route:** cross-cutting → `/review` Step 3 (docs drift scan)
+  **Draft addition:** *"When a docs-drift scan finds a stale claim, grep the whole file for the same claim restated in prose before declaring the finding closed. A schema and its human-readable description are two copies of one contract, and fixing the machine-readable one alone leaves the file internally inconsistent."*
+  **Triggered by:** Step 3 grepped for the field name and range literals, matched `openapi.ts:106`, and missed `openapi.ts:80` — the same claim as the word "percentage", in the operation description 26 lines above. Copilot caught it on PR #241.
 
 - **Route:** `/backend-architect` → `~/.claude/commands/backend-architect.md`
   **Draft principle:** *"When two model-generated lists are meant to describe the same set, do not assume they agree — derive any ratio over them from `max()` of both, never from one. Collapsing them into a single list removes the disagreement but also removes the signal, letting the producer shrink numerator and denominator together and inflate the result while staying in range."*
