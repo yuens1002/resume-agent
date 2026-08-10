@@ -77,7 +77,7 @@ app.get('/', (c) => {
         post: {
           operationId: 'matchJob',
           summary: 'Score the candidate against a job description',
-          description: 'Paste a job description to get a structured fit score. Returns a percentage score, matched skills, gaps, and a hiring recommendation. Use this when the user shares a role they\'re considering.',
+          description: 'Paste a job description to get a structured fit score. Returns a 0–1 fit score, matched skills, gaps, and a hiring recommendation. Use this when the user shares a role they\'re considering.',
           requestBody: {
             required: true,
             content: {
@@ -103,7 +103,7 @@ app.get('/', (c) => {
                   schema: {
                     type: 'object',
                     properties: {
-                      fit_score: { type: 'number', description: 'Overall fit percentage 0–100' },
+                      fit_score: { type: 'number', minimum: 0, maximum: 1, description: 'Overall fit score, 0–1' },
                       matched: { type: 'array', items: { type: 'string' }, description: 'Skills and experience that match' },
                       gaps: { type: 'array', items: { type: 'string' }, description: 'Missing or weak areas' },
                       verdict: { type: 'string' },

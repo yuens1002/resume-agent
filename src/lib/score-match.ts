@@ -38,6 +38,40 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+/**
+ * Skills sub-score, bounded on 0..1 by construction (#240).
+ *
+ * The numerator counts what the model put in the buckets; the denominator used
+ * to count only `required_skills_extracted`, and nothing tied the two lists
+ * together. A JD yielding 4 extracted requirements against 9 classified skills
+ * scored 1.88, which put `fit_score` at 1.37 — outside the range every consumer
+ * ranks and thresholds on. Taking the larger of the two bounds the ratio, since
+ * credit <= matched + partial + missing <= denominator.
+ *
+ * max() rather than either list alone, because each single-list choice is
+ * gameable in one direction. `required` alone lets the buckets overflow it —
+ * the reported bug. The bucket count alone lets the model drop a requirement it
+ * would have to score badly, shrinking numerator and denominator together and
+ * inflating the score without ever leaving 0..1; measured against live output
+ * that failure is the more dangerous of the two, because nothing flags it.
+ *
+ * Aligning the two lists by name was rejected: the same model emits "State
+ * management libraries (Zustand, Redux, MobX)" on one run and the three names
+ * separately on the next, which any string match scores as three false missings.
+ *
+ * The `|| 1` guard now only fires when both lists are empty, where the numerator
+ * is necessarily 0 too — so it yields 0, not the divide-by-a-fake-1 inflation it
+ * used to permit when `required` was empty but the buckets were not.
+ */
+export function skillsScore(
+  skills: { matched: string[]; partial: string[]; missing: string[] },
+  requiredCount: number,
+): number {
+  const credit = skills.matched.length + skills.partial.length * 0.5
+  const classified = skills.matched.length + skills.partial.length + skills.missing.length
+  return credit / (Math.max(requiredCount, classified) || 1)
+}
+
 const SCORING_RUBRIC = `You are a precise job fit evaluator. Extract requirements from the job description and score the candidate profile against them using only the discrete values defined below.
 
 --- SCORING RUBRIC ---
@@ -114,9 +148,7 @@ export async function scoreMatch(
   if (!isValidRawScores(parsed)) return null
   const scores = parsed
 
-  const total_required = scores.required_skills_extracted.length || 1
-  const skills_score =
-    (scores.skills.matched.length * 1.0 + scores.skills.partial.length * 0.5) / total_required
+  const skills_score = skillsScore(scores.skills, scores.required_skills_extracted.length)
 
   const { years, scope, recency } = scores.experience
   const exp_score = (years + scope + recency) / 3
