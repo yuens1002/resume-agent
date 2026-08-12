@@ -383,18 +383,13 @@ Feed a job description (and optional `framing_hints`), get back a tailored 2-pag
 
 The `/match` endpoint is not a keyword matcher. It uses Claude to reason over the structured profile and the job description using the following decision flow:
 
-1. **Extract requirements** from the JD: required skills, preferred skills, years of experience, domain knowledge, role type (IC, lead, manager), culture signals.
+1. **Extract the qualities this specific JD raises** — not a fixed checklist applied identically to every posting. For each quality (a skill, an experience characteristic like years/scope/recency, or a domain characteristic like industry/scale), the model records whether the JD states it as a hard requirement or a preference. A JD that never mentions company scale or a years-of-experience bar never gets scored on those axes; one that's explicit about them does.
 
-2. **Score against profile** by category:
-   - Technical skills: exact match, adjacent, or gap
-   - Experience depth: years, scope, recency
-   - Domain overlap: industry, product type, scale
-   - Role alignment: what the candidate has led vs. contributed to
+2. **Score each extracted quality against the profile**:
+   - verdict: matched, partial (adjacent), or missing
+   - evidence grade: verified (backed by a dated project or employment record), claimed (prose only, no verifiable artifact), or absent
 
-3. **Produce a fit score** (0.0 – 1.0) weighted as:
-   - Required skills coverage: 50%
-   - Experience alignment: 30%
-   - Domain overlap: 20%
+3. **Produce a fit score** (0.0 – 1.0) as a weighted average across every extracted quality — weighted by how much the JD emphasized it (required vs. preferred) and discounted when the supporting evidence is only claimed rather than verified. There is no fixed skills/experience/domain split; the weighting follows what each specific JD actually asked for.
 
 4. **Classify the verdict**:
    - `>= 0.80`: strong match — apply as-is

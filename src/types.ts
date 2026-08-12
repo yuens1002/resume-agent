@@ -182,25 +182,34 @@ export interface MatchRequest {
   job_description: string
 }
 
+// JD-driven extraction-first scoring (docs/plans/match-quality-extraction.md)
+// replaced the fixed skills/experience/domain sub-factor shape: every JD is
+// scored on the qualities it actually raises, not a fixed six-axis rubric
+// applied identically to every posting. `matched`/`gaps` on `MatchResponse`
+// stay skill-scoped and unchanged for `job-hunt-agent` compatibility; this
+// per-quality detail is additional, not a replacement for those two fields.
+export type MatchQualityCategory = 'skill' | 'experience' | 'domain'
+export type MatchQualityImportance = 'must_have' | 'preferred'
+export type MatchQualityVerdict = 'matched' | 'partial' | 'missing'
+export type MatchQualityEvidenceGrade = 'verified' | 'claimed' | 'absent'
+
+export interface MatchRequiredQuality {
+  name: string
+  category: MatchQualityCategory
+  jd_importance: MatchQualityImportance
+}
+
+export interface MatchScoredQuality {
+  name: string
+  category: MatchQualityCategory
+  jd_importance: MatchQualityImportance
+  verdict: MatchQualityVerdict
+  evidence_grade: MatchQualityEvidenceGrade
+}
+
 export interface MatchScoring {
-  skills: {
-    matched: string[]
-    partial: string[]
-    missing: string[]
-    score: number
-  }
-  experience: {
-    years: number
-    scope: number
-    recency: number
-    score: number
-  }
-  domain: {
-    industry: number
-    product_type: number
-    scale: number
-    score: number
-  }
+  required_qualities: MatchRequiredQuality[]
+  scored_qualities: MatchScoredQuality[]
 }
 
 export interface MatchResponse {

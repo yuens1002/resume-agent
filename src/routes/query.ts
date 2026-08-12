@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { supabase } from '../lib/supabase.js'
-import { getModel, MODEL } from '../lib/ai.js'
+import { getModel, MODEL, generateWithLengthRetry, type LengthRetryResult } from '../lib/ai.js'
 import { generateText, streamText } from 'ai'
 import { parseJSON, salvageTrailingSourcesBlock } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
@@ -318,34 +318,6 @@ export function extractProvider(modelResponse: unknown): string | undefined {
  */
 export function shouldCacheResponse(response: Pick<QueryResponse, 'action_intent'>): boolean {
   return !response.action_intent
-}
-
-/** Minimal shape `generateWithLengthRetry` needs from a `generateText` call — kept
- * loose (not the full AI SDK result type) so the helper is unit-testable with
- * plain stub functions instead of a live model call. */
-export interface LengthRetryResult {
-  text: string
-  finishReason: string
-  response: unknown
-}
-
-/**
- * Calls `callFn` once at `cap` maxTokens. If the model truncated the answer
- * (`finishReason === 'length'`), retries ONCE at `min(cap * 2, 2048)` maxTokens
- * — same prompt/system/model, whatever `callFn` closes over — and returns the
- * retry's result regardless of its own finishReason (no further retries).
- * A truncated mid-sentence answer is bad; a second truncated answer is a
- * signal the question itself needs a real cap increase, not more retries.
- * Single call (no retry) when the first result already finished cleanly.
- */
-export async function generateWithLengthRetry(
-  callFn: (maxTokens: number) => Promise<LengthRetryResult>,
-  cap: number,
-): Promise<LengthRetryResult> {
-  const first = await callFn(cap)
-  if (first.finishReason !== 'length') return first
-  const retryCap = Math.min(cap * 2, 2048)
-  return callFn(retryCap)
 }
 
 // ── Shared core ─────────────────────────────────────────────
