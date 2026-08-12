@@ -103,11 +103,43 @@ app.get('/', (c) => {
                   schema: {
                     type: 'object',
                     properties: {
-                      fit_score: { type: 'number', minimum: 0, maximum: 1, description: 'Overall fit score, 0–1' },
+                      fit_score: { type: 'number', minimum: 0, maximum: 1, description: 'Overall fit score, 0–1 — a weighted average over the qualities this specific JD raised, not a fixed skills/experience/domain split' },
                       matched: { type: 'array', items: { type: 'string' }, description: 'Skills and experience that match' },
                       gaps: { type: 'array', items: { type: 'string' }, description: 'Missing or weak areas' },
                       verdict: { type: 'string' },
                       recommended_action: { type: 'string', enum: ['apply', 'apply-with-tailoring', 'pass'] },
+                      scoring: {
+                        type: 'object',
+                        description: 'Per-quality detail. Each JD is extracted into the specific qualities it raises (not a fixed checklist), then each is scored independently.',
+                        properties: {
+                          required_qualities: {
+                            type: 'array',
+                            description: 'Qualities extracted from the JD text itself',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                name: { type: 'string' },
+                                category: { type: 'string', enum: ['skill', 'experience', 'domain'] },
+                                jd_importance: { type: 'string', enum: ['must_have', 'preferred'] },
+                              },
+                            },
+                          },
+                          scored_qualities: {
+                            type: 'array',
+                            description: 'Each required quality scored against the candidate profile',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                name: { type: 'string' },
+                                category: { type: 'string', enum: ['skill', 'experience', 'domain'] },
+                                jd_importance: { type: 'string', enum: ['must_have', 'preferred'] },
+                                verdict: { type: 'string', enum: ['matched', 'partial', 'missing'] },
+                                evidence_grade: { type: 'string', enum: ['verified', 'claimed', 'absent'], description: 'verified = backed by a dated project or employment record; claimed = prose only; absent = no support found' },
+                              },
+                            },
+                          },
+                        },
+                      },
                     },
                   },
                 },

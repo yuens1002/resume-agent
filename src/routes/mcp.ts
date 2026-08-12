@@ -620,7 +620,7 @@ function buildServer(): McpServer {
     {
       title: 'Score Job Match',
       description:
-        'Score a job description against the candidate profile and return a fit breakdown with skills, experience, domain scores, and a recommended action.',
+        'Score a job description against the candidate profile and return a fit breakdown of the qualities this JD actually raises (skills, experience, domain — extracted per-JD, not a fixed checklist), each with a match verdict and evidence grade, plus a recommended action.',
       inputSchema: {
         job_description: z.string().describe('Full or partial job description text'),
       },
@@ -636,13 +636,17 @@ function buildServer(): McpServer {
         return { content: [{ type: 'text' as const, text: 'Failed to score match — model or parse error.' }], isError: true }
       }
 
+      const CATEGORY_LABEL = { skill: 'Skills', experience: 'Experience', domain: 'Domain' } as const
       const lines = [
         `Fit score: ${result.fit_score} → ${result.recommended_action}`,
         `Verdict: ${result.verdict}`,
         ``,
-        `Skills: ${result.scoring.skills.score} | matched: ${result.scoring.skills.matched.join(', ') || 'none'} | partial: ${result.scoring.skills.partial.join(', ') || 'none'} | missing: ${result.scoring.skills.missing.join(', ') || 'none'}`,
-        `Experience: ${result.scoring.experience.score} (years: ${result.scoring.experience.years}, scope: ${result.scoring.experience.scope}, recency: ${result.scoring.experience.recency})`,
-        `Domain: ${result.scoring.domain.score} (industry: ${result.scoring.domain.industry}, product_type: ${result.scoring.domain.product_type}, scale: ${result.scoring.domain.scale})`,
+        ...(Object.keys(CATEGORY_LABEL) as Array<keyof typeof CATEGORY_LABEL>).map((category) => {
+          const qualities = result.scoring.scored_qualities.filter((q) => q.category === category)
+          if (qualities.length === 0) return `${CATEGORY_LABEL[category]}: (no qualities raised by this JD)`
+          const detail = qualities.map((q) => `${q.name} [${q.verdict}/${q.evidence_grade}]`).join(', ')
+          return `${CATEGORY_LABEL[category]}: ${detail}`
+        }),
       ]
 
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] }

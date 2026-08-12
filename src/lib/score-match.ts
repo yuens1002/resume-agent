@@ -1,10 +1,23 @@
 import { generateText } from 'ai'
-import { getModel } from './ai.js'
+import { getModel, generateWithLengthRetry } from './ai.js'
 import { fetchProfile } from './profile-cache.js'
 import { parseJSON } from './parse-json.js'
-import type { MatchResponse, MatchScoring } from '../types.js'
+import type {
+  MatchResponse,
+  MatchScoring,
+  MatchRequiredQuality,
+  MatchScoredQuality,
+  MatchQualityCategory,
+  MatchQualityImportance,
+  MatchQualityVerdict,
+  MatchQualityEvidenceGrade,
+} from '../types.js'
 
 const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
+const MATCH_MAX_TOKENS = 2048
+// Must exceed MATCH_MAX_TOKENS — see generateWithLengthRetry's retryCeiling
+// doc in ai.ts. A truncation retry at the same cap is a wasted duplicate call.
+const MATCH_RETRY_CEILING = 4096
 
 export class ProfileNotFoundError extends Error {
   constructor() { super('Profile not found') }
@@ -15,21 +28,48 @@ export class ProfileUnavailableError extends Error {
 }
 
 interface RawScores {
-  required_skills_extracted: string[]
-  skills: { matched: string[]; partial: string[]; missing: string[] }
-  experience: { years: number; scope: number; recency: number }
-  domain: { industry: number; product_type: number; scale: number }
+  required_qualities: MatchRequiredQuality[]
+  scored_qualities: MatchScoredQuality[]
   verdict: string
+}
+
+function isCategory(v: unknown): v is MatchQualityCategory {
+  return v === 'skill' || v === 'experience' || v === 'domain'
+}
+function isImportance(v: unknown): v is MatchQualityImportance {
+  return v === 'must_have' || v === 'preferred'
+}
+function isVerdict(v: unknown): v is MatchQualityVerdict {
+  return v === 'matched' || v === 'partial' || v === 'missing'
+}
+function isEvidenceGrade(v: unknown): v is MatchQualityEvidenceGrade {
+  return v === 'verified' || v === 'claimed' || v === 'absent'
+}
+
+function isRequiredQuality(o: unknown): o is MatchRequiredQuality {
+  if (!o || typeof o !== 'object') return false
+  const r = o as Record<string, unknown>
+  return typeof r.name === 'string' && isCategory(r.category) && isImportance(r.jd_importance)
+}
+
+function isScoredQuality(o: unknown): o is MatchScoredQuality {
+  if (!o || typeof o !== 'object') return false
+  const r = o as Record<string, unknown>
+  return (
+    typeof r.name === 'string' &&
+    isCategory(r.category) &&
+    isImportance(r.jd_importance) &&
+    isVerdict(r.verdict) &&
+    isEvidenceGrade(r.evidence_grade)
+  )
 }
 
 function isValidRawScores(s: unknown): s is RawScores {
   if (!s || typeof s !== 'object') return false
   const o = s as Record<string, unknown>
   return (
-    Array.isArray(o.required_skills_extracted) &&
-    o.skills != null && typeof o.skills === 'object' &&
-    o.experience != null && typeof o.experience === 'object' &&
-    o.domain != null && typeof o.domain === 'object' &&
+    Array.isArray(o.required_qualities) && o.required_qualities.every(isRequiredQuality) &&
+    Array.isArray(o.scored_qualities) && o.scored_qualities.every(isScoredQuality) &&
     typeof o.verdict === 'string'
   )
 }
@@ -39,74 +79,105 @@ function round2(n: number): number {
 }
 
 /**
- * Skills sub-score, bounded on 0..1 by construction (#240).
- *
- * The numerator counts what the model put in the buckets; the denominator used
- * to count only `required_skills_extracted`, and nothing tied the two lists
- * together. A JD yielding 4 extracted requirements against 9 classified skills
- * scored 1.88, which put `fit_score` at 1.37 — outside the range every consumer
- * ranks and thresholds on. Taking the larger of the two bounds the ratio, since
- * credit <= matched + partial + missing <= denominator.
- *
- * max() rather than either list alone, because each single-list choice is
- * gameable in one direction. `required` alone lets the buckets overflow it —
- * the reported bug. The bucket count alone lets the model drop a requirement it
- * would have to score badly, shrinking numerator and denominator together and
- * inflating the score without ever leaving 0..1; measured against live output
- * that failure is the more dangerous of the two, because nothing flags it.
- *
- * Aligning the two lists by name was rejected: the same model emits "State
- * management libraries (Zustand, Redux, MobX)" on one run and the three names
- * separately on the next, which any string match scores as three false missings.
- *
- * The `|| 1` guard now only fires when both lists are empty, where the numerator
- * is necessarily 0 too — so it yields 0, not the divide-by-a-fake-1 inflation it
- * used to permit when `required` was empty but the buckets were not.
+ * Numeric-notation normalizer for JD text — collapses comma-grouped digits
+ * and k/K-suffix shorthand ("50,000+" / "50k+") to a plain integer ("50000+")
+ * before the JD reaches the model. Spike-tested (2026-08-12,
+ * docs/plans/match-quality-extraction.md "Spike results" round 2): raw
+ * notation variants already produced identical model behavior without this,
+ * so it fixes no observed failure — kept anyway because it is a free,
+ * deterministic, lossless transform that can only remove variance, never
+ * introduce it. Deliberately does not touch spelled-out numbers or
+ * descriptive phrasing ("fifty thousand", "tens-of-thousands-strong") — that
+ * is open-ended natural language, not a bounded mechanical transform, and
+ * belongs to the model's own judgment, not a regex (round 2/3 spikes: that
+ * axis is where the real, measurable cross-model variance actually lives).
  */
-export function skillsScore(
-  skills: { matched: string[]; partial: string[]; missing: string[] },
-  requiredCount: number,
-): number {
-  const credit = skills.matched.length + skills.partial.length * 0.5
-  const classified = skills.matched.length + skills.partial.length + skills.missing.length
-  return credit / (Math.max(requiredCount, classified) || 1)
+export function normalizeNumericNotation(text: string): string {
+  return text
+    .replace(/\b\d{1,3}(?:,\d{3})+\b/g, (m) => m.replace(/,/g, ''))
+    .replace(/\b(\d+(?:\.\d+)?)\s*[kK]\b/g, (_m, n) => String(Math.round(parseFloat(n) * 1000)))
 }
 
-const SCORING_RUBRIC = `You are a precise job fit evaluator. Extract requirements from the job description and score the candidate profile against them using only the discrete values defined below.
+const SCORING_RUBRIC = `You are a precise job fit evaluator. Read the job description and identify the qualities THIS employer actually cares about — do not assume a fixed checklist applies to every JD.
 
---- SCORING RUBRIC ---
+--- STEP 1: EXTRACT ---
+List every quality (skill, experience characteristic, or domain characteristic) the JD explicitly states as a requirement or preference for the CANDIDATE. Do not extract a quality merely because it describes the COMPANY's context (e.g. company size, industry, funding stage, the company's own tech stack) — descriptive company context is not automatically a candidate requirement. Only extract company context if the JD also states or clearly asks that the candidate must have prior experience WITH that context (e.g. "must have worked at a company of this scale before," "healthcare domain experience required").
 
-SKILLS
-For each skill explicitly marked as REQUIRED in the JD (ignore preferred/nice-to-have):
-- matched (1.0): directly present in candidate profile
-- partial (0.5): adjacent technology (e.g. Vue when React required, MySQL when Postgres required)
-- missing (0.0): absent from profile
+This context carve-out does NOT apply to the ROLE's scope or seniority — always extract role scope (individual contributor, tech lead, manager, "no direct reports," "manages a team of N") as an experience quality. Unlike company size or industry, the role's scope is inherently a statement about what the candidate will be doing day to day, not incidental company description — treat "individual contributor role" the same as any other stated requirement.
 
-EXPERIENCE — score each sub-factor independently:
-- years:    meets or exceeds required (1.0) | 1-2 years short (0.7) | 3-4 years short (0.4) | significantly under (0.1)
-- scope:    IC/lead/manager alignment — exact match (1.0) | similar (0.7) | different (0.3)
-- recency:  relevant exp is current/last role (1.0) | within 3 yrs (0.7) | 3-5 yrs ago (0.4) | 5+ yrs ago (0.1)
+Do not invent qualities the JD never raises. For each:
+- name: short label
+- category: "skill" | "experience" | "domain"
+- jd_importance: "must_have" (explicitly required) | "preferred" (nice-to-have, or the JD asks for it without making it mandatory)
 
-DOMAIN — score each sub-factor independently:
-- industry:      same industry (1.0) | adjacent (0.6) | different (0.3)
-- product_type:  same product category (1.0) | similar (0.7) | different (0.3)
-- scale:         company/product scale matches (1.0) | similar (0.7) | different (0.4)
+--- STEP 2: SCORE ---
+For each extracted quality, compare against the candidate profile (skills, employment history with dates, projects with git_evidence — commit counts, dates, signed provenance). Repeat jd_importance from Step 1 on each scored item — do not rely on the two lists being aligned by name or position:
+- verdict: "matched" (candidate demonstrably has this) | "partial" (adjacent/close but not exact) | "missing" (no support found)
+- evidence_grade: "verified" (backed by a dated project with git_evidence, or an unambiguous employment date range) | "claimed" (only supported by prose — a bullet point, a summary sentence — with no verifiable artifact) | "absent" (verdict is missing, so no evidence exists)
 
 --- OUTPUT ---
-
 Respond ONLY with valid JSON. No prose, no markdown fences.
 
 {
-  "required_skills_extracted": ["skill1", "skill2"],
-  "skills": {
-    "matched": ["skill1"],
-    "partial": ["skill2"],
-    "missing": ["skill3"]
-  },
-  "experience": { "years": 0.7, "scope": 1.0, "recency": 1.0 },
-  "domain": { "industry": 0.6, "product_type": 1.0, "scale": 0.7 },
+  "required_qualities": [{"name": "...", "category": "skill|experience|domain", "jd_importance": "must_have|preferred"}],
+  "scored_qualities": [{"name": "...", "category": "skill|experience|domain", "jd_importance": "must_have|preferred", "verdict": "matched|partial|missing", "evidence_grade": "verified|claimed|absent"}],
   "verdict": "one sentence explaining the overall fit honestly"
 }`
+
+const IMPORTANCE_WEIGHT: Record<MatchQualityImportance, number> = {
+  must_have: 2,
+  preferred: 1,
+}
+
+/**
+ * Per-quality credit. `matched`/`partial` are discounted further when the
+ * only support is prose (`claimed`) rather than a dated project with
+ * `git_evidence` or an unambiguous employment range (`verified`) — the
+ * live-derived evidence-weighing decision from
+ * docs/plans/match-quality-extraction.md. `missing` always scores 0
+ * regardless of `evidence_grade` (should be `absent`, but the table doesn't
+ * depend on that field being self-consistent when it isn't).
+ */
+const CREDIT: Record<MatchQualityVerdict, Record<MatchQualityEvidenceGrade, number>> = {
+  matched: { verified: 1.0, claimed: 0.8, absent: 0 },
+  partial: { verified: 0.5, claimed: 0.4, absent: 0 },
+  missing: { verified: 0, claimed: 0, absent: 0 },
+}
+
+/**
+ * Weighted-average quality score, bounded 0..1 by construction — generalizes
+ * `skillsScore`'s #240 fix (retired here; every category is now scored by
+ * this one function, see docs/plans/match-quality-extraction.md Open Item 4)
+ * from a uniform per-skill weight to a per-quality `jd_importance` weight,
+ * and from a flat matched/partial/missing credit to one additionally scaled
+ * by `evidence_grade`.
+ *
+ * `numerator` sums credit over `scoredQualities` only (what the model
+ * actually classified). `denominator` is the `max` of the weight-sum implied
+ * by `requiredQualities` (what the JD asked for) and the weight-sum implied
+ * by `scoredQualities` (what got classified) — exactly #240's
+ * `max(requiredCount, classifiedCount)` trick, generalized from a plain count
+ * to a weighted sum. This bounds the score two ways: numerator ≤
+ * scoredWeightSum ≤ denominator, so the ratio can never exceed 1; and if the
+ * model silently drops a `must_have` item between extraction and scoring,
+ * `requiredWeightSum` stays anchored to what was actually asked for, so the
+ * omission still costs what it should instead of quietly raising the average
+ * over survivors — the same failure #240 fixed for `skillsScore`, now
+ * reachable through a differently-shaped list pair.
+ */
+export function qualityScore(
+  requiredQualities: MatchRequiredQuality[],
+  scoredQualities: MatchScoredQuality[],
+): number {
+  const requiredWeightSum = requiredQualities.reduce((sum, q) => sum + IMPORTANCE_WEIGHT[q.jd_importance], 0)
+  const scoredWeightSum = scoredQualities.reduce((sum, q) => sum + IMPORTANCE_WEIGHT[q.jd_importance], 0)
+  const numerator = scoredQualities.reduce(
+    (sum, q) => sum + IMPORTANCE_WEIGHT[q.jd_importance] * CREDIT[q.verdict][q.evidence_grade],
+    0,
+  )
+  const denominator = Math.max(requiredWeightSum, scoredWeightSum) || 1
+  return numerator / denominator
+}
 
 // Returns MatchResponse on success, null on model/parse failure. Throws
 // ProfileNotFoundError if the profile row is absent, ProfileUnavailableError
@@ -114,6 +185,7 @@ Respond ONLY with valid JSON. No prose, no markdown fences.
 export async function scoreMatch(
   jobDescription: string,
   callerHint?: string,
+  modelOverride?: string,
 ): Promise<MatchResponse | null> {
   const profileResult = await fetchProfile()
 
@@ -125,14 +197,21 @@ export async function scoreMatch(
     ? `${SCORING_RUBRIC}\n\nCaller context: ${callerHint}`
     : SCORING_RUBRIC
 
+  const prompt = `Candidate profile:\n${JSON.stringify(profile, null, 2)}\n\nJob description:\n${normalizeNumericNotation(jobDescription)}`
+
   let raw: string
   try {
-    const result = await generateText({
-      model: getModel(MATCH_MODEL),
-      maxTokens: 1024,
-      system: systemPrompt,
-      prompt: `Candidate profile:\n${JSON.stringify(profile, null, 2)}\n\nJob description:\n${jobDescription}`,
-    })
+    const result = await generateWithLengthRetry(
+      (maxTokens) =>
+        generateText({
+          model: getModel(modelOverride ?? MATCH_MODEL),
+          maxTokens,
+          system: systemPrompt,
+          prompt,
+        }),
+      MATCH_MAX_TOKENS,
+      MATCH_RETRY_CEILING,
+    )
     raw = result.text
   } catch {
     return null
@@ -148,37 +227,27 @@ export async function scoreMatch(
   if (!isValidRawScores(parsed)) return null
   const scores = parsed
 
-  const skills_score = skillsScore(scores.skills, scores.required_skills_extracted.length)
+  const fit_score = round2(qualityScore(scores.required_qualities, scores.scored_qualities))
 
-  const { years, scope, recency } = scores.experience
-  const exp_score = (years + scope + recency) / 3
-
-  const { industry, product_type, scale } = scores.domain
-  const domain_score = (industry + product_type + scale) / 3
-
-  const fit_score = round2(0.5 * skills_score + 0.3 * exp_score + 0.2 * domain_score)
+  const matched = scores.scored_qualities
+    .filter((q) => q.category === 'skill' && q.verdict === 'matched')
+    .map((q) => q.name)
+  const gaps = scores.scored_qualities
+    .filter((q) => q.category === 'skill' && q.verdict !== 'matched')
+    .map((q) => (q.verdict === 'partial' ? `${q.name} (partial)` : q.name))
 
   const recommended_action: MatchResponse['recommended_action'] =
     fit_score >= 0.8 ? 'apply' : fit_score >= 0.6 ? 'apply-with-tailoring' : 'pass'
 
   const scoring: MatchScoring = {
-    skills: {
-      matched: scores.skills.matched,
-      partial: scores.skills.partial,
-      missing: scores.skills.missing,
-      score: round2(skills_score),
-    },
-    experience: { years, scope, recency, score: round2(exp_score) },
-    domain: { industry, product_type, scale, score: round2(domain_score) },
+    required_qualities: scores.required_qualities,
+    scored_qualities: scores.scored_qualities,
   }
 
   return {
     fit_score,
-    matched: scores.skills.matched,
-    gaps: [
-      ...scores.skills.missing,
-      ...scores.skills.partial.map((s) => `${s} (partial)`),
-    ],
+    matched,
+    gaps,
     verdict: scores.verdict,
     recommended_action,
     scoring,

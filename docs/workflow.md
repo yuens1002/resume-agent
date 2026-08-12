@@ -92,29 +92,21 @@ Response:
   "verdict": "Strong overall fit on experience and TypeScript, but React is secondary to Vue in the candidate's profile — present and used in multiple roles, though not the primary framework.",
   "recommended_action": "apply",
   "scoring": {
-    "skills": {
-      "matched": ["TypeScript"],
-      "partial": ["React"],
-      "missing": [],
-      "score": 0.75
-    },
-    "experience": {
-      "years": 1,
-      "scope": 1,
-      "recency": 1,
-      "score": 1
-    },
-    "domain": {
-      "industry": 0.6,
-      "product_type": 0.7,
-      "scale": 0.7,
-      "score": 0.67
-    }
+    "required_qualities": [
+      { "name": "TypeScript", "category": "skill", "jd_importance": "must_have" },
+      { "name": "React", "category": "skill", "jd_importance": "must_have" },
+      { "name": "5+ years experience", "category": "experience", "jd_importance": "must_have" }
+    ],
+    "scored_qualities": [
+      { "name": "TypeScript", "category": "skill", "jd_importance": "must_have", "verdict": "matched", "evidence_grade": "verified" },
+      { "name": "React", "category": "skill", "jd_importance": "must_have", "verdict": "partial", "evidence_grade": "verified" },
+      { "name": "5+ years experience", "category": "experience", "jd_importance": "must_have", "verdict": "matched", "evidence_grade": "claimed" }
+    ]
   }
 }
 ```
 
-`fit_score` is computed deterministically from the model's categorical judgments — not a hallucinated decimal. Scoring weights: skills 50%, experience 30%, domain 20%.
+`fit_score` is computed deterministically from the model's categorical judgments — not a hallucinated decimal. The model extracts the qualities *this specific JD* raises (`required_qualities`) rather than scoring against a fixed checklist, then scores each (`scored_qualities`) with a match verdict and an evidence grade (`verified` — backed by a dated project or employment record; `claimed` — prose only; `absent` — no support found). `fit_score` is a weighted average across that list, weighted by how much the JD emphasized each quality (`must_have` vs. `preferred`) — there is no fixed skills/experience/domain split.
 
 `recommended_action` thresholds:
 - `apply` — score ≥ 0.80

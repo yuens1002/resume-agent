@@ -15,7 +15,7 @@ import {
   isBehavioralQuestion,
   maxTokensForQuestion,
 } from '../src/lib/query-classify.js'
-import { generateWithLengthRetry, type LengthRetryResult } from '../src/routes/query.js'
+import { generateWithLengthRetry, type LengthRetryResult } from '../src/lib/ai.js'
 
 describe('isBinaryQuestion', () => {
   it('classifies modal-opener yes/no questions as binary', () => {
