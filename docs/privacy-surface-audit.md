@@ -113,9 +113,9 @@ migration to confirm the population is still clean at that point.
 | `GET /observations` (listing) | `src/routes/observations.ts` → `buildObservationsListing` | `.filter(isPublicThought)` ✅ |
 | `GET /observations/:id` | `src/routes/observations.ts:168` | `isPublicThought` → `404` (never `403`) ✅ |
 | `POST /query` — question grounding | `queryRelevantThoughtsForQuestion` → **`match_thoughts_public`** | SQL guard ✅ |
-| `POST /query` — shipped-work grounding | `queryRelevantThoughts` → **`match_thoughts`** | ⚠️ **none** — see below |
-| `POST /resume` | `queryRelevantThoughts` → **`match_thoughts`** | ⚠️ **none** — see below |
-| Private MCP (`/mcp`) | `match_thoughts` | intentionally unguarded (owner-only surface) |
+| `POST /query` — shipped-work grounding | `queryRelevantThoughts` → **`match_thoughts`** | ~~⚠️ none~~ **fixed, see below** ✅ |
+| `POST /resume` | `queryRelevantThoughts` → **`match_thoughts`** | ~~⚠️ none~~ **fixed, see below** ✅ |
+| Private MCP (`/mcp`) | ~~`match_thoughts`~~ **`match_thoughts_owner`** | intentionally unguarded (owner-only surface) |
 
 ### SQL layer
 
@@ -124,12 +124,26 @@ migration to confirm the population is still clean at that point.
 and not (t.metadata @> '{"private": true}'::jsonb)
 ```
 
-`match_thoughts` — the original RPC — has **no privacy clause**. RLS is enabled on
-`thoughts`, but the API uses the service role, so RLS is not the boundary here.
+~~`match_thoughts` — the original RPC — has **no privacy clause**.~~ **Corrected below —
+this stopped being true on 2026-08-07.** RLS is enabled on `thoughts`, but the API uses the
+service role, so RLS was never the boundary here regardless.
 
 ---
 
 ## Finding: `/resume` and part of `/query` reach thoughts through an unguarded RPC
+
+> **RESOLVED 2026-08-07 — this section is now a historical record, not current state.**
+> Filed as [#235](https://github.com/yuens1002/resume-agent/issues/235) the day after this
+> audit was written (2026-08-04) and fixed by PR #236 (`40d155c`), four days before this
+> document itself was committed to the repo (2026-08-12) — an oversight caught only when
+> checking for an existing ticket before scoping follow-up work, not before the doc was
+> published. Left in place below because the analysis of *why* the old default was unsafe
+> is still accurate and useful context; only the "is this currently exploitable" claim was
+> stale. Current state: `supabase/migrations/20260804000000_match_thoughts_privacy_guard.sql`
+> adds the same containment guard to `match_thoughts` and introduces `match_thoughts_owner`
+> as the deliberately unguarded sibling; `src/routes/mcp.ts:98` confirms the private MCP
+> calls `match_thoughts_owner` explicitly. This is exactly the "Suggested fix" below — it
+> shipped as proposed.
 
 `queryRelevantThoughts` calls `match_thoughts` (no privacy clause) and is used by **both**
 `/resume` and `/query`. Its only protection is the relevance filter:
@@ -156,6 +170,8 @@ what "unset" means, while this path never consults the flag at all.
 and let the private MCP call a deliberately-unguarded sibling, so the *default* RPC is safe
 and the unguarded one is the named exception. That inverts this the same way #233 inverts
 the metadata default — the safe path becomes the one you get without asking.
+
+**Shipped exactly as proposed** — see the resolution note at the top of this section.
 
 ---
 
