@@ -63,7 +63,11 @@ export interface Publication {
   signature?: EvidenceSignature
 }
 
-/** One published piece cited by a /query answer (#177). See `src/lib/publication-citations.ts`. */
+/**
+ * One published piece cited by a /query answer (#177). Resolved server-side
+ * from the profile record — see `src/lib/publication-citations.ts`, which
+ * imports this type rather than declaring its own copy.
+ */
 export interface PublicationCitation {
   slug: string
   title: string

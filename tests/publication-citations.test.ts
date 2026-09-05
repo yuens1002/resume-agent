@@ -89,16 +89,23 @@ describe('AC-FN-3: sub-path citations keep their field and take no URL', () => {
   })
 })
 
-describe('AC-FN-4: whole-record citations carry the canonical URL', () => {
-  it('appends the profile record canonical_url', () => {
-    const [out] = normalizePublicationSourcePaths(['publications[0]'], '', ONE)
+describe('AC-FN-4: whole-record citations carry the canonical URL in the prose block', () => {
+  it('appends the profile record canonical_url to the prose Sources line', () => {
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0]'), ONE)
     assert.ok(out.includes(ONE[0].canonical_url), `got ${out}`)
   })
 
   it('omits the URL rather than emitting a dangling separator when the record has none', () => {
     const noUrl = [pub('no-url', { canonical_url: '' })]
-    const [out] = normalizePublicationSourcePaths(['publications[0]'], '', noUrl)
-    assert.equal(out, 'publications.no-url')
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0]'), noUrl)
+    assert.ok(out.includes('[1] publications.no-url'))
+    assert.ok(!out.includes('—'), `no dangling separator, got ${out}`)
+  })
+
+  it('keeps the URL out of the machine-readable sources array — it belongs in the envelope', () => {
+    const [out] = normalizePublicationSourcePaths(['publications[0]'], '', ONE)
+    assert.equal(out, `publications.${ONE[0].slug}`)
+    assert.ok(!out.includes(ONE[0].canonical_url), 'a corpus path is not a place to glue a URL onto')
   })
 })
 
@@ -149,9 +156,9 @@ describe('AC-FN-7: already-canonical entries are idempotent', () => {
     assert.equal(normalizePublicationSourceLines(once, ONE), once)
   })
 
-  it('passes through a compliant publications.<slug> path, adding only the URL', () => {
-    const [out] = normalizePublicationSourcePaths([`publications.${ONE[0].slug}`], '', ONE)
-    assert.equal(out, `publications.${ONE[0].slug} — ${ONE[0].canonical_url}`)
+  it('passes a compliant publications.<slug> path through unchanged', () => {
+    const path = `publications.${ONE[0].slug}`
+    assert.deepEqual(normalizePublicationSourcePaths([path], '', ONE), [path])
   })
 
   it('leaves a slug that matches no record untouched', () => {
@@ -179,9 +186,70 @@ describe('AC-FN-8: malformed publication records never throw', () => {
     }
   })
 
-  it('tolerates a non-array sources field', () => {
-    assert.deepEqual(normalizePublicationSourcePaths(undefined, '', ONE), [])
-    assert.deepEqual(normalizePublicationSourcePaths('publications', '', ONE), [])
+  it('returns a non-array sources field unchanged rather than inventing one', () => {
+    assert.equal(normalizePublicationSourcePaths(undefined as unknown as string[], '', ONE), undefined)
+    assert.equal(normalizePublicationSourcePaths('publications' as unknown as string[], '', ONE), 'publications')
+  })
+})
+
+// ── Verification-sourced regressions (Phase 3, #177) ─────
+// Each of these fails against the first draft of publication-citations.ts.
+// They are the reason the module was rewritten: the original tests were shaped
+// so that every one of these bugs stayed green.
+describe('regression: an index must never slide onto a neighbouring record', () => {
+  // The first draft filtered unusable records out and THEN indexed the
+  // filtered array, so one malformed row earlier in the list shifted every
+  // index and the resolver confidently emitted a different publication.
+  const WITH_LEGACY_ROW = [{ title: 'legacy row, no slug' }, pub('beta-piece')] as unknown
+
+  it('does not resolve an index pointing at a malformed record', () => {
+    assert.deepEqual(normalizePublicationSourcePaths(['publications[0]'], '', WITH_LEGACY_ROW), ['publications[0]'])
+  })
+
+  it('still resolves a later index to the record actually at that position', () => {
+    const [out] = normalizePublicationSourcePaths(['publications[1]'], '', WITH_LEGACY_ROW)
+    assert.equal(out, 'publications.beta-piece')
+  })
+
+  it('never emits a slug the model did not point at', () => {
+    const cited = citedPublications('', ['publications[0]'], WITH_LEGACY_ROW)
+    assert.deepEqual(cited, [], 'a malformed row must yield no citation, not its neighbour')
+  })
+})
+
+describe('regression: the word "publications" in prose is not a citation', () => {
+  it('does not populate the envelope from an ordinary sentence', () => {
+    assert.deepEqual(citedPublications('The candidate has a few publications.', [], ONE), [])
+  })
+
+  it('does not rewrite a numbered list in the answer body', () => {
+    const answer = ['The list is:', '[1] publications', 'and that is all.'].join('\n')
+    assert.equal(normalizePublicationSourceLines(answer, ONE), answer)
+  })
+
+  it('still populates the envelope from a real Sources block', () => {
+    const cited = citedPublications(sourcesBlock('[1] publications[0]'), [], ONE)
+    assert.equal(cited.length, 1)
+    assert.equal(cited[0].slug, ONE[0].slug)
+  })
+})
+
+describe('regression: the prose rewrite preserves surrounding whitespace', () => {
+  it('does not eat the blank line after the Sources block', () => {
+    const answer = ['Claim [1].', '', 'Sources:', '[1] publications[0]', '', '(Ask me anything else.)'].join('\n')
+    const out = normalizePublicationSourceLines(answer, ONE)
+    assert.ok(out.includes('\n\n(Ask me anything else.)'), `blank line destroyed: ${JSON.stringify(out)}`)
+  })
+
+  it('preserves a trailing newline at the end of the answer', () => {
+    const answer = sourcesBlock('[1] publications[0]') + '\n'
+    assert.ok(normalizePublicationSourceLines(answer, ONE).endsWith('\n'))
+  })
+
+  it('leaves everything above the Sources block byte-identical', () => {
+    const head = 'A claim [1]. Another sentence mentioning publications in passing.'
+    const answer = [head, '', 'Sources:', '[1] publications[0]'].join('\n')
+    assert.ok(normalizePublicationSourceLines(answer, ONE).startsWith(head))
   })
 })
 
@@ -202,9 +270,19 @@ describe('AC-FN-10: the JSON sources array is normalized in both styles', () => 
     assert.equal(out.length, 1)
   })
 
-  it('drops non-string entries rather than emitting them', () => {
-    const out = normalizePublicationSourcePaths(['experience.acme', null, 7], '', ONE)
-    assert.deepEqual(out, ['experience.acme'])
+  it('passes non-string entries through untouched instead of quietly validating an unrelated field', () => {
+    const input = ['experience.acme', null, 7] as unknown as string[]
+    assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), input)
+  })
+
+  it('does not dedupe non-publication paths — duplicates there are the model’s business', () => {
+    const input = ['skills.a', 'skills.a', 'projects.b']
+    assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), input)
+  })
+
+  it('leaves the array untouched when the profile has no publications at all', () => {
+    const input = ['skills.a', 'skills.a', 'publications[0]']
+    assert.deepEqual(normalizePublicationSourcePaths(input, '', []), input)
   })
 })
 
