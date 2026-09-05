@@ -105,12 +105,16 @@ Publications reach the model inside the same profile JSON as projects, so it cit
 
 The prompt is deliberately **not** the fix. Adding a `publications.<slug>` source form to the citation rule is what got this work parked in July 2026: every wording tried displaced the overview-projects follow-up offer. Instead, `src/lib/publication-citations.ts` rewrites publication source paths server-side, after the response is parsed and before it is cached:
 
-| Model wrote | Normalized to |
-| --- | --- |
-| `publications[0]` | `publications.<slug> — <canonical_url>` |
-| `publications` (conversational `sources`) | `publications.<slug> — <canonical_url>` |
-| `publications[0].grounded_in` | `publications.<slug>.grounded_in` |
-| anything unresolvable or ambiguous | left exactly as written |
+| Model wrote | In the prose `Sources:` block | In the JSON `sources` array |
+| --- | --- | --- |
+| `publications[0]` | `publications.<slug> — <canonical_url>` | `publications.<slug>` |
+| `publications` (conversational) | n/a — conversational answers have no Sources block | `publications.<slug>` |
+| `publications[0].grounded_in` | `publications.<slug>.grounded_in`, carrying the link if this is the first line citing that piece | `publications.<slug>.grounded_in` |
+| anything unresolvable or ambiguous | left exactly as written | left exactly as written |
+
+Each cited publication's URL appears exactly once in the prose block — on the first line citing it, whether that line names the record or one of its fields — and in the envelope, which carries it as data. It is deliberately **not** glued onto the `sources` array entries: those are corpus paths, and a consumer should not have to split a path back apart to use it.
+
+Resolution never guesses. An array index is read against the profile's own publication order and refused if the answer's prose unambiguously names a different piece; a title is matched only at word boundaries and only when it is long enough to be distinctive; a bare `publications` resolves via the answer text, or via "there is only one publication so it can only be that one". Anything else is left exactly as the model wrote it.
 
 The same pass populates a `publications` array on the response envelope — the parallel of `project_slugs` — carrying `slug`, `title`, `platform`, `canonical_url`, and `date` read from the profile record rather than from the model's prose.
 

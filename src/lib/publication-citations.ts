@@ -112,16 +112,49 @@ function rawPublications(publications: unknown): unknown[] {
 }
 
 /**
+ * Shortest title that may be matched against answer prose. A title is
+ * owner-supplied and unvalidated for length (`upsert_publication` takes a bare
+ * string), so a piece titled "AI" or "Go" would otherwise match inside
+ * ordinary words and resolve a citation to the wrong publication. Below this
+ * floor, title matching is skipped entirely — `canonical_url` matching and the
+ * single-publication fallback still apply, and refusing to resolve is always
+ * the safe direction here.
+ */
+const MIN_TITLE_MATCH_LENGTH = 12
+
+/** Does `haystack` contain `needle` as a whole token rather than inside a longer word? */
+function containsAtWordBoundary(haystack: string, needle: string): boolean {
+  let from = 0
+  for (;;) {
+    const idx = haystack.indexOf(needle, from)
+    if (idx < 0) return false
+    const before = idx === 0 ? '' : haystack[idx - 1]
+    const after = haystack[idx + needle.length] ?? ''
+    if (!/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after)) return true
+    from = idx + 1
+  }
+}
+
+/**
  * Find the single publication an answer is talking about, by looking for its
  * title or canonical_url in the prose. Returns null when zero or more than one
  * match — "more than one" is genuinely ambiguous and must not be resolved.
+ *
+ * Matching is case-insensitive, bounded at word boundaries, and floored at
+ * MIN_TITLE_MATCH_LENGTH for titles: a bare substring test over owner-supplied
+ * titles is the classic way a "match" turns into a wrong citation.
  */
 function resolveByAnswerMention(answer: string, citable: Publication[]): Publication | null {
   const haystack = answer.toLowerCase()
   const mentioned = citable.filter((pub) => {
-    const title = typeof pub.title === 'string' && pub.title.length > 0 ? pub.title.toLowerCase() : null
-    const url = typeof pub.canonical_url === 'string' && pub.canonical_url.length > 0 ? pub.canonical_url.toLowerCase() : null
-    return (title !== null && haystack.includes(title)) || (url !== null && haystack.includes(url))
+    const title =
+      typeof pub.title === 'string' && pub.title.length >= MIN_TITLE_MATCH_LENGTH ? pub.title.toLowerCase() : null
+    const url =
+      typeof pub.canonical_url === 'string' && pub.canonical_url.length > 0 ? pub.canonical_url.toLowerCase() : null
+    return (
+      (title !== null && containsAtWordBoundary(haystack, title)) ||
+      (url !== null && haystack.includes(url))
+    )
   })
   return mentioned.length === 1 ? mentioned[0] : null
 }
@@ -138,15 +171,25 @@ function resolveParsedPath(
   answer: string,
   raw: unknown[],
 ): Publication | null {
+  const citable = raw.filter(isCitable)
   if (parsed.index !== undefined) {
     // Indexed against the raw array — see rule 1 in the module header. The
     // resolved record is then validated, so an index pointing at a malformed
     // row yields nothing rather than silently sliding onto its neighbour.
     if (!Number.isInteger(parsed.index) || parsed.index < 0 || parsed.index >= raw.length) return null
     const record = raw[parsed.index]
-    return isCitable(record) ? record : null
+    if (!isCitable(record)) return null
+    // The index is assumed 0-based, but nothing makes the model agree: it may
+    // number `publications[1]` to mirror its own `[1]` marker. With a single
+    // publication a 1-based index is harmlessly out of range; with two or more
+    // it would resolve confidently to the wrong piece. So when the answer
+    // unambiguously names a different publication than the index points at,
+    // trust the prose and refuse rather than emit a citation the text
+    // contradicts.
+    const named = resolveByAnswerMention(answer, citable)
+    if (named !== null && named.slug !== record.slug) return null
+    return record
   }
-  const citable = raw.filter(isCitable)
   if (parsed.segment !== undefined) {
     return citable.find((pub) => pub.slug === parsed.segment) ?? null
   }
@@ -161,13 +204,18 @@ function canonicalPath(pub: Publication, subPath: string): string {
 /**
  * Canonical citation for the prose `Sources:` block, which a human reads and
  * where the URL is the whole point of #177 — a reader who asked "where can I
- * read it" needs the link in front of them. A sub-path citation
- * (`.grounded_in`) names a field of the record rather than the piece itself,
- * so it takes no URL; otherwise every line would repeat the same link.
+ * read it" needs the link in front of them.
+ *
+ * The link is emitted once per publication, on the first line citing it, and
+ * suppressed on that publication's later lines. Two failure modes are being
+ * avoided at once: repeating the same URL on every line of a multi-line
+ * citation, and — observed live — dropping it entirely because the model
+ * happened to cite only field sub-paths (`publications[0].title`,
+ * `publications[0].date`) and never the record as a whole.
  */
-function proseSourceLine(pub: Publication, subPath: string): string {
+function proseSourceLine(pub: Publication, subPath: string, linkAlreadyShown: boolean): string {
   const path = canonicalPath(pub, subPath)
-  if (subPath.length > 0) return path
+  if (linkAlreadyShown) return path
   return typeof pub.canonical_url === 'string' && pub.canonical_url.length > 0
     ? `${path} — ${pub.canonical_url}`
     : path
@@ -192,13 +240,17 @@ export function normalizePublicationSourceLines(answer: string, publications: un
 
   const head = answer.slice(0, blockStart)
   const block = answer.slice(blockStart)
+  const linked = new Set<string>()
   const rewritten = block.replace(
     SOURCES_LINE_RE,
     (line, marker: string, path: string, _url: string, trailing: string) => {
       const parsed = parsePublicationSourcePath(path)
       if (parsed === null) return line
       const resolved = resolveParsedPath(parsed, answer, raw)
-      return resolved === null ? line : `${marker}${proseSourceLine(resolved, parsed.subPath)}${trailing}`
+      if (resolved === null) return line
+      const rewrittenLine = `${marker}${proseSourceLine(resolved, parsed.subPath, linked.has(resolved.slug))}${trailing}`
+      linked.add(resolved.slug)
+      return rewrittenLine
     },
   )
   return head + rewritten

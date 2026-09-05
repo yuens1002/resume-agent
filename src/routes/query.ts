@@ -500,6 +500,13 @@ export async function queryProfile(
     // name, and never surfaces the canonical_url. Rewrite those into the
     // documented `publications.<slug> — <url>` form here, where the profile
     // record is authoritative and the transformation is testable.
+    //
+    // Order matters and is deliberate: the prose pass runs first, so the answer
+    // the array pass reads already carries the canonical URL of whatever the
+    // model's own Sources block cited. That is what lets a bare `publications`
+    // entry resolve on a multi-publication profile — it resolves to the piece
+    // the answer actually evidences, rather than being refused as ambiguous.
+    // Swapping these two lines regresses that case.
     parsed.answer = normalizePublicationSourceLines(parsed.answer, profilePublications)
     parsed.sources = normalizePublicationSourcePaths(parsed.sources, parsed.answer, profilePublications)
   }

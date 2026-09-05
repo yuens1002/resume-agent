@@ -51,10 +51,17 @@ describe('AC-FN-1: index-form source entries resolve to the slug form', () => {
 
   it('normalizes the prose Sources block, leaving other source lines byte-identical', () => {
     const answer = sourcesBlock('[1] publications[0]', '[2] projects.some-project', '[3] skills.languages')
-    const out = normalizePublicationSourceLines(answer, ONE)
-    assert.ok(out.includes(`publications.${ONE[0].slug}`))
-    assert.ok(out.includes('[2] projects.some-project'))
-    assert.ok(out.includes('[3] skills.languages'))
+    // Exact equality, not `includes`: an `includes` assertion still passes if
+    // the projects line gained a suffix or the marker was rewritten, and the
+    // ` — ` separator is the contract that makes a normalized line re-parse.
+    assert.equal(
+      normalizePublicationSourceLines(answer, ONE),
+      sourcesBlock(
+        `[1] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`,
+        '[2] projects.some-project',
+        '[3] skills.languages',
+      ),
+    )
   })
 })
 
@@ -77,7 +84,7 @@ describe('AC-FN-2: out-of-range and malformed index forms are left alone', () =>
 })
 
 // ── AC-FN-3 / AC-FN-4: sub-paths vs whole-record citations ──
-describe('AC-FN-3: sub-path citations keep their field and take no URL', () => {
+describe('AC-FN-3: sub-path citations keep their field; the array surface carries no URL', () => {
   it('rewrites the collection segment but preserves the field suffix', () => {
     const [out] = normalizePublicationSourcePaths(['publications[0].grounded_in'], '', ONE)
     assert.equal(out, `publications.${ONE[0].slug}.grounded_in`)
@@ -87,12 +94,46 @@ describe('AC-FN-3: sub-path citations keep their field and take no URL', () => {
     const [out] = normalizePublicationSourcePaths(['publications[0].grounded_in'], '', ONE)
     assert.ok(!out.includes(ONE[0].canonical_url), `sub-path citation should carry no URL, got ${out}`)
   })
+
+  // The link is emitted once per publication, on its first line. Live probing
+  // found the model citing only field sub-paths (`.title`, `.date`) for a
+  // "where can I read it" question — a rule that suppressed the URL on every
+  // sub-path line left the reader with no link at all.
+  it('puts the link on a sub-path line when that is the first line citing the piece', () => {
+    assert.equal(
+      normalizePublicationSourceLines(sourcesBlock('[1] publications[0].grounded_in'), ONE),
+      sourcesBlock(`[1] publications.${ONE[0].slug}.grounded_in — ${ONE[0].canonical_url}`),
+    )
+  })
+
+  it('emits the link exactly once across several lines citing the same piece', () => {
+    const out = normalizePublicationSourceLines(
+      sourcesBlock('[1] publications[0].title', '[2] publications[0].date', '[3] publications[0].grounded_in'),
+      ONE,
+    )
+    assert.equal(out.split(ONE[0].canonical_url).length - 1, 1, `expected exactly one link, got: ${out}`)
+    assert.ok(out.includes(`[1] publications.${ONE[0].slug}.title — ${ONE[0].canonical_url}`))
+    assert.ok(out.includes(`[3] publications.${ONE[0].slug}.grounded_in`))
+  })
+
+  it('gives each cited publication its own link', () => {
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0]', '[2] publications[1]'), TWO)
+    assert.ok(out.includes(TWO[0].canonical_url))
+    assert.ok(out.includes(TWO[1].canonical_url))
+  })
+
+  it('never leaves a cited publication without a link when the record has one', () => {
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0].date'), ONE)
+    assert.ok(out.includes(ONE[0].canonical_url), 'a sub-path-only citation must still reach the reader with a link')
+  })
 })
 
 describe('AC-FN-4: whole-record citations carry the canonical URL in the prose block', () => {
-  it('appends the profile record canonical_url to the prose Sources line', () => {
-    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0]'), ONE)
-    assert.ok(out.includes(ONE[0].canonical_url), `got ${out}`)
+  it('appends the profile record canonical_url to the prose Sources line, separated by an em dash', () => {
+    assert.equal(
+      normalizePublicationSourceLines(sourcesBlock('[1] publications[0]'), ONE),
+      sourcesBlock(`[1] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`),
+    )
   })
 
   it('omits the URL rather than emitting a dangling separator when the record has none', () => {
@@ -250,6 +291,111 @@ describe('regression: the prose rewrite preserves surrounding whitespace', () =>
     const head = 'A claim [1]. Another sentence mentioning publications in passing.'
     const answer = [head, '', 'Sources:', '[1] publications[0]'].join('\n')
     assert.ok(normalizePublicationSourceLines(answer, ONE).startsWith(head))
+  })
+})
+
+// ── OCR-review-sourced regressions (Phase 4.4, #177) ─────
+// Each of these survived the previous suite: the reviewer mutation-tested the
+// implementation and these mutations went undetected. They are the gaps, not
+// the coverage.
+describe('regression: only lines inside the Sources block are rewritten', () => {
+  it('leaves a citation-shaped line in the answer body alone when a real block follows', () => {
+    const answer = [
+      'Some prose.',
+      '[1] publications[0]',
+      'More prose.',
+      '',
+      'Sources:',
+      '[1] publications[0]',
+    ].join('\n')
+    const out = normalizePublicationSourceLines(answer, ONE)
+    const lines = out.split('\n')
+    assert.equal(lines[1], '[1] publications[0]', 'the body line must be byte-identical')
+    assert.equal(lines[5], `[1] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`)
+  })
+
+  it('rewrites every publication line in the block, not just the first', () => {
+    const answer = sourcesBlock('[1] publications[0]', '[2] publications[1]')
+    const out = normalizePublicationSourceLines(answer, TWO)
+    assert.ok(out.includes(`[1] publications.${TWO[0].slug}`))
+    assert.ok(out.includes(`[2] publications.${TWO[1].slug}`))
+  })
+})
+
+describe('regression: a short or generic title must not resolve by prose mention', () => {
+  // `upsert_publication` takes an unvalidated string title, so a piece can be
+  // titled "AI" — which a bare substring test finds inside "maintain".
+  const SHORT_TITLE = [pub('short-one', { title: 'AI' }), pub('other-one', { title: 'Something Else Entirely' })]
+
+  it('does not match a two-letter title inside an ordinary word', () => {
+    assert.deepEqual(
+      normalizePublicationSourcePaths(['publications'], 'The candidate helps maintain good habits.', SHORT_TITLE),
+      ['publications'],
+    )
+  })
+
+  it('does not match a long title inside a longer word', () => {
+    const embedded = [pub('a-piece', { title: 'Evaluation' }), pub('b-piece')]
+    assert.deepEqual(
+      normalizePublicationSourcePaths(['publications'], 'Work on Evaluations and benchmarks.', embedded),
+      ['publications'],
+    )
+  })
+
+  it('still matches a distinctive title regardless of case', () => {
+    const [out] = normalizePublicationSourcePaths(['publications'], `Read ${TWO[1].title.toUpperCase()} today.`, TWO)
+    assert.equal(out, `publications.${TWO[1].slug}`)
+  })
+
+  it('still resolves by canonical_url when the title is too short to match', () => {
+    const [out] = normalizePublicationSourcePaths(['publications'], `See ${SHORT_TITLE[0].canonical_url} for it.`, SHORT_TITLE)
+    assert.equal(out, 'publications.short-one')
+  })
+})
+
+describe('regression: an index the prose contradicts is refused', () => {
+  // A model may number `publications[1]` to mirror its own `[1]` marker. With
+  // one publication that is harmlessly out of range; with two it would cite
+  // the wrong piece.
+  it('refuses an index pointing at a piece the answer does not name', () => {
+    const answer = `The candidate wrote ${TWO[0].title} last spring.`
+    assert.deepEqual(normalizePublicationSourcePaths(['publications[1]'], answer, TWO), ['publications[1]'])
+  })
+
+  it('accepts the index when the answer names that same piece', () => {
+    const answer = `The candidate wrote ${TWO[1].title} last spring.`
+    assert.deepEqual(normalizePublicationSourcePaths(['publications[1]'], answer, TWO), [`publications.${TWO[1].slug}`])
+  })
+
+  it('accepts the index when the answer names nothing at all', () => {
+    assert.deepEqual(normalizePublicationSourcePaths(['publications[1]'], 'A vague answer.', TWO), [`publications.${TWO[1].slug}`])
+  })
+})
+
+describe('regression: the two-pass composition query.ts relies on', () => {
+  // query.ts runs the prose pass first and feeds its output to the array pass,
+  // so a bare `publications` on a multi-publication profile resolves to the
+  // piece the answer's own Sources block cited. Swapping the two calls
+  // regresses this; nothing else pins it.
+  it('resolves a bare sources entry against the prose pass output', () => {
+    const answer = sourcesBlock('[1] publications[1]')
+    const normalizedAnswer = normalizePublicationSourceLines(answer, TWO)
+    assert.deepEqual(
+      normalizePublicationSourcePaths(['publications'], normalizedAnswer, TWO),
+      [`publications.${TWO[1].slug}`],
+    )
+  })
+
+  it('is ambiguous — and so refuses — when the prose cited both pieces', () => {
+    const answer = sourcesBlock('[1] publications[0]', '[2] publications[1]')
+    const normalizedAnswer = normalizePublicationSourceLines(answer, TWO)
+    assert.deepEqual(normalizePublicationSourcePaths(['publications'], normalizedAnswer, TWO), ['publications'])
+  })
+
+  it('reports the envelope in citation order of first appearance', () => {
+    const answer = sourcesBlock('[1] publications[1]', '[2] publications[0]')
+    const cited = citedPublications(normalizePublicationSourceLines(answer, TWO), [], TWO)
+    assert.deepEqual(cited.map((c) => c.slug), [TWO[1].slug, TWO[0].slug])
   })
 })
 
