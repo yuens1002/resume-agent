@@ -14,6 +14,7 @@ import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '..
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import { isDeclineShapedAnswer } from '../lib/decline-phrases.js'
+import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../lib/publication-citations.js'
 import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import type { QueryResponse } from '../types.js'
 
@@ -241,16 +242,27 @@ export function buildQueryPrompt(
           ),
         }
       : profile
+  // Publications ride into the prompt wholesale inside the profile JSON — no
+  // sorting, no retrieval gating (the list is small). The one adjustment: when
+  // a profile has no publications yet, drop the key entirely rather than
+  // emitting `"publications": []`, which is empty-section noise for the many
+  // forks that will never populate it. User-message-only, like the heading
+  // below — the PROMPT_VERSION-hashed system text is untouched.
+  const publicationsForPrompt = (profileForPrompt as { publications?: unknown } | undefined)?.publications
+  const finalProfileForPrompt =
+    profileForPrompt && typeof profileForPrompt === 'object' && Array.isArray(publicationsForPrompt) && publicationsForPrompt.length === 0
+      ? Object.fromEntries(Object.entries(profileForPrompt as object).filter(([key]) => key !== 'publications'))
+      : profileForPrompt
   // Name the project count explicitly in the heading — the model was
   // miscounting the raw JSON array (e.g. reporting 7 projects as "six").
   // User-message-only change (does not touch PROMPT_VERSION-hashed system text).
-  const projectsForCount = (profileForPrompt as { projects?: unknown[] } | undefined)?.projects
+  const projectsForCount = (finalProfileForPrompt as { projects?: unknown[] } | undefined)?.projects
   parts.push(
     Array.isArray(projectsForCount) && projectsForCount.length > 0
       ? `# Profile data (${projectsForCount.length} projects)`
       : '# Profile data',
   )
-  parts.push(JSON.stringify(profileForPrompt, null, 2))
+  parts.push(JSON.stringify(finalProfileForPrompt, null, 2))
   parts.push('')
   parts.push('# Question')
   parts.push(question)
@@ -361,6 +373,11 @@ export async function queryProfile(
 
   const profileUpdatedAt = (profile as { updated_at?: string }).updated_at ?? ''
 
+  // The exact array `buildQueryPrompt` stringifies below — unfiltered and
+  // unsorted, unlike `projects`. Index-form citations (`publications[0]`) are
+  // only resolvable because the model's indices address this same ordering.
+  const profilePublications = (profile as { publications?: unknown }).publications
+
   const style = args.style ?? 'cited'
 
   // Response cache check — all question types. Key covers both data dimensions
@@ -413,6 +430,8 @@ export async function queryProfile(
       sources: [],
       follow_up_suggestions: [],
       project_slugs: [],
+      // Routing short-circuit — no generated prose, so nothing is cited.
+      publications: [],
       action_intent: { tool: 'open_match_tool' },
       fit_question: false,
       contact: {
@@ -473,11 +492,22 @@ export async function queryProfile(
     if (isDeclineShapedAnswer(parsed.answer) && (parsed.sources?.length ?? 0) === 0) {
       parsed.follow_up_suggestions = []
     }
+
+    // #177: same deterministic-over-prompt-edit reasoning as the guard above,
+    // and for the same file's documented reason — the citation rule is the one
+    // that got #177 chunk 2 parked when it was edited. The model cites
+    // publications by array index (`publications[0]`) or by bare collection
+    // name, and never surfaces the canonical_url. Rewrite those into the
+    // documented `publications.<slug> — <url>` form here, where the profile
+    // record is authoritative and the transformation is testable.
+    parsed.answer = normalizePublicationSourceLines(parsed.answer, profilePublications)
+    parsed.sources = normalizePublicationSourcePaths(parsed.sources, parsed.answer, profilePublications)
   }
 
   const response: QueryResponse = {
     ...parsed,
     project_slugs: parsed.project_slugs ?? [],
+    publications: citedPublications(parsed.answer ?? '', parsed.sources, profilePublications),
     action_intent: null,
     // narrate_fit answers identically to narrate — the flag is the only
     // difference, and it's what the frontend's follow-up chip keys on (#199).

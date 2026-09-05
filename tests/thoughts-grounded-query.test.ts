@@ -205,6 +205,51 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
   })
 })
 
+// #177 chunk 2: publications ride into the prompt wholesale inside the profile
+// JSON — no sorting, no retrieval gating. The one adjustment is that an empty
+// or absent array is dropped entirely rather than emitted as `"publications": []`,
+// which would be empty-section noise for forks that never publish anything.
+describe('buildQueryPrompt — publications injection (#177)', () => {
+  const PUBLICATION = {
+    title: 'Eval-driven development for LLM products',
+    slug: 'eval-driven-development',
+    platform: 'blog',
+    canonical_url: 'https://example.test/eval-driven-development',
+    date: '2026-05-01',
+    tags: ['evals', 'llm'],
+    grounded_in: 'some-concept',
+  }
+
+  it('includes the publications array wholesale in the profile JSON', () => {
+    const prompt = buildQueryPrompt({ ...SAMPLE_PROFILE, publications: [PUBLICATION] }, [], 'What has the candidate published?')
+    assert.ok(prompt.includes('"publications"'))
+    assert.ok(prompt.includes(`"${PUBLICATION.slug}"`))
+    assert.ok(prompt.includes(`"${PUBLICATION.canonical_url}"`), 'the canonical_url must reach the model, not just the title')
+  })
+
+  it('omits the publications key entirely when the array is empty', () => {
+    const prompt = buildQueryPrompt({ ...SAMPLE_PROFILE, publications: [] }, [], 'What has the candidate published?')
+    assert.ok(!prompt.includes('"publications"'), 'an empty publications array must not appear as noise in the prompt')
+  })
+
+  it('omits the publications key entirely when the field is absent', () => {
+    const prompt = buildQueryPrompt(SAMPLE_PROFILE, [], 'What has the candidate published?')
+    assert.ok(!prompt.includes('"publications"'))
+  })
+
+  it('keeps the projects filtering behavior intact alongside publications', () => {
+    const profile = {
+      ...SAMPLE_PROFILE,
+      projects: [{ slug: 'kept-project', name: 'Kept', started: '2026-01' }],
+      publications: [PUBLICATION],
+    }
+    const prompt = buildQueryPrompt(profile, [], 'Tell me everything')
+    assert.ok(prompt.includes('"kept-project"'))
+    assert.ok(prompt.includes('"publications"'))
+    assert.ok(prompt.includes('# Profile data (1 projects)'), 'the project-count heading must still be derived from the filtered list')
+  })
+})
+
 describe('buildQueryPrompt — HIDE_FROM_PROJECTS filtering (#176)', () => {
   const PROFILE_WITH_PROJECTS = {
     contact: { name: 'Alex', email: 'alex@example.com' },
