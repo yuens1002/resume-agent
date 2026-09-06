@@ -762,17 +762,13 @@ async function handleQuery(
         // above has ended — awaiting the SDK's own promise here never settles
         // on exactly those failures and dropped this row entirely.
         //
-        // `meta.latency_ms` lands in the `llm_ms` column. On the JSON path that
-        // is the generateText span alone; here it is wall-clock for the whole
-        // request (profile fetch, thought retrieval, generation, and the
-        // client's drain), because the streaming path has no separate timer.
-        // Stated plainly rather than implied: `llm_ms` means different things
-        // by `source`.
+        // Streaming does not expose a generation-only duration. Omit
+        // meta.latency_ms rather than persisting wall-clock request/drain time
+        // in the `llm_ms` column; top-level latency_ms remains total elapsed.
         response: {
           answer: collected,
           meta: {
             model: MODEL,
-            latency_ms: Date.now() - overallStart,
             finish_reason: result.finishReason(),
           },
         },

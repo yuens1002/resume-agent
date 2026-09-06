@@ -21,7 +21,9 @@ interface LogInput {
   source: 'http' | 'mcp'
   question: string
   caller_hint?: string
-  response: Pick<QueryResponse, 'answer'> & Partial<QueryResponse>
+  response: Pick<QueryResponse, 'answer'> & Omit<Partial<QueryResponse>, 'meta'> & {
+    meta?: Partial<QueryResponse['meta']>
+  }
   latency_ms: number
   ip?: string
   user_agent?: string

@@ -139,23 +139,28 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
         // progress notifications, the final tool result, and the logged row all
         // carry `publications.<slug> — <url>` rather than the model's raw
         // `publications[0]`.
-        for await (const chunk of streamResult.textStream) {
-          collected += chunk
-          chunkIndex += 1
-          if (progressToken !== undefined) {
-            try {
-              await extra.sendNotification?.({
-                method: 'notifications/progress',
-                params: {
-                  progressToken,
-                  progress: chunkIndex,
-                  message: chunk,
-                },
-              })
-            } catch {
-              // Client may not support progress notifications — continue accumulating
+        let streamError: unknown
+        try {
+          for await (const chunk of streamResult.textStream) {
+            collected += chunk
+            chunkIndex += 1
+            if (progressToken !== undefined) {
+              try {
+                await extra.sendNotification?.({
+                  method: 'notifications/progress',
+                  params: {
+                    progressToken,
+                    progress: chunkIndex,
+                    message: chunk,
+                  },
+                })
+              } catch {
+                // Client may not support progress notifications — continue accumulating
+              }
             }
           }
+        } catch (error) {
+          streamError = error
         }
 
         void logObservedQuery({
@@ -167,12 +172,12 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
           // answer is logged as if it were complete. Read synchronously after
           // the loop — awaiting the SDK's own promise here never settled on a
           // provider error and hung this handler until the client timed out.
-          // `latency_ms` here is wall-clock, not the generation span.
+          // Streaming does not expose a generation-only duration, so omit
+          // meta.latency_ms rather than persisting wall-clock time as llm_ms.
           response: {
             answer: collected,
             meta: {
               model: MODEL,
-              latency_ms: Date.now() - start,
               finish_reason: streamResult.finishReason(),
             },
           },
@@ -181,6 +186,7 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
           user_agent: reqCtx.userAgent,
         })
 
+        if (streamError !== undefined) throw streamError
         return { content: [{ type: 'text' as const, text: collected }] }
       }
 
