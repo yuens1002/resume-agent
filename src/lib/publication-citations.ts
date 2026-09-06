@@ -71,7 +71,7 @@ const SOURCES_LINE_RE = new RegExp(
 )
 
 /** Where the prose `Sources:` block begins. Nothing above it is ever rewritten. */
-const SOURCES_BLOCK_RE = /^[ \t]*Sources:[ \t]*$/m
+const SOURCES_BLOCK_RE = /^[ \t]*(?:\*\*|__)?Sources:(?:\*\*|__)?/m
 
 interface ParsedSourcePath {
   /** Array index, when the entry used index form. */
@@ -166,11 +166,16 @@ function resolveByAnswerMention(answer: string, citable: Publication[]): Publica
  * text, and then to "there is only one publication, so it can only be that
  * one" — the common case for a profile that has just started publishing.
  */
+interface ResolvedCitation {
+  pub: Publication
+  subPath: string
+}
+
 function resolveParsedPath(
   parsed: ParsedSourcePath,
   answer: string,
   raw: unknown[],
-): Publication | null {
+): ResolvedCitation | null {
   const citable = raw.filter(isCitable)
   if (parsed.index !== undefined) {
     // Indexed against the raw array — see rule 1 in the module header. The
@@ -188,12 +193,24 @@ function resolveParsedPath(
     // contradicts.
     const named = resolveByAnswerMention(answer, citable)
     if (named !== null && named.slug !== record.slug) return null
-    return record
+    return { pub: record, subPath: parsed.subPath }
   }
   if (parsed.segment !== undefined) {
-    return citable.find((pub) => pub.slug === parsed.segment) ?? null
+    // Nothing constrains a slug to exclude `.` (`upsert_publication` takes a
+    // bare string), so `publications.a.b` is ambiguous on its face. Prefer the
+    // longest slug that actually exists: with both `a` and `a.b` present it
+    // resolves to `a.b` with no sub-path, not to `a` with sub-path `.b`.
+    const remainder = parsed.segment + parsed.subPath
+    let best: Publication | null = null
+    for (const pub of citable) {
+      if (remainder === pub.slug || remainder.startsWith(`${pub.slug}.`)) {
+        if (best === null || pub.slug.length > best.slug.length) best = pub
+      }
+    }
+    return best === null ? null : { pub: best, subPath: remainder.slice(best.slug.length) }
   }
-  return resolveByAnswerMention(answer, citable) ?? (citable.length === 1 ? citable[0] : null)
+  const bare = resolveByAnswerMention(answer, citable) ?? (citable.length === 1 ? citable[0] : null)
+  return bare === null ? null : { pub: bare, subPath: parsed.subPath }
 }
 
 /** Canonical citation path — no URL. Used everywhere a machine reads the value. */
@@ -248,8 +265,8 @@ export function normalizePublicationSourceLines(answer: string, publications: un
       if (parsed === null) return line
       const resolved = resolveParsedPath(parsed, answer, raw)
       if (resolved === null) return line
-      const rewrittenLine = `${marker}${proseSourceLine(resolved, parsed.subPath, linked.has(resolved.slug))}${trailing}`
-      linked.add(resolved.slug)
+      const rewrittenLine = `${marker}${proseSourceLine(resolved.pub, resolved.subPath, linked.has(resolved.pub.slug))}${trailing}`
+      linked.add(resolved.pub.slug)
       return rewrittenLine
     },
   )
@@ -286,15 +303,18 @@ export function normalizePublicationSourcePaths(
   const out: string[] = []
   for (const entry of sources) {
     const parsed = typeof entry === 'string' ? parsePublicationSourcePath(entry) : null
-    if (parsed === null) {
+    const resolved = parsed === null ? null : resolveParsedPath(parsed, answer, raw)
+    if (resolved === null) {
+      // Not a publication path, or one this function declined to resolve.
+      // Either way it is returned exactly as the model wrote it — including
+      // any duplicates, which are the model's business and not ours to tidy.
       out.push(entry)
       continue
     }
-    const resolved = resolveParsedPath(parsed, answer, raw)
-    const path = resolved === null ? entry : canonicalPath(resolved, parsed.subPath)
-    // Dedupe only among publication entries — two index forms collapsing onto
-    // one slug is this function's own doing and must not leave a duplicate.
-    // Duplicates elsewhere in the array are the model's business, not ours.
+    // Dedupe only among entries this function rewrote: two index forms
+    // collapsing onto one slug is its own doing and must not leave a
+    // duplicate behind.
+    const path = canonicalPath(resolved.pub, resolved.subPath)
     if (seen.has(path)) continue
     seen.add(path)
     out.push(path)
@@ -341,14 +361,19 @@ export function citedPublications(
     const parsed = parsePublicationSourcePath(path)
     if (parsed === null) continue
     const resolved = resolveParsedPath(parsed, answerText, raw)
-    if (resolved !== null && !cited.has(resolved.slug)) cited.set(resolved.slug, resolved)
+    if (resolved !== null && !cited.has(resolved.pub.slug)) cited.set(resolved.pub.slug, resolved.pub)
   }
 
+  // `isCitable` validates only `slug` — the identity key. The rest of the
+  // record is owner-supplied JSONB and can be any shape, so coerce rather than
+  // forward a number or an object into a field that this type and the OpenAPI
+  // schema both declare as a string.
+  const str = (value: unknown): string => (typeof value === 'string' ? value : '')
   return [...cited.values()].map((pub) => ({
     slug: pub.slug,
-    title: pub.title ?? '',
-    platform: pub.platform ?? '',
-    canonical_url: pub.canonical_url ?? '',
-    date: pub.date ?? '',
+    title: str(pub.title),
+    platform: str(pub.platform),
+    canonical_url: str(pub.canonical_url),
+    date: str(pub.date),
   }))
 }

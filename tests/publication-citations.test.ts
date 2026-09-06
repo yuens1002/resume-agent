@@ -399,6 +399,94 @@ describe('regression: the two-pass composition query.ts relies on', () => {
   })
 })
 
+// ── Low-severity findings from Phase 4.4, fixed at owner request ──
+describe('a slug containing a dot is not mis-split into slug + sub-path', () => {
+  // Nothing constrains a slug to exclude `.` — upsert_publication takes a bare
+  // string — so `publications.a.b` is ambiguous until resolution settles it.
+  const NESTED = [pub('a'), pub('a.b')]
+
+  // No test asserts the normalized *path string* for the nested case: slug `a`
+  // + sub-path `.b` and slug `a.b` + no sub-path both render as
+  // `publications.a.b`, so a string assertion passes either way. The
+  // difference is only observable in which record was resolved — which is what
+  // the two tests below check.
+  it('reports the longest-matching record in the envelope, not its shorter prefix', () => {
+    const cited = citedPublications('', ['publications.a.b'], NESTED)
+    assert.deepEqual(cited.map((c) => c.slug), ['a.b'])
+  })
+
+  it('still treats a trailing segment as a sub-path when no longer slug exists', () => {
+    assert.deepEqual(
+      normalizePublicationSourcePaths(['publications.a.grounded_in'], '', [pub('a')]),
+      ['publications.a.grounded_in'],
+    )
+  })
+
+  it('links the longest-matching record in the prose block', () => {
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications.a.b'), NESTED)
+    assert.equal(out, sourcesBlock('[1] publications.a.b — ' + NESTED[1].canonical_url))
+  })
+})
+
+describe('non-string record fields are coerced, not forwarded', () => {
+  // isCitable validates only `slug`; the rest is owner-supplied JSONB.
+  const MALFORMED = [{ slug: 'weird', title: 42, platform: null, canonical_url: { u: 1 }, date: [] }] as unknown
+
+  it('emits strings for every declared-string field', () => {
+    const [citation] = citedPublications('', ['publications[0]'], MALFORMED)
+    assert.equal(typeof citation.title, 'string')
+    assert.equal(typeof citation.platform, 'string')
+    assert.equal(typeof citation.canonical_url, 'string')
+    assert.equal(typeof citation.date, 'string')
+  })
+
+  it('still identifies the record by its valid slug', () => {
+    assert.deepEqual(citedPublications('', ['publications[0]'], MALFORMED).map((c) => c.slug), ['weird'])
+  })
+
+  it('emits no dangling separator when canonical_url is not a string', () => {
+    const out = normalizePublicationSourceLines(sourcesBlock('[1] publications[0]'), MALFORMED)
+    assert.equal(out, sourcesBlock('[1] publications.weird'))
+  })
+})
+
+describe('the Sources heading is as tolerant as its siblings', () => {
+  // parse-json.ts and eval-query-answer.ts both accept looser headings; a
+  // stricter pattern here would silently no-op and leave the raw form.
+  it('normalizes under a bold heading', () => {
+    const answer = ['Claim [1].', '', '**Sources:**', '[1] publications[0]'].join('\n')
+    assert.ok(normalizePublicationSourceLines(answer, ONE).includes('publications.' + ONE[0].slug))
+  })
+
+  // Boundary, asserted deliberately rather than left to chance: a citation
+  // sharing the heading's line is a no-op. parse-json.ts's salvage requires
+  // `Sources:` followed by a newline, and RULE_CITATION says one source per
+  // line, so nothing else in this repo parses that shape either — supporting
+  // it only here would make this module the odd one out.
+  it('leaves a citation sharing the heading line alone, matching parse-json.ts', () => {
+    const answer = ['Claim [1].', '', 'Sources: [1] publications[0]'].join('\n')
+    assert.equal(normalizePublicationSourceLines(answer, ONE), answer)
+  })
+
+  it('still rewrites nothing when there is no heading at all', () => {
+    const answer = ['Claim [1].', '[1] publications[0]'].join('\n')
+    assert.equal(normalizePublicationSourceLines(answer, ONE), answer)
+  })
+})
+
+describe('duplicates are collapsed only among entries this module rewrote', () => {
+  it('collapses two forms that normalize onto the same path', () => {
+    assert.deepEqual(normalizePublicationSourcePaths(['publications[0]', 'publications'], '', ONE), [
+      'publications.' + ONE[0].slug,
+    ])
+  })
+
+  it('leaves duplicate unresolved publication entries exactly as written', () => {
+    const input = ['publications[9]', 'publications[9]']
+    assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), input)
+  })
+})
+
 // ── AC-FN-10: sources array contract ─────────────────────
 describe('AC-FN-10: the JSON sources array is normalized in both styles', () => {
   it('preserves non-publication paths in their original order', () => {

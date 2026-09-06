@@ -6,7 +6,7 @@
 
 ## Verdict
 
-**Minor issues — approve-able.** All 25 ACs pass, `PROMPT_VERSION` is byte-identical to `main`, and the feature works live in both styles. Two documentation omissions found by this pass (CHANGELOG and README) were fixed in it. The remaining items are low-severity findings deliberately left unfixed, listed below for your call, plus one scope note about the streaming path that is documented rather than solved.
+**Minor issues — approve-able.** All 25 ACs pass, `PROMPT_VERSION` is byte-identical to `main`, and the feature works live in both styles. Two documentation omissions found by this pass (CHANGELOG and README) were fixed in it. The four low-severity findings this pass deferred were subsequently approved and fixed (AC-FN-22..25). What remains is cross-repo: the streaming path (#251) and the frontend render (resume-agent-web#34).
 
 The headline: this change did **not** need the prompt edit the parked branch attempted. Publications already reached the model; only the citation *form* was wrong. Fixing it deterministically removed the entire attention-displacement risk that caused the July park.
 
@@ -94,7 +94,7 @@ This repo has no `.claude/oss-hygiene-rules.json`; nothing found here warrants c
    - **The source-pill text changes on deploy of *this* branch, implemented or not.** `SourcePills` renders each `sources[]` entry verbatim, so a pill reading `publications` becomes `publications.<slug>` — long, unlinked, unstyled. That is a visitor-visible consequence of this change arriving in a different repo, so the two want to ship close together.
 
    Checked and clear: `WorkResult`'s `startsWith('projects.')` fallback cannot mis-resolve `publications.` entries into project cards.
-3. **Low-severity findings left unfixed** (from Phase 4.4, your call): a slug containing a `.` is mis-split into slug + sub-path; non-string `title`/`platform`/`date` on a malformed-but-citable record pass through into fields typed `string`; `SOURCES_BLOCK_RE` is stricter than the sibling regexes in `parse-json.ts` and `eval-query-answer.ts`, so a `**Sources:**` heading is silently a no-op; unresolved duplicate publication entries are deduped, which the code comment doesn't describe. None affects the live profile.
+3. **Low-severity findings — all four fixed** (owner approved, post-4.4; see AC-FN-22..25). A slug containing `.` now longest-matches against real slugs rather than splitting at the first dot; non-string record fields are coerced instead of forwarded into fields the type and OpenAPI schema declare as strings; the `Sources:` heading now accepts a bold variant, matching the sibling checks in `parse-json.ts` and `eval-query-answer.ts`; and dedupe applies only to entries this module rewrote, matching what its comment always claimed. One boundary was asserted rather than closed: a citation sharing the heading's line stays a no-op, because `parse-json.ts` requires `Sources:` + newline and RULE_CITATION mandates one source per line — supporting it only here would make this module the sole component in the repo that parses that shape.
 4. **Consider validating `slug` and `title` at `upsert_publication`.** Two of the three defects fixed in this branch (title floor, slug grammar) exist because `src/routes/mcp.ts:30` accepts a bare `z.string()`. Constraining at the write boundary would let the read boundary relax.
 
 ## Inputs for /retro

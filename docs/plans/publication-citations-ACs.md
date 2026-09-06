@@ -82,6 +82,21 @@ targeted mutations now fail (sub-path guard, Sources-block anchoring, the
 
 Gate 1: AC-FN-19/20 reference D1, AC-FN-21 references D1 and D2 — all real deliverables. Gate 2: fixtures are invented (`short-one`/`AI`, `a-piece`/`Evaluation`, `alpha-piece`/`beta-piece`); none appears in seed data or the live profile.
 
+## Low-severity findings, fixed at owner request (post-4.4)
+
+The four low-severity findings `/review` deferred were approved for fixing rather
+than deferred to a follow-up. Each is pinned by at least one test that fails
+against the pre-fix implementation (verified: 5 fail on the reverted file).
+
+| ID | Plan ref | Role | Acceptance criterion | Pass (invariant) | Agent | QC | Reviewer |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| AC-FN-22 | D1 | backend-architect | A slug containing `.` is not mis-split | With slugs `a` and `a.b` both present, `publications.a.b` resolves to the record `a.b` with no sub-path — not to `a` with sub-path `.b`. A trailing segment is still treated as a sub-path when no longer slug exists | n/a — post-4.4 | PASS — 3 tests; the string form is identical either way, so the assertions are on which record resolved | |
+| AC-FN-23 | D1 | backend-architect | Non-string record fields are coerced, not forwarded | Every field of a `PublicationCitation` is a string even when the profile record carries a number, null, object, or array there; the record is still identified by its valid slug, and a non-string `canonical_url` produces no dangling separator | n/a — post-4.4 | PASS — 3 tests | |
+| AC-FN-24 | D1 | backend-architect | The `Sources:` heading is as tolerant as its siblings | A bold heading (`**Sources:**`) normalizes. A citation sharing the heading's line is a deliberate no-op, matching `parse-json.ts`'s `Sources:` followed by a newline requirement and RULE_CITATION's one-source-per-line rule — asserted rather than left to chance | n/a — post-4.4 | PASS — 3 tests, including the boundary as an explicit assertion | |
+| AC-FN-25 | D1 | backend-architect | Dedupe touches only what this module rewrote | Two forms normalizing onto one path collapse; duplicate *unresolved* publication entries are returned exactly as written, matching the code comment that describes the behavior | n/a — post-4.4 | PASS — 2 tests | |
+
+Gate 1: all four reference D1. Gate 2: fixtures are invented (`a`, `a.b`, `weird`, `alpha-piece`); none appears in seed data or the live profile.
+
 ## Gate 2 — anti-drift lint
 
 No AC Pass cell pins a string literal that also lives in seed data or the live
