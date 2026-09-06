@@ -73,6 +73,25 @@ const SOURCES_LINE_RE = new RegExp(
 /** Where the prose `Sources:` block begins. Nothing above it is ever rewritten. */
 const SOURCES_BLOCK_RE = /^[ \t]*(?:\*\*|__)?Sources:(?:\*\*|__)?/m
 
+/**
+ * Every marker form SOURCES_BLOCK_RE accepts, as concrete strings.
+ *
+ * Exported so the tests iterate this instead of keeping their own hand-copied
+ * list. A second copy is a list that silently stops matching the regex: adding
+ * a form here (or to the regex) without updating the other would leave the new
+ * form exercised by nothing, and the streaming suite is the only place the
+ * underscore, tab-indented and indented-bold variants are covered at all.
+ * `AC-10` asserts each entry really does match.
+ */
+export const SOURCES_MARKER_FORMS = [
+  'Sources:',
+  '**Sources:**',
+  '__Sources:__',
+  '  Sources:',
+  '\tSources:',
+  '  **Sources:**',
+] as const
+
 interface ParsedSourcePath {
   /** Array index, when the entry used index form. */
   index?: number

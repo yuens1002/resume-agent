@@ -21,6 +21,7 @@ import {
   createStreamingSourcesNormalizer,
   normalizePublicationSourceLines,
   normalizePublicationSourcesStream,
+  SOURCES_MARKER_FORMS,
 } from '../src/lib/publication-citations.js'
 import type { Publication } from '../src/types.js'
 
@@ -153,9 +154,16 @@ describe('AC-3: the chunking invariant holds at every boundary', () => {
   })
 
   it('multi-line citation of the same publication — the URL appears once', () => {
-    assertChunkingInvariant(
-      sourcesBlock('[1] publications[0].title', '[2] publications[0].date'),
-      ONE,
+    const answer = sourcesBlock('[1] publications[0].title', '[2] publications[0].date')
+    assertChunkingInvariant(answer, ONE)
+    // The name claims a specific property, so assert it here rather than
+    // relying on parity — parity passes even if the URL is emitted on every
+    // line, since both paths would do it.
+    const streamed = runChunks([...answer], ONE)
+    assert.equal(
+      streamed.split(ONE[0].canonical_url).length - 1,
+      1,
+      'the canonical URL must appear exactly once across a multi-line citation',
     )
   })
 
@@ -193,6 +201,26 @@ describe('AC-5: a profile with no publications is an identity pass-through', () 
     assert.equal(runChunks([...answer], undefined), answer)
     assert.equal(runChunks([...answer], { not: 'an array' }), answer)
   })
+
+  it('survives an array of unusable rows without throwing or guessing', () => {
+    // A non-array short-circuits to the identity path; an ARRAY of bad rows
+    // does not — it takes the full holding path and only refuses at resolution.
+    // Different code, and previously untested on the streaming side.
+    const answer = sourcesBlock('[1] publications[0]')
+    for (const rows of [[null], [{}], [{ slug: '' }], [{ slug: 'x', canonical_url: 42 }], [undefined, null]]) {
+      assert.equal(runChunks([...answer], rows), reference(answer, rows), `rows: ${JSON.stringify(rows)}`)
+      assertChunkingInvariant(answer, rows)
+    }
+  })
+
+  it('resolves nothing when a malformed row shifts the index the model cited', () => {
+    // Module rule 1: indices resolve against the RAW array, and an unusable
+    // record at that index is refused rather than silently resolved to a
+    // neighbour. Pinned here because the streaming path reaches the resolver
+    // through a different route than the sibling suite does.
+    const answer = sourcesBlock('[1] publications[0]')
+    assert.equal(runChunks([...answer], [null, pub('beta-piece')]), answer)
+  })
 })
 
 describe('AC-6: progressive rendering is preserved for everything above the footer', () => {
@@ -216,6 +244,16 @@ describe('AC-6: progressive rendering is preserved for everything above the foot
     assert.equal(normalizer.push('The candidate '), 'The candidate ')
     assert.equal(normalizer.push('has written '), 'has written ')
   })
+
+  it('releases a lone bold delimiter followed by a letter instead of waiting', () => {
+    // PARTIAL_SOURCES_RE's docstring claims `*S` can never become `**Sources:`
+    // or `Sources:` and is therefore released immediately. Nothing pinned that,
+    // so adding `\*S` as a held prefix passed the whole suite — a silent
+    // progressive-rendering regression.
+    const normalizer = createStreamingSourcesNormalizer(ONE)
+    assert.equal(normalizer.push('x\n*S'), 'x\n*S')
+    assert.equal(normalizer.push('tar'), 'tar')
+  })
 })
 
 describe('AC-7: the bold Sources variant is recognized', () => {
@@ -238,10 +276,22 @@ describe('AC-8: nothing outside a publication source line is touched', () => {
       '[2] publications[0]',
       '[3] skills.languages   ',
     ].join('\n')
-    const streamed = runChunks([...answer], ONE)
-    assert.equal(streamed, reference(answer, ONE))
-    assert.ok(streamed.includes('[1] projects.pipeline\n'))
-    assert.ok(streamed.includes('[3] skills.languages   '))
+    // An exact literal, not `includes`: an includes-assertion still passes if
+    // the footer gained lines or trailing text, which is exactly the failure
+    // this case exists to catch. Note the preserved trailing spaces on [3] and
+    // the untouched `**Sources**` in the prose (not at a line start, so not a
+    // marker).
+    assert.equal(
+      runChunks([...answer], ONE),
+      [
+        'He shipped **Sources** for the pipeline [1], and wrote about it [2].',
+        '',
+        'Sources:',
+        '[1] projects.pipeline',
+        `[2] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`,
+        '[3] skills.languages   ',
+      ].join('\n'),
+    )
   })
 })
 
@@ -256,7 +306,21 @@ describe('AC-10: the partial-marker guard stays in sync with the block regex', (
   // The retention rule is a hand-written prefix matcher for SOURCES_BLOCK_RE.
   // These are the marker forms that regex accepts; splitting each at every
   // index is what proves no prefix of one is released early.
-  for (const marker of ['Sources:', '**Sources:**', '__Sources:__', '  Sources:', '\tSources:', '  **Sources:**']) {
+  it('every exported marker form is one SOURCES_BLOCK_RE actually accepts', () => {
+    // The list and the regex are two representations of the same thing. This
+    // is the tripwire that keeps them from drifting: extending one without the
+    // other used to leave the new form exercised by nothing.
+    for (const marker of SOURCES_MARKER_FORMS) {
+      const text = `Claim [1].\n\n${marker}\n[1] publications[0]`
+      assert.notEqual(
+        normalizePublicationSourceLines(text, ONE),
+        text,
+        `${JSON.stringify(marker)} is in SOURCES_MARKER_FORMS but the regex does not accept it`,
+      )
+    }
+  })
+
+  for (const marker of SOURCES_MARKER_FORMS) {
     it(`holds every prefix of ${JSON.stringify(marker)}`, () => {
       const text = ['Some claim [1].', '', marker, '[1] publications[0]'].join('\n')
       assertChunkingInvariant(text, ONE)
@@ -403,6 +467,99 @@ describe('AC-15: flush resolves against the whole answer, not just the held tail
       `He wrote ${TWO[1].title} [1].\n\nSources:\n[1] publications.${TWO[1].slug} — ${TWO[1].canonical_url}`,
     )
     assertChunkingInvariant(text, TWO)
+  })
+})
+
+describe('AC-16: chunk boundaries inside a surrogate pair', () => {
+  // `assertChunkingInvariant`'s per-character pass uses [...text], which splits
+  // by CODE POINT — so it can never land inside a surrogate pair, despite the
+  // helper's "every possible chunk boundary" framing. The AI SDK can hand over
+  // a chunk ending on a lone high surrogate, so split by code UNIT here.
+  const emoji = 'He shipped 🚀 and wrote 🎧 about it [1].\n\nSources:\n[1] publications[0]'
+
+  it('reassembles a pair split across chunks byte-identically', () => {
+    const expected = reference(emoji, ONE)
+    for (let i = 0; i <= emoji.length; i += 1) {
+      assert.equal(runChunks([emoji.slice(0, i), emoji.slice(i)], ONE), expected, `code-unit split at ${i}`)
+    }
+    // Explicitly the lone-high-surrogate boundary, so a failure names itself.
+    const at = emoji.indexOf('🚀') + 1
+    assert.equal(runChunks([emoji.slice(0, at), emoji.slice(at)], ONE), expected, 'split inside the surrogate pair')
+  })
+
+  it('does not corrupt astral characters in the held footer', () => {
+    const withEmojiTitle = [pub('alpha-piece', { title: 'Shipping 🚀 Agents in Production' })]
+    const answer = 'Claim [1].\n\nSources:\n[1] publications[0]'
+    assert.equal(
+      runChunks([...answer], withEmojiTitle),
+      `Claim [1].\n\nSources:\n[1] publications.alpha-piece — ${withEmojiTitle[0].canonical_url}`,
+    )
+  })
+})
+
+describe('AC-17: the adapter behaves under cancellation', () => {
+  // The HTTP path's client disconnect IS a mid-stream cancel, so this is not
+  // hypothetical: nothing previously exercised readable.cancel() while the
+  // footer was being held and flush() had yet to run.
+  //
+  // Note the shape these tests must take. A TransformStream's READABLE side
+  // defaults to highWaterMark 0, so `await writer.write(...)` does not resolve
+  // until a read pulls the chunk through. Awaiting a write before reading
+  // deadlocks — which is what the first draft of these two tests did. Real
+  // callers never hit it because `pipeThrough` drives the pull loop.
+  //
+  // Every await is raced against a deadline so a regression FAILS instead of
+  // hanging `npm run test:unit` with no indication of which test wedged.
+  const settles = async <T>(work: Promise<T>, label: string): Promise<void> => {
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} did not settle within 2s`)), 2000)
+    })
+    try {
+      // Rejection is an acceptable outcome; hanging is not.
+      await Promise.race([work.then(() => undefined, () => undefined), deadline])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  it('cancelling the readable mid-hold does not wedge the writer', async () => {
+    const transform = normalizePublicationSourcesStream(ONE)
+    const writer = transform.writable.getWriter()
+    const reader = transform.readable.getReader()
+
+    const firstWrite = writer.write('Claim [1].\n\n')
+    assert.equal((await reader.read()).value, 'Claim [1].\n\n', 'body is released before the footer arrives')
+    await settles(firstWrite, 'first write')
+
+    // Deliberately NOT awaited. With readable highWaterMark 0 the writable
+    // stays under backpressure until a read pulls, so `transform()` does not
+    // even run for this chunk — awaiting it here (instead of cancelling) is a
+    // deadlock, not a hang in the code under test. This models the real case:
+    // a chunk outstanding at the moment the client disconnects.
+    const outstanding = writer.write('Sources:\n[1] publications[0]')
+
+    await settles(reader.cancel(), 'cancel')
+    await settles(outstanding, 'write outstanding at cancel')
+    // Whether these reject or resolve is the platform's business; the contract
+    // this pins is that a disconnected client cannot leave the request pending.
+    await settles(writer.write('more'), 'write after cancel')
+    await settles(writer.close(), 'close after cancel')
+  })
+
+  it('aborting the writable settles a pending read instead of hanging', async () => {
+    const transform = normalizePublicationSourcesStream(ONE)
+    const writer = transform.writable.getWriter()
+    const reader = transform.readable.getReader()
+
+    const firstWrite = writer.write('Claim [1].\n\nSources:\n')
+    assert.equal((await reader.read()).value, 'Claim [1].\n\n', 'body released, footer held')
+    await settles(firstWrite, 'first write')
+
+    // The held footer is dropped on abort. That is correct — the response is
+    // already broken — and the point is that the reader settles.
+    await settles(writer.abort(new Error('client went away')), 'abort')
+    await settles(reader.read(), 'read after abort')
   })
 })
 

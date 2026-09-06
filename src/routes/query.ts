@@ -342,6 +342,12 @@ export interface QueryProfileArgs {
   question: string
   callerHint: string
   style?: 'cited' | 'conversational'
+  /**
+   * Cancels the underlying provider call. Only the streaming path threads this
+   * today (from the HTTP request), so an abandoned stream stops generating
+   * instead of running to completion and being billed.
+   */
+  abortSignal?: AbortSignal
 }
 
 export interface ProfileNotFoundError {
@@ -555,6 +561,20 @@ export async function queryProfile(
  */
 export interface QueryProfileStreamResult {
   textStream: ReadableStream<string>
+  /**
+   * Why generation stopped, once the stream ends — `undefined` if the SDK could
+   * not report one.
+   *
+   * Exists because `streamText` in ai@4 never rejects and never errors its
+   * stream: a failed provider call or a mid-generation error becomes an internal
+   * error part and the stream CLOSES NORMALLY, with `textStream` filtering that
+   * part out. Without this, a truncated answer is indistinguishable from a
+   * complete one on every streaming surface — the client gets a 200, and
+   * `observed_queries` stores the fragment as if it were the whole answer. The
+   * JSON path has logged `finish_reason` since #189; this gives the streaming
+   * path the same signal rather than leaving a documented blind spot.
+   */
+  finishReason: Promise<string | undefined>
 }
 
 /** Streaming variant — returns a normalized text stream for caller-controlled consumption. */
@@ -583,13 +603,31 @@ export async function queryProfileStream(
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('stream', args.style ?? 'cited', deriveCandidateName(profile), deriveCandidatePronouns(profile)),
     prompt,
+    // Lets a disconnecting client actually stop the generation. Without it the
+    // provider call runs to completion (and is billed) after the visitor has
+    // closed the tab, because `tee()` only cancels its source once BOTH
+    // branches cancel — and the fire-and-forget logging branch never does.
+    abortSignal: args.abortSignal,
+    // ai@4 swallows stream errors: they become an internal error part and the
+    // stream closes normally, so nothing throws and nothing reaches the caller.
+    // This is the only place they are observable. Same reflex as the
+    // classifyRoute incident — a silent fallback with no log looks healthy
+    // while failing every request.
+    onError: ({ error }) => {
+      console.error('[query] stream error (ai@4 closes the stream normally on these):', error)
+    },
   })
 
   // #251: the stream has no parseJSON step to hang post-processing off, so the
   // publication-citation pass runs as a transform over the token stream
   // instead. Nothing about the prompt changes — PROMPT_VERSION stays
   // byte-identical, same as #177 chunk 2.
-  return { textStream: result.textStream.pipeThrough(normalizePublicationSourcesStream(profilePublications)) }
+  return {
+    textStream: result.textStream.pipeThrough(normalizePublicationSourcesStream(profilePublications)),
+    // Never let the diagnostic itself break the response path: an aborted or
+    // failed generation can reject this, and the answer bytes are unaffected.
+    finishReason: result.finishReason.catch(() => undefined),
+  }
 }
 
 // ── HTTP wrapper ────────────────────────────────────────────
@@ -636,7 +674,12 @@ async function handleQuery(
   if (stream) {
     // Conversational mode relies on the JSON sources[] array; stream returns plain text with no
     // JSON envelope, so conversational attribution cannot be emitted. Fall back to cited.
-    const result = await queryProfileStream({ question, callerHint, style: 'cited' })
+    const result = await queryProfileStream({
+      question,
+      callerHint,
+      style: 'cited',
+      abortSignal: c.req.raw.signal,
+    })
     if ('kind' in result) {
       const { status, body } = PROFILE_ERROR_HTTP[result.kind === 'profile_not_found' ? 'not_found' : 'unavailable']
       return c.json(body, status)
@@ -665,17 +708,37 @@ async function handleQuery(
       const reader = forLogging.getReader()
       const decoder = new TextDecoder()
       let collected = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        collected += decoder.decode(value, { stream: true })
+      // A client disconnect now aborts the provider call, which errors this
+      // branch mid-read. Log what was actually produced rather than losing the
+      // row entirely — an abandoned request is exactly the kind of traffic
+      // worth being able to see.
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          collected += decoder.decode(value, { stream: true })
+        }
+        collected += decoder.decode()
+      } catch (err) {
+        collected += decoder.decode()
+        console.warn('[query] streaming ended early:', (err as Error).message)
       }
-      collected += decoder.decode()
       await logObservedQuery({
         source: 'http',
         question,
         caller_hint: callerHint,
-        response: { answer: collected },
+        // `finish_reason` is the only signal distinguishing a complete answer
+        // from one the provider cut short — ai@4 closes the stream normally
+        // either way. `latency_ms` in meta is the LLM span, which on this path
+        // is the whole request; `model` mirrors the JSON path's meta.
+        response: {
+          answer: collected,
+          meta: {
+            model: MODEL,
+            latency_ms: Date.now() - overallStart,
+            finish_reason: await result.finishReason,
+          },
+        },
         latency_ms: Date.now() - overallStart,
         ip: requestIp,
         user_agent: userAgent,

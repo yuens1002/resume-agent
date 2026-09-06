@@ -20,6 +20,7 @@ import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
+import { MODEL } from '../lib/ai.js'
 import { queryProfile, queryProfileStream } from './query.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { fetchProfile } from '../lib/profile-cache.js'
@@ -156,7 +157,17 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
           source: 'mcp',
           question,
           caller_hint: callerHint,
-          response: { answer: collected },
+          // Same reasoning as the HTTP stream path: ai@4 closes the stream
+          // normally on a provider error, so without finish_reason a truncated
+          // answer is logged as if it were complete.
+          response: {
+            answer: collected,
+            meta: {
+              model: MODEL,
+              latency_ms: Date.now() - start,
+              finish_reason: await streamResult.finishReason,
+            },
+          },
           latency_ms: Date.now() - start,
           ip: reqCtx.ip,
           user_agent: reqCtx.userAgent,
