@@ -140,6 +140,7 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
         // carry `publications.<slug> — <url>` rather than the model's raw
         // `publications[0]`.
         let streamError: unknown
+        let sawStreamError = false
         try {
           for await (const chunk of streamResult.textStream) {
             collected += chunk
@@ -160,6 +161,7 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
             }
           }
         } catch (error) {
+          sawStreamError = true
           streamError = error
         }
 
@@ -186,7 +188,7 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
           user_agent: reqCtx.userAgent,
         })
 
-        if (streamError !== undefined) throw streamError
+        if (sawStreamError) throw streamError
         return { content: [{ type: 'text' as const, text: collected }] }
       }
 

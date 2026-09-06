@@ -609,6 +609,8 @@ export async function queryProfileStream(
   // Captured from onFinish rather than read off `result.finishReason` — see
   // QueryProfileStreamResult.finishReason for why that promise is unawaitable.
   let observedFinishReason: string | undefined
+  let observedStreamError: unknown
+  let sawStreamError = false
 
   const result = streamText({
     model: getModel(),
@@ -635,6 +637,8 @@ export async function queryProfileStream(
     // An abandoned request is an expected event, not a fault: log it at warn so
     // genuine provider failures stay findable at error level.
     onError: ({ error }) => {
+      observedStreamError = error
+      sawStreamError = true
       if (args.abortSignal?.aborted) {
         console.warn('[query] stream aborted by the client before completion')
         return
@@ -648,7 +652,19 @@ export async function queryProfileStream(
   // instead. Nothing about the prompt changes — PROMPT_VERSION stays
   // byte-identical, same as #177 chunk 2.
   return {
-    textStream: result.textStream.pipeThrough(normalizePublicationSourcesStream(profilePublications)),
+    // ai@4 closes textStream normally for a pre-first-step provider failure.
+    // Turn that silent close into a stream error so HTTP does not yield an
+    // apparently successful empty response and MCP returns an error result.
+    textStream: result.textStream
+      .pipeThrough(normalizePublicationSourcesStream(profilePublications))
+      .pipeThrough(new TransformStream({
+        transform(chunk, controller) {
+          controller.enqueue(chunk)
+        },
+        flush(controller) {
+          if (sawStreamError) controller.error(observedStreamError)
+        },
+      })),
     // `aborted` distinguishes an abandoned request from "the SDK reported
     // nothing" — both would otherwise land as a null finish_reason and be
     // indistinguishable in the observed-query log.
