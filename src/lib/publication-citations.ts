@@ -285,24 +285,33 @@ export function normalizePublicationSourceLines(answer: string, publications: un
  * the envelope — the suffixed path stopped matching the path grammar, so
  * nothing downstream could resolve it.)
  *
- * Everything that is not a publication path is passed through untouched, in
- * order, including entries the model returned as non-strings — this function
- * normalizes citations, it is not a place to quietly start validating an
- * unrelated public API field.
+ * Everything that is not a publication path is passed through untouched and in
+ * order. This function normalizes citations; it does not reorder, dedupe, or
+ * otherwise reinterpret entries it did not rewrite — those are the model's,
+ * and tidying them here would be an unscoped change to a public API field.
+ *
+ * The one thing it does enforce is the field's own declared type. `sources` is
+ * `string[]` in `QueryResponse` and an array of strings in the OpenAPI schema,
+ * but it arrives from `parseJSON` with no runtime validation, so a model that
+ * emits `null` or a number puts a value there that the contract says cannot
+ * exist — and `eval-query-answer.ts` calls `.toLowerCase()` on every entry.
+ * Non-strings are dropped and a non-array becomes `[]`. That is honoring the
+ * declared contract, not inventing semantics for it.
  */
 export function normalizePublicationSourcePaths(
   sources: string[],
   answer: string,
   publications: unknown,
 ): string[] {
-  if (!Array.isArray(sources)) return sources
+  if (!Array.isArray(sources)) return []
+  const strings = sources.filter((entry): entry is string => typeof entry === 'string')
   const raw = rawPublications(publications)
-  if (raw.length === 0) return sources
+  if (raw.length === 0) return strings
 
   const seen = new Set<string>()
   const out: string[] = []
-  for (const entry of sources) {
-    const parsed = typeof entry === 'string' ? parsePublicationSourcePath(entry) : null
+  for (const entry of strings) {
+    const parsed = parsePublicationSourcePath(entry)
     const resolved = parsed === null ? null : resolveParsedPath(parsed, answer, raw)
     if (resolved === null) {
       // Not a publication path, or one this function declined to resolve.

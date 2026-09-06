@@ -60,7 +60,7 @@ the reverted file — 13/13 fail).
 | AC-FN-15 | D1 | backend-architect | An index never slides onto a neighbouring record | With a malformed record at position i, `publications[i]` resolves to nothing and is left unchanged — never to the record that would occupy position i after filtering. A later index still resolves to the record actually at that position | n/a — added after the verification pass | PASS — 3 tests, all fail against the previous implementation | |
 | AC-FN-16 | D1 | backend-architect | The word "publications" in prose is not a citation | An ordinary sentence containing the word populates no envelope entry and rewrites no line; only `sources` entries and `[N] <path>` lines inside the `Sources:` block are treated as citations | n/a — added after the verification pass | PASS — 3 tests, all fail against the previous implementation | |
 | AC-FN-17 | D1 | backend-architect | The prose rewrite preserves surrounding whitespace | Blank lines after the Sources block, a trailing newline, and every character above the `Sources:` line survive normalization byte-identical | n/a — added after the verification pass | PASS — 3 tests, all fail against the previous implementation | |
-| AC-FN-18 | D1/D2 | backend-architect | `sources` is not quietly revalidated | Non-publication entries — including duplicates and non-strings — pass through untouched and in order; a non-array `sources` is returned as-is; an array is returned unchanged when the profile has no publications | n/a — added after the verification pass | PASS — 4 tests, all fail against the previous implementation | |
+| AC-FN-18 | D1/D2 | backend-architect | `sources` keeps the model's semantics but honors its declared type | Non-publication entries, including duplicates, pass through untouched and in order — no reordering, no deduping of entries this module did not rewrite. The declared `string[]` contract is enforced: non-string entries are dropped and a non-array becomes `[]`, since `eval-query-answer.ts` calls `.toLowerCase()` on every entry | n/a — added after the verification pass | PASS — 4 tests, all fail against the previous implementation | |
 
 Gate 1 coverage for the new rows: all four reference D1 (AC-FN-18 also D2), both real deliverables. Gate 2: their fixtures are the same invented `alpha-piece`/`beta-piece` records, plus a slug-less `{ title: 'legacy row, no slug' }` — none appear in seed data or the live profile.
 
@@ -96,6 +96,29 @@ against the pre-fix implementation (verified: 5 fail on the reverted file).
 | AC-FN-25 | D1 | backend-architect | Dedupe touches only what this module rewrote | Two forms normalizing onto one path collapse; duplicate *unresolved* publication entries are returned exactly as written, matching the code comment that describes the behavior | n/a — post-4.4 | PASS — 2 tests | |
 
 Gate 1: all four reference D1. Gate 2: fixtures are invented (`a`, `a.b`, `weird`, `alpha-piece`); none appears in seed data or the live profile.
+
+## Copilot review (Phase 6)
+
+Copilot flagged one real contract violation, and it **contradicted** a Phase 4.4
+finding — worth recording, because resolving it required deciding which reviewer
+was right rather than applying both.
+
+- **Phase 4.4 said:** don't quietly revalidate `sources`; passing non-strings
+  through is preserving the model's output, and filtering them is an unscoped
+  change to a public API field.
+- **Copilot said:** `sources` is declared `string[]` in `QueryResponse` and in
+  the OpenAPI schema, and `eval-query-answer.ts:181` calls `.toLowerCase()` on
+  every entry — so a forwarded `null` crashes a real consumer.
+
+**Resolution:** Copilot is right, and the two are reconcilable. Enforcing a type
+the contract already declares is not the same as inventing semantics for the
+field. The function now drops non-string entries and returns `[]` for a
+non-array, while still refusing to reorder or dedupe anything it did not
+rewrite. AC-FN-18 is restated above to say exactly that.
+
+Worth noting the hazard is pre-existing, not introduced here — on `main`,
+`parsed.sources` reaches the response straight from `parseJSON` with no
+validation at all. This module is simply the first code to own that field.
 
 ## Gate 2 — anti-drift lint
 

@@ -227,9 +227,12 @@ describe('AC-FN-8: malformed publication records never throw', () => {
     }
   })
 
-  it('returns a non-array sources field unchanged rather than inventing one', () => {
-    assert.equal(normalizePublicationSourcePaths(undefined as unknown as string[], '', ONE), undefined)
-    assert.equal(normalizePublicationSourcePaths('publications' as unknown as string[], '', ONE), 'publications')
+  // `sources` is declared `string[]` on QueryResponse and in the OpenAPI
+  // schema, but reaches here unvalidated from parseJSON. Enforce the declared
+  // type — eval-query-answer.ts calls .toLowerCase() on every entry.
+  it('returns a real string[] when the model emitted something else entirely', () => {
+    assert.deepEqual(normalizePublicationSourcePaths(undefined as unknown as string[], '', ONE), [])
+    assert.deepEqual(normalizePublicationSourcePaths('publications' as unknown as string[], '', ONE), [])
   })
 })
 
@@ -504,9 +507,16 @@ describe('AC-FN-10: the JSON sources array is normalized in both styles', () => 
     assert.equal(out.length, 1)
   })
 
-  it('passes non-string entries through untouched instead of quietly validating an unrelated field', () => {
+  it('drops non-string entries, which the declared string[] contract says cannot exist', () => {
+    const input = ['experience.acme', null, 7, 'skills.a'] as unknown as string[]
+    assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), ['experience.acme', 'skills.a'])
+  })
+
+  it('every returned entry is a string, even when the profile has no publications', () => {
     const input = ['experience.acme', null, 7] as unknown as string[]
-    assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), input)
+    for (const entry of normalizePublicationSourcePaths(input, '', [])) {
+      assert.equal(typeof entry, 'string')
+    }
   })
 
   it('does not dedupe non-publication paths — duplicates there are the model’s business', () => {
@@ -514,7 +524,7 @@ describe('AC-FN-10: the JSON sources array is normalized in both styles', () => 
     assert.deepEqual(normalizePublicationSourcePaths(input, '', ONE), input)
   })
 
-  it('leaves the array untouched when the profile has no publications at all', () => {
+  it('leaves string entries untouched, in order, when the profile has no publications at all', () => {
     const input = ['skills.a', 'skills.a', 'publications[0]']
     assert.deepEqual(normalizePublicationSourcePaths(input, '', []), input)
   })
