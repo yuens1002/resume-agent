@@ -88,7 +88,12 @@ This repo has no `.claude/oss-hygiene-rules.json`; nothing found here warrants c
 ## Recommendations
 
 1. **Streaming path — filed as #251.** `GET /query?stream=true` forces `cited` style, so a streamed answer *does* carry a prose `Sources:` block — which will contain the unnormalized `publications[0]` this feature exists to fix. The `Sources:` block is a trailing footer, so the fix is available without buffering the whole response: hold back bytes from the `Sources:` line in the existing tee and normalize the tail before flushing. Out of scope here because the tee is load-bearing for `logObservedQuery`; the issue carries the approach and its caveats.
-2. **`resume-agent-web` follow-up.** The envelope field is additive and nothing breaks without it, but the visitor-facing payoff — a "read the piece" link — only lands once the frontend renders it. Worth an issue in that repo before this is called done end-to-end.
+2. **`resume-agent-web` — filed as resume-agent-web#34, and it is load-bearing, not cosmetic.** Investigating it turned up two things this report initially understated:
+
+   - **The link cannot reach a web visitor any other way.** That app sends `x-agent-type: human`, which selects conversational style — no `Sources:` block by design — and `src/lib/answer.ts` strips any trailing Sources block regardless. So the prose link this feature adds never reaches a browser visitor; the envelope is the only channel that does.
+   - **The source-pill text changes on deploy of *this* branch, implemented or not.** `SourcePills` renders each `sources[]` entry verbatim, so a pill reading `publications` becomes `publications.<slug>` — long, unlinked, unstyled. That is a visitor-visible consequence of this change arriving in a different repo, so the two want to ship close together.
+
+   Checked and clear: `WorkResult`'s `startsWith('projects.')` fallback cannot mis-resolve `publications.` entries into project cards.
 3. **Low-severity findings left unfixed** (from Phase 4.4, your call): a slug containing a `.` is mis-split into slug + sub-path; non-string `title`/`platform`/`date` on a malformed-but-citable record pass through into fields typed `string`; `SOURCES_BLOCK_RE` is stricter than the sibling regexes in `parse-json.ts` and `eval-query-answer.ts`, so a `**Sources:**` heading is silently a no-op; unresolved duplicate publication entries are deduped, which the code comment doesn't describe. None affects the live profile.
 4. **Consider validating `slug` and `title` at `upsert_publication`.** Two of the three defects fixed in this branch (title floor, slug grammar) exist because `src/routes/mcp.ts:30` accepts a bare `z.string()`. Constraining at the write boundary would let the read boundary relax.
 
