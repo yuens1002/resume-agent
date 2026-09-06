@@ -252,6 +252,71 @@ describe('AC-10: the partial-marker guard stays in sync with the block regex', (
   }
 })
 
+describe('AC-12: degenerate footers still match the non-streaming path exactly', () => {
+  // Parity is the contract, including where the non-streaming normalizer
+  // deliberately does nothing. A truncated stream is the live case worth
+  // pinning: generateWithLengthRetry does not wrap the streaming path, so a
+  // `finishReason: length` cut lands mid-footer with no retry behind it.
+  const cases: Record<string, string> = {
+    'truncated mid footer line': 'Claim [1].\n\nSources:\n[1] publications[0',
+    'truncated immediately after the marker': 'Claim [1].\n\nSources:',
+    'two Sources blocks — the first one wins, as it does off-stream':
+      'Claim [1].\n\nSources:\n[1] publications[0]\n\nSources:\n[2] publications[0]',
+    'the word Sources: opening a prose line':
+      'Sources: are listed below.\n\nSources:\n[1] publications[0]',
+    'marker at index 0': 'Sources:\n[1] publications[0]',
+    'CRLF line endings': 'Claim [1].\r\n\r\nSources:\r\n[1] publications[0]\r\n',
+  }
+
+  for (const [name, text] of Object.entries(cases)) {
+    it(name, () => {
+      assert.equal(runChunks([...text], ONE), reference(text, ONE))
+    })
+  }
+})
+
+describe('AC-13: the incremental rescan does not invent a line start', () => {
+  // The per-chunk scan is anchored to the enclosing line start rather than to
+  // `emitted`, because SOURCES_BLOCK_RE's `^` matches the start of whatever
+  // string it is handed. Slicing at `emitted` — the obvious optimization — lets
+  // prose that merely resumes with the word "Sources:" after a mid-line release
+  // look like a line-start match.
+  //
+  // Note what that does and does not break. The OUTPUT stays correct either
+  // way: flush() re-normalizes the whole accumulated text with the real regex
+  // and slices at `emitted`, so a false start earlier than the true footer
+  // still lands in the untouched head. What breaks is release timing — a false
+  // positive latches `holding` and buffers the entire rest of the answer to the
+  // end of the stream. So these assert on when text is released, not just on
+  // what comes out; a byte-equality test passes against the broken version.
+  const prose = 'He wrote about '
+  const resumes = 'Sources: are cited inline here, not in a block.'
+
+  it('keeps releasing prose that resumes with the word "Sources:" mid-line', () => {
+    const normalizer = createStreamingSourcesNormalizer(ONE)
+    assert.equal(normalizer.push(prose), prose)
+    assert.equal(
+      normalizer.push(resumes),
+      resumes,
+      'a mid-line "Sources:" is not a footer — holding here would stall the rest of the answer',
+    )
+    assert.equal(normalizer.flush(), '')
+  })
+
+  it('produces byte-identical output for that answer at any chunk boundary', () => {
+    const midLine = prose + resumes
+    assertChunkingInvariant(midLine, ONE)
+    assert.equal(runChunks([...midLine], ONE), midLine)
+  })
+
+  it('still finds a real footer that follows mid-line prose about sources', () => {
+    const text = `${prose}${resumes}\n\nSources:\n[1] publications[0]`
+    const streamed = runChunks([...text], ONE)
+    assert.equal(streamed, reference(text, ONE))
+    assert.ok(streamed.endsWith(`publications.${ONE[0].slug} — ${ONE[0].canonical_url}`))
+  })
+})
+
 describe('AC-11: the TransformStream adapter matches the synchronous core', () => {
   it('normalizes across an arbitrary chunking', async () => {
     const answer = sourcesBlock('[1] publications[0]', '[2] projects.some-project')

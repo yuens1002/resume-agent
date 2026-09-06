@@ -456,7 +456,19 @@ export function createStreamingSourcesNormalizer(publications: unknown): Streami
       full += chunk
       if (holding) return ''
 
-      const blockStart = full.search(SOURCES_BLOCK_RE)
+      // Rescan only the line `emitted` sits in, not all of `full` — the
+      // accumulated text grows with every chunk, and scanning it whole each
+      // time is quadratic in the answer length.
+      //
+      // The offset MUST be a real line start. Slicing at `emitted` itself
+      // would be faster still and is wrong: SOURCES_BLOCK_RE is `^`-anchored
+      // under `m`, and `^` matches the start of the sliced string, so a
+      // mid-line release would let prose like "…he wrote about " + "Sources:
+      // are cited inline" match a footer that is not at a line start. Anchoring
+      // to the enclosing line start keeps `^` meaning what it means in `full`.
+      const scanFrom = emitted === 0 ? 0 : full.lastIndexOf('\n', emitted - 1) + 1
+      const relativeStart = full.slice(scanFrom).search(SOURCES_BLOCK_RE)
+      const blockStart = relativeStart < 0 ? -1 : scanFrom + relativeStart
       if (blockStart >= 0) {
         holding = true
         const out = full.slice(emitted, blockStart)

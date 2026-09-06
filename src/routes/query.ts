@@ -682,9 +682,14 @@ async function handleQuery(
       console.warn('[query] background streaming log failed:', (err as Error).message)
     })
 
+    // `no-store` matches the JSON path below. A streamed answer is generated
+    // per-visitor and varies by caller hint, so an intermediary caching it
+    // would serve one visitor's answer to the next. The old
+    // `toTextStreamResponse()` never set this; constructing the response here
+    // is the first chance to make the two paths agree.
     return new Response(toClient, {
       status: 200,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
     })
   }
 
