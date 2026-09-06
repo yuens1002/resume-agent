@@ -585,6 +585,40 @@ export interface QueryProfileStreamResult {
   finishReason: () => string | undefined
 }
 
+/**
+ * Identity transform that errors the stream at flush when the SDK swallowed a
+ * failure instead of surfacing one.
+ *
+ * ai@4 closes `textStream` NORMALLY for a provider failure that happens before
+ * the first step completes — the error becomes an internal part that
+ * `textStream` filters out, and only `onError` sees it. Left alone, HTTP
+ * returns an apparently successful empty 200 and the MCP tool returns an empty
+ * success result. Erroring here instead lets each surface's existing failure
+ * path run: the HTTP response body aborts (the headers are long since flushed,
+ * so an aborted body is the only signal left) and the MCP handler's catch
+ * logs the partial output and rethrows.
+ *
+ * Reads the flags through getters rather than taking values, because they are
+ * set by `onError` after this transform is constructed.
+ *
+ * Extracted and exported so the behavior is unit-testable without a live model:
+ * it is a semantic change to what a caller observes on failure, and inlining it
+ * would have left that change asserted by nothing.
+ */
+export function failClosedOnSwallowedError(
+  sawError: () => boolean,
+  getError: () => unknown,
+): TransformStream<string, string> {
+  return new TransformStream<string, string>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk)
+    },
+    flush(controller) {
+      if (sawError()) controller.error(getError())
+    },
+  })
+}
+
 /** Streaming variant — returns a normalized text stream for caller-controlled consumption. */
 export async function queryProfileStream(
   args: QueryProfileArgs,
@@ -652,19 +686,9 @@ export async function queryProfileStream(
   // instead. Nothing about the prompt changes — PROMPT_VERSION stays
   // byte-identical, same as #177 chunk 2.
   return {
-    // ai@4 closes textStream normally for a pre-first-step provider failure.
-    // Turn that silent close into a stream error so HTTP does not yield an
-    // apparently successful empty response and MCP returns an error result.
     textStream: result.textStream
       .pipeThrough(normalizePublicationSourcesStream(profilePublications))
-      .pipeThrough(new TransformStream({
-        transform(chunk, controller) {
-          controller.enqueue(chunk)
-        },
-        flush(controller) {
-          if (sawStreamError) controller.error(observedStreamError)
-        },
-      })),
+      .pipeThrough(failClosedOnSwallowedError(() => sawStreamError, () => observedStreamError)),
     // `aborted` distinguishes an abandoned request from "the SDK reported
     // nothing" — both would otherwise land as a null finish_reason and be
     // indistinguishable in the observed-query log.

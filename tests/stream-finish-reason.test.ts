@@ -21,6 +21,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { streamText } from 'ai'
 import { MockLanguageModelV1, simulateReadableStream } from 'ai/test'
+import { failClosedOnSwallowedError } from '../src/routes/query.js'
 
 /** Resolves to `'settled'` if `promise` settles within `ms`, else `'pending'`. */
 async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<'settled' | 'pending'> {
@@ -134,5 +135,76 @@ describe('ai@4 streaming contract — why finishReason is captured via onFinish'
 
     assert.equal(await capture(okModel), 'stop')
     assert.equal(await capture(failingModel), undefined)
+  })
+})
+
+describe('failClosedOnSwallowedError — turning a silent close into a failure', () => {
+  /** Pump a string through the transform, reporting text and whether it threw. */
+  async function pump(
+    chunks: string[],
+    sawError: () => boolean,
+    getError: () => unknown,
+  ): Promise<{ text: string; threw: unknown | undefined }> {
+    const source = new ReadableStream<string>({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(c)
+        controller.close()
+      },
+    })
+    const reader = source.pipeThrough(failClosedOnSwallowedError(sawError, getError)).getReader()
+    let text = ''
+    for (;;) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) return { text, threw: undefined }
+        text += value
+      } catch (err) {
+        return { text, threw: err }
+      }
+    }
+  }
+
+  it('passes every chunk through untouched when no error was reported', async () => {
+    const { text, threw } = await pump(['a', 'b', 'c'], () => false, () => undefined)
+    assert.equal(text, 'abc')
+    assert.equal(threw, undefined, 'a clean stream must close cleanly')
+  })
+
+  it('errors at end of stream with the reported error when one was swallowed', async () => {
+    const boom = new Error('simulated provider failure')
+    const { text, threw } = await pump(['partial'], () => true, () => boom)
+    // Whatever was produced still reaches the consumer — the MCP handler logs
+    // exactly this as partial output before rethrowing.
+    assert.equal(text, 'partial')
+    assert.equal(threw, boom, 'the original error must propagate, not a substitute')
+  })
+
+  it('errors an empty stream — the pre-first-token case that looked like success', async () => {
+    // The whole point: ai@4 hands us a normally-closed EMPTY stream on a
+    // provider failure. Without this transform, HTTP returns a 200 with no body
+    // and the MCP tool returns an empty success result.
+    const boom = new Error('provider rejected before the first token')
+    const { text, threw } = await pump([], () => true, () => boom)
+    assert.equal(text, '')
+    assert.equal(threw, boom)
+  })
+
+  it('reads the flags at flush time, not at construction', async () => {
+    // onError sets them after the transform is built, so capturing values
+    // instead of getters would silently never fire.
+    let failed = false
+    let error: unknown
+    const source = new ReadableStream<string>({
+      start(controller) {
+        controller.enqueue('x')
+        // Simulate onError landing mid-stream, after construction.
+        failed = true
+        error = new Error('late')
+        controller.close()
+      },
+    })
+    const reader = source.pipeThrough(failClosedOnSwallowedError(() => failed, () => error)).getReader()
+    assert.equal((await reader.read()).value, 'x')
+    await assert.rejects(() => reader.read(), /late/)
   })
 })
