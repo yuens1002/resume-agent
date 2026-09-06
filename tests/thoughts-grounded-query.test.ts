@@ -377,6 +377,13 @@ describe('responseCacheKey — prompt_version is a load-bearing cache dimension'
     assert.equal(a, b)
   })
 
+  it('distinguishes caller hints that differ after the former 80-character cap', () => {
+    const prefix = 'human; caller context that deliberately exceeds eighty characters before project state: '
+    const a = responseCacheKey('What else?', 'cited', `${prefix}shown_projects: brew-guide`, '2026-01-01', 'v1', 'prompt-v1')
+    const b = responseCacheKey('What else?', 'cited', `${prefix}shown_projects: resume-agent`, '2026-01-01', 'v1', 'prompt-v1')
+    assert.notEqual(a, b)
+  })
+
   // Copilot review (PR #187): the original ":"-joined key format could collide
   // when a field itself contains ":" — e.g. thoughtsVersion's `error:${now}`
   // fallback, or an ISO timestamp in profileUpdatedAt. A naive shift of where

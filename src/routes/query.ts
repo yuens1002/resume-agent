@@ -74,13 +74,13 @@ async function fetchThoughtsVersion(): Promise<string> {
 }
 
 // ── Response cache ───────────────────────────────────────
-// Key: JSON-encoded tuple of [normalized(question), style, callerHint[:80], profile.updated_at, thoughts_version, prompt_version]
+// Key: JSON-encoded tuple of [normalized(question), style, callerHint hash, profile.updated_at, thoughts_version, prompt_version]
 // (JSON-encoded, not delimiter-joined — several fields can legally contain
 // a plain separator character like ":", which would risk key collisions)
 // Dimensions:
 //   - style       — cited vs conversational changes the system prompt format
-//   - callerHint  — affects tone; truncated to 80 chars to bound key size while
-//                   still separating major caller types (ATS, human, interviewer)
+//   - callerHint  — affects displayed context and shown_projects filtering;
+//                   hashed in full to retain both dimensions without unbounded keys
 //   - profile.updated_at — changes on every profile mutation
 //   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
 //   - prompt_version      — hash of the actual prompt/tool-calling source (below).
@@ -114,7 +114,7 @@ export function responseCacheKey(
   promptVersion: string,
 ): string {
   const q = question.toLowerCase().trim().replace(/\s+/g, ' ')
-  const hint = callerHint.toLowerCase().trim().slice(0, 80)
+  const hint = createHash('sha256').update(callerHint).digest('hex')
   // JSON-encode the tuple rather than joining with a delimiter (e.g. ":") —
   // several fields can legally contain that delimiter themselves
   // (callerHint, ISO timestamps in profileUpdatedAt, thoughtsVersion's
