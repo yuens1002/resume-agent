@@ -14,7 +14,7 @@ import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '..
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import { isDeclineShapedAnswer } from '../lib/decline-phrases.js'
-import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../lib/publication-citations.js'
+import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths, normalizePublicationSourcesStream } from '../lib/publication-citations.js'
 import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import type { QueryResponse } from '../types.js'
 
@@ -543,10 +543,24 @@ export async function queryProfile(
   return response
 }
 
-/** Streaming variant — returns the streamText result for caller-controlled consumption. */
+/**
+ * What the streaming variant hands back: a text stream for caller-controlled
+ * consumption, already normalized.
+ *
+ * This is deliberately narrower than the raw `streamText` handle it used to
+ * return. Normalizing here rather than at each call site is what makes #251
+ * stay fixed — HTTP `stream=true` and the public MCP `ask_candidate` tool both
+ * consume this, and a third consumer added later cannot forget a step it never
+ * has to take.
+ */
+export interface QueryProfileStreamResult {
+  textStream: ReadableStream<string>
+}
+
+/** Streaming variant — returns a normalized text stream for caller-controlled consumption. */
 export async function queryProfileStream(
   args: QueryProfileArgs,
-): Promise<ReturnType<typeof streamText> | ProfileNotFoundError | ProfileUnavailableError> {
+): Promise<QueryProfileStreamResult | ProfileNotFoundError | ProfileUnavailableError> {
   const skipThoughts = isBinaryQuestion(args.question)
   const [profileResult, thoughts] = await Promise.all([
     fetchProfile(),
@@ -559,12 +573,23 @@ export async function queryProfileStream(
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
-  return streamText({
+  // Same array `queryProfile` resolves index-form citations against, and for
+  // the same reason: unfiltered and unsorted, because those are the positions
+  // the model was shown.
+  const profilePublications = (profile as { publications?: unknown }).publications
+
+  const result = streamText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('stream', args.style ?? 'cited', deriveCandidateName(profile), deriveCandidatePronouns(profile)),
     prompt,
   })
+
+  // #251: the stream has no parseJSON step to hang post-processing off, so the
+  // publication-citation pass runs as a transform over the token stream
+  // instead. Nothing about the prompt changes — PROMPT_VERSION stays
+  // byte-identical, same as #177 chunk 2.
+  return { textStream: result.textStream.pipeThrough(normalizePublicationSourcesStream(profilePublications)) }
 }
 
 // ── HTTP wrapper ────────────────────────────────────────────
@@ -618,10 +643,18 @@ async function handleQuery(
     }
 
     // Tee the stream: forward bytes to the client, collect text for post-hoc logging.
-    const live = result as ReturnType<typeof streamText>
-    const response = live.toTextStreamResponse()
-    const original = response.body
-    if (!original) return response
+    //
+    // This replaces the AI SDK's `toTextStreamResponse()`, which is no longer
+    // reachable now that queryProfileStream returns a normalized text stream
+    // rather than the raw handle (#251). The two lines below are what that
+    // helper does — `new Response(textStream.pipeThrough(new TextEncoderStream()),
+    // { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } })`
+    // — so the wire format is unchanged.
+    //
+    // The tee sits downstream of the normalizer on purpose: logObservedQuery
+    // must record the bytes the client actually received, not the model's raw
+    // pre-normalization text.
+    const original = result.textStream.pipeThrough(new TextEncoderStream())
 
     const [toClient, forLogging] = original.tee()
 
@@ -649,7 +682,10 @@ async function handleQuery(
       console.warn('[query] background streaming log failed:', (err as Error).message)
     })
 
-    return new Response(toClient, response)
+    return new Response(toClient, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
   }
 
   const result = await queryProfile({ question, callerHint, style: effectiveStyle })

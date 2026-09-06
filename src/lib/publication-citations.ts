@@ -386,3 +386,121 @@ export function citedPublications(
     date: str(pub.date),
   }))
 }
+
+/**
+ * Prefixes that could still grow into a `SOURCES_BLOCK_RE` match.
+ *
+ * The streaming normalizer below has to decide, for the incomplete last line
+ * it is holding, whether releasing it now could split a `Sources:` marker
+ * across two chunks. Line-buffering would answer that trivially, but at the
+ * cost of the thing streaming exists for: an LLM emits paragraph-length prose
+ * with no newline in it, so "emit only complete lines" means the reader
+ * watches a blank pane and then a whole paragraph at once.
+ *
+ * So instead: release everything unless the trailing partial line still looks
+ * like the beginning of a marker. Note the bold-delimiter prefix (`*`, `_`)
+ * only matches ALONE — `*S` can never become `**Sources:` or `Sources:`, so
+ * there is nothing to wait for and it is released immediately.
+ *
+ * MUST stay in sync with SOURCES_BLOCK_RE: every prefix of every string that
+ * regex can match has to match this one. `AC-10` pins that.
+ */
+const PARTIAL_SOURCES_RE = /^[ \t]*(?:\*|_|(?:\*\*|__)?(?:S|So|Sou|Sour|Sourc|Source|Sources|Sources:)?)$/
+
+/** What `createStreamingSourcesNormalizer` hands back. */
+export interface StreamingSourcesNormalizer {
+  /** Text safe to release now — `''` while the footer is being held. */
+  push(chunk: string): string
+  /** The normalized held-back footer, released once at end of stream. */
+  flush(): string
+}
+
+/**
+ * Streaming counterpart of `normalizePublicationSourceLines`, for the
+ * `stream: true` path that has no `parseJSON` step to hook (#251).
+ *
+ * The contract, and the property the tests assert against every possible chunk
+ * boundary: for any chunking of any input, concatenating every `push()` result
+ * plus `flush()` equals `normalizePublicationSourceLines(input, publications)`.
+ * The streamed bytes and the non-streamed answer are then the same citation
+ * contract, which is the entire point of the issue.
+ *
+ * This is possible without buffering the whole response because the `Sources:`
+ * block is a *trailing footer* and `normalizePublicationSourceLines` returns
+ * everything above it byte-identical (`head + rewritten`). So the body streams
+ * through untouched and only the footer is held — and the footer is the last
+ * thing generated, so in practice the delay is a single flush at end of
+ * stream, not a loss of progressive rendering.
+ *
+ * The full accumulated text — not just the held tail — is what gets normalized
+ * at flush: `resolveParsedPath` reads the answer body to resolve a bare
+ * `publications` entry by title or URL mention, and a tail-only view would
+ * silently lose those resolutions.
+ *
+ * A profile with no publications gets an identity pass-through: nothing is
+ * ever held, so a change that cannot affect the output also cannot affect
+ * latency.
+ */
+export function createStreamingSourcesNormalizer(publications: unknown): StreamingSourcesNormalizer {
+  if (rawPublications(publications).length === 0) {
+    return { push: (chunk) => chunk, flush: () => '' }
+  }
+
+  let full = ''
+  /** Characters of `full` already released. Invariant: once holding, this is exactly the block start. */
+  let emitted = 0
+  let holding = false
+
+  return {
+    push(chunk: string): string {
+      full += chunk
+      if (holding) return ''
+
+      const blockStart = full.search(SOURCES_BLOCK_RE)
+      if (blockStart >= 0) {
+        holding = true
+        const out = full.slice(emitted, blockStart)
+        emitted = blockStart
+        return out
+      }
+
+      // Retain the trailing partial line only when it could still become a
+      // marker. `lastIndexOf('\n') + 1` is 0 when no newline has arrived yet,
+      // which is correct: SOURCES_BLOCK_RE is `^`-anchored under `m`, and
+      // start-of-string is a line start too.
+      const lineStart = full.lastIndexOf('\n') + 1
+      const safeEnd =
+        lineStart >= emitted && PARTIAL_SOURCES_RE.test(full.slice(lineStart)) ? lineStart : full.length
+      const out = full.slice(emitted, safeEnd)
+      emitted = safeEnd
+      return out
+    },
+
+    flush(): string {
+      // Never saw a footer: release whatever the retention tail held back.
+      if (!holding) return full.slice(emitted)
+      return normalizePublicationSourceLines(full, publications).slice(emitted)
+    },
+  }
+}
+
+/**
+ * `createStreamingSourcesNormalizer` as a `TransformStream`, which is the shape
+ * both stream call sites want: `queryProfileStream` pipes the AI SDK's
+ * `textStream` through it, so HTTP `/query?stream=true` and the public MCP
+ * `ask_candidate` tool are both normalized from one place rather than each
+ * remembering to do it.
+ */
+export function normalizePublicationSourcesStream(publications: unknown): TransformStream<string, string> {
+  const normalizer = createStreamingSourcesNormalizer(publications)
+  return new TransformStream<string, string>({
+    transform(chunk, controller) {
+      const out = normalizer.push(chunk)
+      if (out.length > 0) controller.enqueue(out)
+    },
+    flush(controller) {
+      const out = normalizer.flush()
+      if (out.length > 0) controller.enqueue(out)
+    },
+  })
+}

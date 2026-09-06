@@ -128,25 +128,26 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
 
         let collected = ''
         let chunkIndex = 0
-        const live = streamResult as Awaited<ReturnType<typeof queryProfileStream>>
-        // The non-error variant has a textStream AsyncIterable<string>
-        if ('textStream' in live) {
-          for await (const chunk of live.textStream) {
-            collected += chunk
-            chunkIndex += 1
-            if (progressToken !== undefined) {
-              try {
-                await extra.sendNotification?.({
-                  method: 'notifications/progress',
-                  params: {
-                    progressToken,
-                    progress: chunkIndex,
-                    message: chunk,
-                  },
-                })
-              } catch {
-                // Client may not support progress notifications — continue accumulating
-              }
+        // Chunks arrive already publication-normalized (#251) — queryProfileStream
+        // runs the citation pass as a transform over the token stream, so the
+        // progress notifications, the final tool result, and the logged row all
+        // carry `publications.<slug> — <url>` rather than the model's raw
+        // `publications[0]`.
+        for await (const chunk of streamResult.textStream) {
+          collected += chunk
+          chunkIndex += 1
+          if (progressToken !== undefined) {
+            try {
+              await extra.sendNotification?.({
+                method: 'notifications/progress',
+                params: {
+                  progressToken,
+                  progress: chunkIndex,
+                  message: chunk,
+                },
+              })
+            } catch {
+              // Client may not support progress notifications — continue accumulating
             }
           }
         }
