@@ -646,10 +646,12 @@ async function handleQuery(
     //
     // This replaces the AI SDK's `toTextStreamResponse()`, which is no longer
     // reachable now that queryProfileStream returns a normalized text stream
-    // rather than the raw handle (#251). The two lines below are what that
-    // helper does — `new Response(textStream.pipeThrough(new TextEncoderStream()),
+    // rather than the raw handle (#251). That helper is exactly
+    // `new Response(textStream.pipeThrough(new TextEncoderStream()),
     // { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } })`
-    // — so the wire format is unchanged.
+    // in ai@4.3.19, which is what the encode below and the return at the end of
+    // this branch reproduce — plus a `Cache-Control: no-store` the helper never
+    // set. So: same body framing and content type, one header added deliberately.
     //
     // The tee sits downstream of the normalizer on purpose: logObservedQuery
     // must record the bytes the client actually received, not the model's raw
