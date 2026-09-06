@@ -63,6 +63,19 @@ export interface Publication {
   signature?: EvidenceSignature
 }
 
+/**
+ * One published piece cited by a /query answer (#177). Resolved server-side
+ * from the profile record — see `src/lib/publication-citations.ts`, which
+ * imports this type rather than declaring its own copy.
+ */
+export interface PublicationCitation {
+  slug: string
+  title: string
+  platform: string
+  canonical_url: string
+  date: string
+}
+
 export interface EvidenceSignature {
   alg: 'ed25519'
   key_url: string       // URL to /.well-known/oep-public-key.json
@@ -157,6 +170,15 @@ export interface QueryResponse {
    * intent from the answer text (resume-agent-web#26).
    */
   fit_question: boolean
+  /**
+   * Published pieces this answer cites (#177), the parallel of `project_slugs`
+   * for publications. Every field is read from the profile record rather than
+   * from the model's prose — same reason `injectProjectUrls` exists on the
+   * résumé path: a URL the model retyped is a URL that can be wrong. Empty
+   * array when the answer cites no publication. Populated deterministically
+   * after generation; see `src/lib/publication-citations.ts`.
+   */
+  publications: PublicationCitation[]
   contact: Partial<Pick<Contact, 'email' | 'calendly'>>
   meta: {
     model: string

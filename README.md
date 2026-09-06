@@ -339,12 +339,15 @@ Request:
 
 Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — stream mode always uses cited style.
 
+**`publications`** lists any published pieces the answer cites, resolved server-side from the profile record rather than from the model's prose — follow `canonical_url` to read the piece. Empty when the answer cites none. In `cited` style the same citation also appears in the answer's `Sources:` block as `publications.<slug> — <canonical_url>`; in both styles the `sources[]` array carries the bare `publications.<slug>` path. Streamed responses have no JSON envelope and are not normalized.
+
 Response (default, `stream: false`):
 ```json
 {
   "answer": "...",
   "confidence": "high" | "medium" | "low",
   "sources": ["experience.company_name", "skills.languages", "observations"],
+  "publications": [{ "slug": "...", "title": "...", "platform": "...", "canonical_url": "...", "date": "..." }],
   "follow_up_suggestions": ["..."],
   "contact": { "email": "...", "calendly": "..." },
   "meta": { "model": "anthropic/claude-haiku-4.5", "latency_ms": 740 }

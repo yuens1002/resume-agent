@@ -53,6 +53,20 @@ app.get('/', (c) => {
                       confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
                       sources: { type: 'array', items: { type: 'string' } },
                       project_slugs: { type: 'array', items: { type: 'string' } },
+                      publications: {
+                        type: 'array',
+                        description: 'Published pieces this answer cites, resolved server-side from the profile record — follow canonical_url to read the piece. Empty when the answer cites none.',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            slug: { type: 'string' },
+                            title: { type: 'string' },
+                            platform: { type: 'string' },
+                            canonical_url: { type: 'string' },
+                            date: { type: 'string' },
+                          },
+                        },
+                      },
                       follow_up_suggestions: { type: 'array', items: { type: 'string' } },
                       action_intent: {
                         type: 'object',

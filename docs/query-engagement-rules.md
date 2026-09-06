@@ -99,6 +99,27 @@ If a relevant source is in the observations corpus, prefer the most specific exc
 
 The existing `sources` JSON field stays in the response envelope as a machine-readable mirror of the in-prose `Sources:` block.
 
+### Publication citations are normalized after generation, not prompted (#177)
+
+Publications reach the model inside the same profile JSON as projects, so it cites them without being told to — but not in a stable form. Live probes showed array-index paths (`publications[0]`), a bare `publications` in the conversational `sources` array, and no `canonical_url` even when the visitor asked where to read the piece.
+
+The prompt is deliberately **not** the fix. Adding a `publications.<slug>` source form to the citation rule is what got this work parked in July 2026: every wording tried displaced the overview-projects follow-up offer. Instead, `src/lib/publication-citations.ts` rewrites publication source paths server-side, after the response is parsed and before it is cached:
+
+| Model wrote | In the prose `Sources:` block | In the JSON `sources` array |
+| --- | --- | --- |
+| `publications[0]` | `publications.<slug> — <canonical_url>` | `publications.<slug>` |
+| `publications` (conversational) | n/a — conversational answers have no Sources block | `publications.<slug>` |
+| `publications[0].grounded_in` | `publications.<slug>.grounded_in`, carrying the link if this is the first line citing that piece | `publications.<slug>.grounded_in` |
+| anything unresolvable or ambiguous | left exactly as written | left exactly as written |
+
+Each cited publication's URL appears exactly once in the prose block — on the first line citing it, whether that line names the record or one of its fields — and in the envelope, which carries it as data. It is deliberately **not** glued onto the `sources` array entries: those are corpus paths, and a consumer should not have to split a path back apart to use it.
+
+Resolution never guesses. An array index is read against the profile's own publication order and refused if the answer's prose unambiguously names a different piece; a title is matched only at word boundaries and only when it is long enough to be distinctive; a bare `publications` resolves via the answer text, or via "there is only one publication so it can only be that one". Anything else is left exactly as the model wrote it.
+
+The same pass populates a `publications` array on the response envelope — the parallel of `project_slugs` — carrying `slug`, `title`, `platform`, `canonical_url`, and `date` read from the profile record rather than from the model's prose.
+
+Because this is post-processing, the citation rules above are unchanged and `PROMPT_VERSION` is unaffected. Streaming responses (`stream=true`) return plain text with no envelope and are not normalized — they still emit a `Sources:` block, so a streamed answer carries the raw `publications[0]` form. Tracked in #251.
+
 ## Output format (JSON mode only)
 
 **Every response is a single valid JSON object** with the keys below. The envelope is non-negotiable — declines, off-topic redirects, adversarial refusals, and no-data responses all go inside the same JSON shape. The route's response parser (`parseJSON` in `src/routes/query.ts`) rejects raw prose with a `parse_error`.

@@ -31,6 +31,7 @@ import {
   shouldCacheResponse,
 } from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
+import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../src/lib/publication-citations.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..')
@@ -205,6 +206,51 @@ describe('buildQueryPrompt — shown_projects filtering', () => {
   })
 })
 
+// #177 chunk 2: publications ride into the prompt wholesale inside the profile
+// JSON — no sorting, no retrieval gating. The one adjustment is that an empty
+// or absent array is dropped entirely rather than emitted as `"publications": []`,
+// which would be empty-section noise for forks that never publish anything.
+describe('buildQueryPrompt — publications injection (#177)', () => {
+  const PUBLICATION = {
+    title: 'Eval-driven development for LLM products',
+    slug: 'eval-driven-development',
+    platform: 'blog',
+    canonical_url: 'https://example.test/eval-driven-development',
+    date: '2026-05-01',
+    tags: ['evals', 'llm'],
+    grounded_in: 'some-concept',
+  }
+
+  it('includes the publications array wholesale in the profile JSON', () => {
+    const prompt = buildQueryPrompt({ ...SAMPLE_PROFILE, publications: [PUBLICATION] }, [], 'What has the candidate published?')
+    assert.ok(prompt.includes('"publications"'))
+    assert.ok(prompt.includes(`"${PUBLICATION.slug}"`))
+    assert.ok(prompt.includes(`"${PUBLICATION.canonical_url}"`), 'the canonical_url must reach the model, not just the title')
+  })
+
+  it('omits the publications key entirely when the array is empty', () => {
+    const prompt = buildQueryPrompt({ ...SAMPLE_PROFILE, publications: [] }, [], 'What has the candidate published?')
+    assert.ok(!prompt.includes('"publications"'), 'an empty publications array must not appear as noise in the prompt')
+  })
+
+  it('omits the publications key entirely when the field is absent', () => {
+    const prompt = buildQueryPrompt(SAMPLE_PROFILE, [], 'What has the candidate published?')
+    assert.ok(!prompt.includes('"publications"'))
+  })
+
+  it('keeps the projects filtering behavior intact alongside publications', () => {
+    const profile = {
+      ...SAMPLE_PROFILE,
+      projects: [{ slug: 'kept-project', name: 'Kept', started: '2026-01' }],
+      publications: [PUBLICATION],
+    }
+    const prompt = buildQueryPrompt(profile, [], 'Tell me everything')
+    assert.ok(prompt.includes('"kept-project"'))
+    assert.ok(prompt.includes('"publications"'))
+    assert.ok(prompt.includes('# Profile data (1 projects)'), 'the project-count heading must still be derived from the filtered list')
+  })
+})
+
 describe('buildQueryPrompt — HIDE_FROM_PROJECTS filtering (#176)', () => {
   const PROFILE_WITH_PROJECTS = {
     contact: { name: 'Alex', email: 'alex@example.com' },
@@ -354,10 +400,51 @@ function fakeResponse(actionIntent: { tool: string } | null) {
     project_slugs: [],
     follow_up_suggestions: [],
     action_intent: actionIntent,
+    publications: [],
     contact: {},
     meta: { model: 'test-model', latency_ms: 1234 },
   }
 }
+
+// AC-FN-14 (#177): citation normalization runs before the response is cached,
+// so a cache hit and a cache miss are indistinguishable to a caller. The
+// ordering itself lives in queryProfile (normalize -> build response ->
+// responseCacheSet); this pins the other half — that the cache stores and
+// returns the normalized citation fields verbatim rather than dropping or
+// re-deriving them, which is what would silently break the guarantee.
+describe('response cache round-trips normalized publication citations (#177)', () => {
+  const PUBLICATION = {
+    title: 'Eval-driven development for LLM products',
+    slug: 'eval-driven-development',
+    platform: 'blog',
+    canonical_url: 'https://example.test/eval-driven-development',
+    date: '2026-05-01',
+    tags: ['evals'],
+    grounded_in: 'some-concept',
+  }
+
+  it('serves the normalized form on a cache hit', () => {
+    const answer = ['A claim [1].', '', 'Sources:', '[1] publications[0]'].join('\n')
+    const normalizedAnswer = normalizePublicationSourceLines(answer, [PUBLICATION])
+    const normalizedSources = normalizePublicationSourcePaths(['publications[0]'], normalizedAnswer, [PUBLICATION])
+    const response = {
+      ...fakeResponse(null),
+      answer: normalizedAnswer,
+      sources: normalizedSources,
+      publications: citedPublications(normalizedAnswer, normalizedSources, [PUBLICATION]),
+    }
+    const args = ['unique-q-publications-177', 'cited', 'human', '2026-01-01', 'v1'] as const
+
+    responseCacheSet(...args, response)
+    const hit = responseCacheGet(...args)
+
+    assert.ok(hit, 'entry should be cached')
+    assert.equal(hit.answer, normalizedAnswer)
+    assert.deepEqual(hit.sources, [`publications.${PUBLICATION.slug}`])
+    assert.equal(hit.publications[0].canonical_url, PUBLICATION.canonical_url)
+    assert.ok(hit.answer.includes(PUBLICATION.canonical_url), 'the prose Sources line keeps its link')
+  })
+})
 
 describe('shouldCacheResponse (#188/#189)', () => {
   it('is true when action_intent is null', () => {
