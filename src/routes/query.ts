@@ -74,13 +74,24 @@ async function fetchThoughtsVersion(): Promise<string> {
 }
 
 // ── Response cache ───────────────────────────────────────
-// Key: JSON-encoded tuple of [normalized(question), style, callerHint[:80], profile.updated_at, thoughts_version, prompt_version]
+// Key: JSON-encoded tuple of [normalized(question), style, sha256(normalized(callerHint)), profile.updated_at, thoughts_version, prompt_version]
 // (JSON-encoded, not delimiter-joined — several fields can legally contain
 // a plain separator character like ":", which would risk key collisions)
 // Dimensions:
 //   - style       — cited vs conversational changes the system prompt format
-//   - callerHint  — affects tone; truncated to 80 chars to bound key size while
-//                   still separating major caller types (ATS, human, interviewer)
+//   - callerHint  — affects BOTH tone and, via `shown_projects: <slugs>`, which
+//                   projects are filtered out of the prompt. Hashed in full
+//                   (#254): it used to be truncated to 80 chars, but the hints
+//                   in CALLER_HINTS are long enough that appending the 18-char
+//                   `; shown_projects: ` prefix always pushed the slug list
+//                   past the cap — for every hint, without exception. The slug
+//                   list is the only part that varies between two follow-ups,
+//                   so it was always the part discarded, and two follow-ups
+//                   that had shown different projects always produced the same
+//                   key. Hashing bounds the key without discarding anything.
+//                   (Deliberately no hint count or length range here: those
+//                   drift. ALL_CALLER_HINTS is the source of truth, and the
+//                   #254 tests assert the property against it directly.)
 //   - profile.updated_at — changes on every profile mutation
 //   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
 //   - prompt_version      — hash of the actual prompt/tool-calling source (below).
@@ -114,7 +125,17 @@ export function responseCacheKey(
   promptVersion: string,
 ): string {
   const q = question.toLowerCase().trim().replace(/\s+/g, ' ')
-  const hint = callerHint.toLowerCase().trim().slice(0, 80)
+  // Hash the NORMALIZED hint. Only the 80-char cap was the defect (#254);
+  // hashing the raw string would additionally split "Recruiter" from
+  // "recruiter" — both reachable from caller-supplied `context` — trading a
+  // correctness bug for a hit-rate regression.
+  //
+  // Not identical normalization to `q` above, which also collapses internal
+  // whitespace. `sanitizeCallerHint` collapses whitespace before the prompt is
+  // built, so `a  b` and `a b` yield the same prompt but different keys here —
+  // a redundant cache entry, never a wrong answer, and left alone rather than
+  // widening the change.
+  const hint = createHash('sha256').update(callerHint.toLowerCase().trim()).digest('hex')
   // JSON-encode the tuple rather than joining with a delimiter (e.g. ":") —
   // several fields can legally contain that delimiter themselves
   // (callerHint, ISO timestamps in profileUpdatedAt, thoughtsVersion's
@@ -197,7 +218,13 @@ export function buildQueryPrompt(
   // hard-caps at 200 chars, and a long-enough slug list would get cut off mid-list,
   // causing partial filtering and reintroducing the duplicate-project bug this
   // exclusion exists to fix.
-  const shownSlugs = parseShownProjectSlugs(callerHint)
+  // Lowercased to match the cache key, which hashes the lowercased hint (#254).
+  // Case-sensitive comparison here left a residual instance of the very bug
+  // this fix is about: `shown_projects: Brew-Guide` and `shown_projects:
+  // brew-guide` hash to the same key but produced DIFFERENT prompts, because
+  // only the second filtered anything. Slugs are lowercase by convention, so
+  // this also makes a miscased slug from a client actually work.
+  const shownSlugs = parseShownProjectSlugs(callerHint).map((slug) => slug.toLowerCase())
   const hint = sanitizeCallerHint(callerHint)
   // The shown_projects exclusion is enforced below by removing those projects
   // from the injected profile data, so the model no longer needs to see the
@@ -237,7 +264,7 @@ export function buildQueryPrompt(
           projects: filterVisibleProjects(
             sortProjectsByRecency(
               (profile as { projects: Array<{ slug: string; started?: string; git_evidence?: { last_push_at?: string } }> }).projects,
-            ).filter((p) => !shownSlugs.includes(p.slug)),
+            ).filter((p) => !shownSlugs.includes(p.slug.toLowerCase())),
             hiddenSlugs,
           ),
         }
