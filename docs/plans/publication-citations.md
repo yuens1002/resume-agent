@@ -1,6 +1,10 @@
 # Publication citations in `/query` (#177 chunk 2)
 
-Status: planned · Branch: `feat/177-publication-citations` · Supersedes: `parked/177-chunk2-publication-citations`
+Status: implemented (2026-09-05) · Branch: `feat/177-publication-citations` · Supersedes: `parked/177-chunk2-publication-citations`
+
+> The D1 spec below is the **as-shipped** design. It differs from the plan as first
+> written in two places, both driven by live evidence during verification — see
+> "Design changes during implementation" at the end.
 
 ## Why this is not the parked branch
 
@@ -73,8 +77,7 @@ styles in scope.
 One shared resolver, three thin callers (no duplicated matching logic):
 
 ```ts
-resolveCitedPublications(answer, sources, publications): Map<string, Publication>
-normalizePublicationSourceLines(answer, publications): string   // prose Sources: block
+normalizePublicationSourceLines(answer, publications): string             // prose Sources: block
 normalizePublicationSourcePaths(sources, answer, publications): string[]  // JSON sources[]
 citedPublications(answer, sources, publications): PublicationCitation[]   // envelope
 ```
@@ -82,19 +85,24 @@ citedPublications(answer, sources, publications): PublicationCitation[]   // env
 Resolution order, most specific first — never guess:
 
 1. **Index form** (`publications[0]`, `publications[0].grounded_in`) → resolve by
-   index into the same array that was injected into the prompt. Out-of-range
-   indices resolve to nothing and the line is left untouched.
-2. **Slug form** (`publications.<slug>`) → already canonical; pass through, but
-   still eligible for URL suffixing.
-3. **Bare collection** (`publications`) → resolve by which publication the
-   answer actually mentions (title or `canonical_url` substring); if the profile
-   holds exactly one publication, use it.
+   index into the **raw** array injected into the prompt, never a filtered copy,
+   then validate the resolved record. Out-of-range indices, and indices landing
+   on a malformed record, resolve to nothing and the line is left untouched.
+   An index the answer's prose contradicts is also refused — a model may number
+   `publications[1]` to mirror its own `[1]` marker.
+2. **Slug form** (`publications.<slug>`) → already canonical; passes through.
+3. **Bare collection** (`publications`) → resolve by which publication the answer
+   actually mentions, matching `canonical_url` anywhere or a title at word
+   boundaries above a length floor; if the profile holds exactly one publication,
+   use it.
 4. **Unresolvable or ambiguous** → leave the source entry exactly as the model
    wrote it. A wrong citation is worse than an unnormalized one.
 
-Canonical output form for a whole-record citation:
-`publications.<slug> — <canonical_url>`. A sub-path citation keeps its field
-suffix and takes no URL: `publications.<slug>.grounded_in`.
+Output form differs by surface. The prose `Sources:` block, which a human reads,
+carries the link — `publications.<slug> — <canonical_url>` — emitted once per
+cited publication, on the first line citing it, whether that line names the
+record or one of its fields. The machine-readable `sources` array carries the
+bare path; the URL reaches consumers structurally, via the envelope.
 
 ### D2 — wiring
 
@@ -128,3 +136,23 @@ trailing `Sources:` line in the existing tee and normalize before flushing).
 2. `feat(query): deterministic publication citation normalization (#177 chunk 2)`
 3. `test: publication citation coverage`
 4. `docs: sync query-engagement-rules + openapi for publication citations`
+
+## Design changes during implementation
+
+Two things in the original plan did not survive contact with live output. Both
+are recorded here rather than silently rewritten, since the reasoning is the
+useful part.
+
+1. **The URL was going to be appended in the `sources` array too.** It was, at
+   first — and it broke the envelope: a path with ` — <url>` glued on stops
+   matching the path grammar, so nothing downstream could resolve it and the
+   conversational response came back with an empty `publications` array. The
+   array is a list of corpus paths; the link belongs in the envelope, as data.
+
+2. **Sub-path citations were going to take no URL**, on the reasoning that
+   `.grounded_in` names a field rather than the piece. Live probing showed the
+   model answering "where can I read it?" by citing only field sub-paths
+   (`.title`, `.date`, `.grounded_in`) and never the record as a whole — so that
+   rule left the reader with no link at all, defeating the issue's entire point.
+   The contract is now once per publication, on its first line, whatever shape
+   that line has.
