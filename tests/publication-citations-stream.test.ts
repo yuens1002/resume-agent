@@ -68,22 +68,33 @@ function assertChunkingInvariant(text: string, publications: unknown): void {
   assert.equal(runChunks([...text], publications), expected, 'one chunk per character')
 }
 
-/** Pump the TransformStream adapter, which is what the two route call sites actually use. */
-async function runTransform(chunks: string[], publications: unknown): Promise<string> {
+/**
+ * Pump the TransformStream adapter, which is what the two route call sites
+ * actually use. Returns the emitted chunks as well as the joined text: the
+ * joined text alone cannot see chunk boundaries, and the boundaries are
+ * load-bearing downstream — `src/routes/public-mcp.ts` sends one
+ * `notifications/progress` per chunk, so an empty enqueue becomes an empty
+ * progress message and inflates the progress counter.
+ */
+async function runTransform(
+  chunks: string[],
+  publications: unknown,
+): Promise<{ text: string; chunks: string[] }> {
   const transform = normalizePublicationSourcesStream(publications)
   const collecting = (async () => {
     const reader = transform.readable.getReader()
-    let out = ''
+    const out: string[] = []
     for (;;) {
       const { done, value } = await reader.read()
       if (done) return out
-      out += value
+      out.push(value)
     }
   })()
   const writer = transform.writable.getWriter()
   for (const chunk of chunks) await writer.write(chunk)
   await writer.close()
-  return collecting
+  const emitted = await collecting
+  return { text: emitted.join(''), chunks: emitted }
 }
 
 describe('AC-1: a whole answer in one chunk matches the non-streaming normalizer', () => {
@@ -247,7 +258,19 @@ describe('AC-10: the partial-marker guard stays in sync with the block regex', (
   // index is what proves no prefix of one is released early.
   for (const marker of ['Sources:', '**Sources:**', '__Sources:__', '  Sources:', '\tSources:', '  **Sources:**']) {
     it(`holds every prefix of ${JSON.stringify(marker)}`, () => {
-      assertChunkingInvariant(['Some claim [1].', '', marker, '[1] publications[0]'].join('\n'), ONE)
+      const text = ['Some claim [1].', '', marker, '[1] publications[0]'].join('\n')
+      assertChunkingInvariant(text, ONE)
+      // Parity alone is vacuous in one direction: if SOURCES_BLOCK_RE stopped
+      // accepting this marker form, BOTH paths would see "no footer", agree
+      // with each other, and stay green. Assert the rewrite actually happened,
+      // so a regression in the shared regex fails here too — this file is the
+      // only place `__Sources:__`, `\tSources:` and `  **Sources:**` are pinned
+      // at all.
+      assert.equal(
+        runChunks([...text], ONE),
+        ['Some claim [1].', '', marker, `[1] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`].join('\n'),
+        'marker form must be recognized and its citation rewritten',
+      )
     })
   }
 })
@@ -260,7 +283,12 @@ describe('AC-12: degenerate footers still match the non-streaming path exactly',
   const cases: Record<string, string> = {
     'truncated mid footer line': 'Claim [1].\n\nSources:\n[1] publications[0',
     'truncated immediately after the marker': 'Claim [1].\n\nSources:',
-    'two Sources blocks — the first one wins, as it does off-stream':
+    // NOT "the first block wins": the head is cut at the FIRST marker and the
+    // global line regex then rewrites citations in both blocks. Only the URL
+    // is first-block-only, via the per-publication link dedupe. Probed, not
+    // assumed — the earlier name here asserted the opposite and nothing caught
+    // it, because the body only checks parity with the non-streaming path.
+    'two Sources blocks — both are rewritten, the URL is emitted once':
       'Claim [1].\n\nSources:\n[1] publications[0]\n\nSources:\n[2] publications[0]',
     'the word Sources: opening a prose line':
       'Sources: are listed below.\n\nSources:\n[1] publications[0]',
@@ -317,18 +345,96 @@ describe('AC-13: the incremental rescan does not invent a line start', () => {
   })
 })
 
+describe('AC-14: line starts agree with the regex about what ends a line', () => {
+  // SOURCES_BLOCK_RE is `^`-anchored under `m`, and ECMAScript's `^`/m matches
+  // after ANY LineTerminator — \r and U+2028/U+2029, not just \n. The first
+  // implementation computed line starts with lastIndexOf('\n'), which let
+  // `emitted` advance past a position the regex would later call a block start:
+  // `emitted` then moved backwards and flush() re-emitted an already-streamed
+  // character (`prose\rSources:` streamed as `prose\rSSources:`).
+  //
+  // CRLF is accidentally safe — the \n-derived offset lands on a real line
+  // start — which is why the CRLF case in AC-12 passed throughout. Every
+  // terminator gets its own case here for that reason.
+  for (const [label, sep] of Object.entries({
+    'LF': '\n',
+    'CR (lone)': '\r',
+    'CRLF': '\r\n',
+    'U+2028 LINE SEPARATOR': '\u2028',
+    'U+2029 PARAGRAPH SEPARATOR': '\u2029',
+  })) {
+    it(`holds and normalizes a footer opened by ${label}`, () => {
+      const text = `prose${sep}Sources:${sep}[1] publications[0]`
+      assertChunkingInvariant(text, ONE)
+      // Not just parity: the footer must actually be recognized and rewritten,
+      // and the body must survive byte-identically (the bug duplicated a char).
+      const streamed = runChunks([...text], ONE)
+      assert.equal(streamed, `prose${sep}Sources:${sep}[1] publications.${ONE[0].slug} — ${ONE[0].canonical_url}`)
+    })
+  }
+})
+
+describe('AC-15: flush resolves against the whole answer, not just the held tail', () => {
+  // The implementation normalizes `full` at flush and slices at `emitted`,
+  // rather than normalizing the held tail alone. That is load-bearing:
+  // resolveParsedPath reads the answer BODY to disambiguate, so a tail-only
+  // view changes which publication a citation resolves to.
+  //
+  // Nothing else in this file pins it — every other fixture cites by index with
+  // no title or URL in the body, so the body is irrelevant and both strategies
+  // agree. Mutating flush() to `normalizePublicationSourceLines(full.slice(emitted), …)`
+  // passed the whole suite before this group existed.
+  it('refuses a citation the body contradicts, instead of guessing', () => {
+    // Body names beta-piece; the Sources line says publications[0] (alpha).
+    // Ambiguous — module rule 1 is "never guess", so it is left as written.
+    // A tail-only flush cannot see the body and confidently emits alpha-piece.
+    const text = `He wrote ${TWO[1].title} [1].\n\nSources:\n[1] publications[0]`
+    assert.equal(runChunks([...text], TWO), text, 'must stay byte-identical, not resolve to alpha-piece')
+    assert.ok(!runChunks([...text], TWO).includes(TWO[0].slug), 'must not emit the contradicted publication')
+    assertChunkingInvariant(text, TWO)
+  })
+
+  it('resolves a bare publications entry using a title mentioned in the body', () => {
+    // The positive direction of the same dependency: with two publications a
+    // bare `publications` is only resolvable because the body names one.
+    const text = `He wrote ${TWO[1].title} [1].\n\nSources:\n[1] publications`
+    assert.equal(
+      runChunks([...text], TWO),
+      `He wrote ${TWO[1].title} [1].\n\nSources:\n[1] publications.${TWO[1].slug} — ${TWO[1].canonical_url}`,
+    )
+    assertChunkingInvariant(text, TWO)
+  })
+})
+
 describe('AC-11: the TransformStream adapter matches the synchronous core', () => {
   it('normalizes across an arbitrary chunking', async () => {
     const answer = sourcesBlock('[1] publications[0]', '[2] projects.some-project')
-    assert.equal(await runTransform([...answer], ONE), reference(answer, ONE))
+    assert.equal((await runTransform([...answer], ONE)).text, reference(answer, ONE))
+  })
+
+  it('never enqueues an empty chunk while holding the footer', async () => {
+    // The `if (out.length > 0)` guards in the adapter are load-bearing, not
+    // tidiness: while the footer is held every push() returns '', and public-mcp
+    // emits one progress notification per chunk. Without the guards a visitor
+    // would get one empty notification per character of footer. Removing them
+    // passes a joined-text assertion, which is why this asserts on chunks.
+    const answer = sourcesBlock('[1] publications[0]')
+    const { text, chunks } = await runTransform([...answer], ONE)
+    assert.equal(text, reference(answer, ONE))
+    assert.ok(chunks.length > 0, 'sanity: something was emitted')
+    assert.deepEqual(chunks.filter((c) => c.length === 0), [], 'no empty chunk may be enqueued')
   })
 
   it('emits nothing extra for a pass-through profile', async () => {
     const answer = sourcesBlock('[1] publications[0]')
-    assert.equal(await runTransform([...answer], []), answer)
+    const { text, chunks } = await runTransform([...answer], [])
+    assert.equal(text, answer)
+    assert.deepEqual(chunks.filter((c) => c.length === 0), [], 'no empty chunk on the identity path either')
   })
 
   it('closes cleanly on an empty stream', async () => {
-    assert.equal(await runTransform([], ONE), '')
+    const { text, chunks } = await runTransform([], ONE)
+    assert.equal(text, '')
+    assert.deepEqual(chunks, [], 'a closed empty stream must enqueue nothing at all')
   })
 })

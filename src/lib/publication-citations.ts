@@ -402,10 +402,40 @@ export function citedPublications(
  * only matches ALONE — `*S` can never become `**Sources:` or `Sources:`, so
  * there is nothing to wait for and it is released immediately.
  *
- * MUST stay in sync with SOURCES_BLOCK_RE: every prefix of every string that
- * regex can match has to match this one. `AC-10` pins that.
+ * The invariant this and SOURCES_BLOCK_RE jointly maintain is narrower than
+ * "every prefix of a marker matches this regex" — `Sources:**` is such a prefix
+ * and deliberately does not match. What actually holds: every prefix that does
+ * NOT already contain a complete `Sources:` matches here, and every prefix that
+ * does is caught by the full-marker `search()` that `push()` runs first. The
+ * ordering of those two checks is load-bearing, not incidental. `AC-10` pins
+ * the marker forms.
  */
 const PARTIAL_SOURCES_RE = /^[ \t]*(?:\*|_|(?:\*\*|__)?(?:S|So|Sou|Sour|Sourc|Source|Sources|Sources:)?)$/
+
+/**
+ * The line terminators ECMAScript's `^` recognizes under the `m` flag:
+ * `\n`, `\r`, `\u2028` (LINE SEPARATOR) and `\u2029` (PARAGRAPH SEPARATOR).
+ *
+ * Any code that computes a line-start offset to hand to SOURCES_BLOCK_RE has to
+ * agree with the regex about what ends a line. Computing with
+ * `lastIndexOf('\n')` alone silently disagrees, and the disagreement is not
+ * benign: it lets `emitted` advance past a position the regex will later call a
+ * block start, so `emitted` moves BACKWARDS and `flush()` re-emits text the
+ * client already received.
+ *
+ * CRLF is accidentally safe — the `\n`-derived offset lands on a real line
+ * start — which is exactly why a CRLF test passes while a lone `\r` duplicates
+ * a character. Found by review, not by the suite; `AC-14` now pins it.
+ */
+const LINE_TERMINATORS = new Set(['\n', '\r', '\u2028', '\u2029'])
+
+/** Index just past the last line terminator strictly before `before`, or 0 if there is none. */
+function lastLineStart(text: string, before: number): number {
+  for (let i = before - 1; i >= 0; i -= 1) {
+    if (LINE_TERMINATORS.has(text[i])) return i + 1
+  }
+  return 0
+}
 
 /** What `createStreamingSourcesNormalizer` hands back. */
 export interface StreamingSourcesNormalizer {
@@ -466,21 +496,29 @@ export function createStreamingSourcesNormalizer(publications: unknown): Streami
       // mid-line release would let prose like "…he wrote about " + "Sources:
       // are cited inline" match a footer that is not at a line start. Anchoring
       // to the enclosing line start keeps `^` meaning what it means in `full`.
-      const scanFrom = emitted === 0 ? 0 : full.lastIndexOf('\n', emitted - 1) + 1
+      // `lastLineStart` — not `lastIndexOf('\n')` — because `^` under `m` also
+      // treats \r, U+2028 and U+2029 as line starts; see LINE_TERMINATORS.
+      const scanFrom = lastLineStart(full, emitted)
       const relativeStart = full.slice(scanFrom).search(SOURCES_BLOCK_RE)
       const blockStart = relativeStart < 0 ? -1 : scanFrom + relativeStart
       if (blockStart >= 0) {
         holding = true
-        const out = full.slice(emitted, blockStart)
-        emitted = blockStart
+        // `emitted` must never move backwards — that would make flush() re-emit
+        // text the client already received. With `lastLineStart` agreeing with
+        // the regex about line starts this cannot trigger; it is kept as an
+        // enforced invariant rather than an assumed one, because the failure it
+        // guards against is silent duplication in a live response body.
+        const start = Math.max(blockStart, emitted)
+        const out = full.slice(emitted, start)
+        emitted = start
         return out
       }
 
       // Retain the trailing partial line only when it could still become a
-      // marker. `lastIndexOf('\n') + 1` is 0 when no newline has arrived yet,
-      // which is correct: SOURCES_BLOCK_RE is `^`-anchored under `m`, and
-      // start-of-string is a line start too.
-      const lineStart = full.lastIndexOf('\n') + 1
+      // marker. `lastLineStart(full, full.length)` is 0 when no terminator has
+      // arrived yet, which is correct: SOURCES_BLOCK_RE is `^`-anchored under
+      // `m`, and start-of-string is a line start too.
+      const lineStart = lastLineStart(full, full.length)
       const safeEnd =
         lineStart >= emitted && PARTIAL_SOURCES_RE.test(full.slice(lineStart)) ? lineStart : full.length
       const out = full.slice(emitted, safeEnd)
