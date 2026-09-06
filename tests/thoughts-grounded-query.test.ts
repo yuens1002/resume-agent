@@ -31,6 +31,8 @@ import {
   shouldCacheResponse,
 } from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
+import { ALL_CALLER_HINTS } from '../src/lib/detect-caller.js'
+
 import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../src/lib/publication-citations.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -375,6 +377,104 @@ describe('responseCacheKey — prompt_version is a load-bearing cache dimension'
     const a = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
     const b = responseCacheKey('Show recent work', 'cited', 'human', '2026-01-01', 'v1', 'prompt-v1')
     assert.equal(a, b)
+  })
+
+  // #254: callerHint carries `shown_projects: <slugs>` for progressive
+  // disclosure, and used to be truncated to 80 chars in the key. The hints
+  // detect-caller.ts emits run 68-106 chars, so once the 18-char
+  // `; shown_projects: ` prefix is appended the slug list — the only part that
+  // varies between two follow-ups — always began past the cap and was always
+  // the part discarded.
+  describe('#254: the caller hint is keyed in full, not truncated', () => {
+    // Imported, not retyped and not regex-parsed out of the source file. Both
+    // alternatives were tried and both were wrong: hardcoding lets a reworded
+    // hint leave the "these are the REAL hints" premise quietly false, and
+    // parsing couples the test to detect-caller.ts's quoting style rather than
+    // its behaviour, so switching to double quotes would break it without any
+    // behaviour change.
+    const PRODUCTION_HINTS: readonly string[] = ALL_CALLER_HINTS
+
+    const keyFor = (hint: string): string =>
+      responseCacheKey('What else?', 'cited', hint, '2026-01-01', 'v1', 'prompt-v1')
+
+    const SUFFIX = '; shown_projects: '
+
+    it('every production hint pushes the slug list past the old 80-char cap', () => {
+      // The load-bearing precondition, stated instead of implied. The old code
+      // only collides when the two hints first differ at index >= 80, i.e.
+      // when `(base + SUFFIX).length >= 80` — a shorter fixture would pass
+      // vacuously against the truncation.
+      for (const base of PRODUCTION_HINTS) {
+        assert.ok(
+          (base + SUFFIX).length >= 80,
+          `hint is too short to reproduce the collision: ${(base + SUFFIX).length} < 80 — ${base.slice(0, 40)}`,
+        )
+      }
+    })
+
+    for (const base of PRODUCTION_HINTS) {
+      it(`distinguishes shown_projects follow-ups for: ${base.slice(0, 32)}…`, () => {
+        assert.notEqual(
+          keyFor(`${base}${SUFFIX}brew-guide`),
+          keyFor(`${base}${SUFFIX}resume-agent, bookie`),
+          'two different shown_projects lists must not share a cache entry',
+        )
+      })
+    }
+
+    it('still ignores caller-hint case and surrounding whitespace', () => {
+      // Only the cap was the defect. Hashing the RAW hint would drop the
+      // normalization that has always been here and split "Recruiter" from
+      // "recruiter" — both reachable from caller-supplied `context`.
+      assert.equal(keyFor('Recruiter'), keyFor('recruiter'))
+      assert.equal(keyFor('  recruiter  '), keyFor('recruiter'))
+      assert.equal(keyFor('RECRUITER'), keyFor('recruiter'))
+    })
+
+    it('keeps the hint out of the key and bounds its contribution', () => {
+      // A hash, not the hint itself: the HINT's contribution to the key is
+      // fixed-width however long a caller-supplied context is, which is what
+      // the cap was there for. (The key as a whole is still unbounded — it
+      // embeds the normalized `question`, which has no max length. Pre-existing
+      // and out of scope here; noted so this test is not read as proving more
+      // than it does.)
+      const long = `recruiter; shown_projects: ${Array.from({ length: 200 }, (_, i) => `slug-${i}`).join(', ')}`
+      assert.ok(!keyFor(long).includes('slug-199'), 'key must not embed the raw hint')
+      assert.equal(keyFor(long).length, keyFor('recruiter').length, 'key length must not grow with hint length')
+      assert.notEqual(keyFor(long), keyFor(`${long}, slug-200`), 'but it must still distinguish them')
+    })
+
+    it('a miscased shown_projects slug filters the same project the key implies', () => {
+      // Residual instance of the same class, found by review: the key hashes
+      // the LOWERCASED hint, but buildQueryPrompt compared slugs
+      // case-sensitively — so these two hashed alike while only ONE of them
+      // actually filtered a project. Identical key, different prompt.
+      //
+      // Asserted through buildQueryPrompt, not by lowercasing in the test: a
+      // test that normalizes its own inputs proves nothing about the code. The
+      // first draft of this case did exactly that and survived reverting the
+      // fix.
+      const profile = {
+        contact: { name: 'Test Candidate', email: 'test@example.com' },
+        projects: [
+          { slug: 'brew-guide', name: 'Brew Guide', started: '2025-01' },
+          { slug: 'resume-agent', name: 'Resume Agent', started: '2025-06' },
+        ],
+      }
+      const promptFor = (slug: string): string =>
+        buildQueryPrompt(profile, [], 'What else?', `recruiter; shown_projects: ${slug}`)
+
+      assert.ok(!promptFor('brew-guide').includes('"brew-guide"'), 'sanity: the exact-case slug filters')
+      assert.ok(
+        !promptFor('Brew-Guide').includes('"brew-guide"'),
+        'a miscased slug must filter too — the cache key cannot tell the two apart',
+      )
+      assert.equal(
+        keyFor('recruiter; shown_projects: Brew-Guide'),
+        keyFor('recruiter; shown_projects: brew-guide'),
+        'and they legitimately share a key, now that they produce the same prompt',
+      )
+    })
   })
 
   // Copilot review (PR #187): the original ":"-joined key format could collide
