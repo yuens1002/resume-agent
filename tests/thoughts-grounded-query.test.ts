@@ -31,6 +31,7 @@ import {
   shouldCacheResponse,
 } from '../src/routes/query.js'
 import { getQuestionThreshold } from '../src/lib/thoughts-query.js'
+import { ALL_CALLER_HINTS } from '../src/lib/detect-caller.js'
 
 import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../src/lib/publication-citations.js'
 
@@ -385,15 +386,13 @@ describe('responseCacheKey — prompt_version is a load-bearing cache dimension'
   // varies between two follow-ups — always began past the cap and was always
   // the part discarded.
   describe('#254: the caller hint is keyed in full, not truncated', () => {
-    // Read out of detect-caller.ts rather than retyped. Hardcoding the strings
-    // here would let a reworded hint leave the "these are the REAL hints"
-    // premise quietly false while the test still passed.
-    const PRODUCTION_HINTS: string[] = (() => {
-      const src = readFileSync(join(repoRoot, 'src/lib/detect-caller.ts'), 'utf8')
-      const found = [...src.matchAll(/hint:\s*'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1].replace(/\\'/g, "'"))
-      assert.ok(found.length >= 5, `expected to parse the hint table, found ${found.length}`)
-      return [...new Set(found)]
-    })()
+    // Imported, not retyped and not regex-parsed out of the source file. Both
+    // alternatives were tried and both were wrong: hardcoding lets a reworded
+    // hint leave the "these are the REAL hints" premise quietly false, and
+    // parsing couples the test to detect-caller.ts's quoting style rather than
+    // its behaviour, so switching to double quotes would break it without any
+    // behaviour change.
+    const PRODUCTION_HINTS: readonly string[] = ALL_CALLER_HINTS
 
     const keyFor = (hint: string): string =>
       responseCacheKey('What else?', 'cited', hint, '2026-01-01', 'v1', 'prompt-v1')

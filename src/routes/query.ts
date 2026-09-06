@@ -81,16 +81,17 @@ async function fetchThoughtsVersion(): Promise<string> {
 //   - style       — cited vs conversational changes the system prompt format
 //   - callerHint  — affects BOTH tone and, via `shown_projects: <slugs>`, which
 //                   projects are filtered out of the prompt. Hashed in full
-//                   (#254): it used to be truncated to 80 chars, and the hints
-//                   detect-caller.ts emits run 68-106 chars (6 of 10 already at
-//                   or past the cap on their own), so once the 18-char
-//                   `; shown_projects: ` prefix is appended the slug list began
-//                   at index 86 at the very least — past the cap for EVERY
-//                   hint, without exception. The slug list is the only part
-//                   that varies between two follow-ups, so it was always the
-//                   part discarded, and two follow-ups that had shown different
-//                   projects always produced the same key. Hashing bounds the
-//                   key without discarding anything.
+//                   (#254): it used to be truncated to 80 chars, but the hints
+//                   in CALLER_HINTS are long enough that appending the 18-char
+//                   `; shown_projects: ` prefix always pushed the slug list
+//                   past the cap — for every hint, without exception. The slug
+//                   list is the only part that varies between two follow-ups,
+//                   so it was always the part discarded, and two follow-ups
+//                   that had shown different projects always produced the same
+//                   key. Hashing bounds the key without discarding anything.
+//                   (Deliberately no hint count or length range here: those
+//                   drift. ALL_CALLER_HINTS is the source of truth, and the
+//                   #254 tests assert the property against it directly.)
 //   - profile.updated_at — changes on every profile mutation
 //   - thoughts_version   — changes on every OB1 thought add/update (60s TTL)
 //   - prompt_version      — hash of the actual prompt/tool-calling source (below).
@@ -263,7 +264,7 @@ export function buildQueryPrompt(
           projects: filterVisibleProjects(
             sortProjectsByRecency(
               (profile as { projects: Array<{ slug: string; started?: string; git_evidence?: { last_push_at?: string } }> }).projects,
-            ).filter((p) => !shownSlugs.includes(String(p.slug).toLowerCase())),
+            ).filter((p) => !shownSlugs.includes(p.slug.toLowerCase())),
             hiddenSlugs,
           ),
         }
