@@ -118,7 +118,7 @@ Resolution never guesses. An array index is read against the profile's own publi
 
 The same pass populates a `publications` array on the response envelope — the parallel of `project_slugs` — carrying `slug`, `title`, `platform`, `canonical_url`, and `date` read from the profile record rather than from the model's prose.
 
-Because this is post-processing, the citation rules above are unchanged and `PROMPT_VERSION` is unaffected. Streaming responses (`stream=true`) return plain text with no envelope and are not normalized.
+Because this is post-processing, the citation rules above are unchanged and `PROMPT_VERSION` is unaffected. Streaming responses (`stream=true`) return plain text with no envelope and are not normalized — they still emit a `Sources:` block, so a streamed answer carries the raw `publications[0]` form. Tracked in #251.
 
 ## Output format (JSON mode only)
 

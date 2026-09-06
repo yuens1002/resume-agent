@@ -104,7 +104,10 @@ The publications array passed in is `profile.publications`, i.e. the exact array
 `buildQueryPrompt` stringified, which is what makes index resolution sound.
 
 The streaming path (`stream=true`) returns plain text with no JSON envelope and
-is out of scope, consistent with how the #215 guard is scoped.
+is out of scope, consistent with how the #215 guard is scoped. It does still
+emit a `Sources:` block, so a streamed answer keeps the raw form this feature
+fixes everywhere else — filed as #251, with a proposed fix (buffer from the
+trailing `Sources:` line in the existing tee and normalize before flushing).
 
 ## Not in scope
 
