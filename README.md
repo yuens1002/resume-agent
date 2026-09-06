@@ -339,7 +339,7 @@ Request:
 
 Set `"stream": true` (or `?stream=true` on GET) to receive a plain text chunked response (`Content-Type: text/plain`) instead of JSON — stream mode always uses cited style.
 
-**`publications`** lists any published pieces the answer cites, resolved server-side from the profile record rather than from the model's prose — follow `canonical_url` to read the piece. Empty when the answer cites none. In `cited` style the same citation also appears in the answer's `Sources:` block as `publications.<slug> — <canonical_url>`; in both styles the `sources[]` array carries the bare `publications.<slug>` path. Streamed responses have no JSON envelope and are not normalized.
+**`publications`** lists any published pieces the answer cites, resolved server-side from the profile record rather than from the model's prose — follow `canonical_url` to read the piece. Empty when the answer cites none. In `cited` style the same citation also appears in the answer's `Sources:` block as `publications.<slug> — <canonical_url>`; in both styles the `sources[]` array carries the bare `publications.<slug>` path. Streamed responses carry the same normalized `Sources:` line, but no JSON envelope — so the structured `publications` array is JSON-mode only.
 
 Response (default, `stream: false`):
 ```json

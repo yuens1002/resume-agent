@@ -21,7 +21,9 @@ interface LogInput {
   source: 'http' | 'mcp'
   question: string
   caller_hint?: string
-  response: Pick<QueryResponse, 'answer'> & Partial<QueryResponse>
+  response: Pick<QueryResponse, 'answer'> & Omit<Partial<QueryResponse>, 'meta'> & {
+    meta?: Partial<QueryResponse['meta']>
+  }
   latency_ms: number
   ip?: string
   user_agent?: string
@@ -62,7 +64,11 @@ function hashIp(ip: string | undefined): string | null {
  * and the provider/finish_reason diagnostics (#189) — is unit-testable without
  * a live DB. `latency_ms` is the wall-clock total; `llm_ms` / `retrieval_ms` /
  * `provider` / `finish_reason` come from the response meta and are null when
- * absent (e.g. streaming callers log a partial payload with no meta).
+ * absent. Streaming callers supply `model` and `finish_reason` (#251) and
+ * deliberately omit the rest: the streaming path has no generation-only timer,
+ * so `llm_ms` is left null rather than filled with wall-clock request time,
+ * which would make the column mean different things by `source`. Total elapsed
+ * is still recorded in the top-level `latency_ms`.
  */
 export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
   return {

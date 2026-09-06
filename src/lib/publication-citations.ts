@@ -73,6 +73,29 @@ const SOURCES_LINE_RE = new RegExp(
 /** Where the prose `Sources:` block begins. Nothing above it is ever rewritten. */
 const SOURCES_BLOCK_RE = /^[ \t]*(?:\*\*|__)?Sources:(?:\*\*|__)?/m
 
+/**
+ * Every marker form SOURCES_BLOCK_RE accepts, as concrete strings.
+ *
+ * Exported so the tests iterate this instead of keeping their own hand-copied
+ * list — the streaming suite is the only place the underscore, tab-indented and
+ * indented-bold variants are covered at all.
+ *
+ * The guard this buys is one-directional, and worth stating precisely rather
+ * than overclaiming: `AC-10` asserts every entry here IS accepted by
+ * SOURCES_BLOCK_RE, so an entry that stops matching fails loudly. The reverse —
+ * widening the regex without adding the form here — cannot be caught by
+ * enumeration, since a list has no way to know what the regex now also accepts.
+ * Adding a marker form means editing both.
+ */
+export const SOURCES_MARKER_FORMS = [
+  'Sources:',
+  '**Sources:**',
+  '__Sources:__',
+  '  Sources:',
+  '\tSources:',
+  '  **Sources:**',
+] as const
+
 interface ParsedSourcePath {
   /** Array index, when the entry used index form. */
   index?: number
@@ -385,4 +408,172 @@ export function citedPublications(
     canonical_url: str(pub.canonical_url),
     date: str(pub.date),
   }))
+}
+
+/**
+ * Prefixes that could still grow into a `SOURCES_BLOCK_RE` match.
+ *
+ * The streaming normalizer below has to decide, for the incomplete last line
+ * it is holding, whether releasing it now could split a `Sources:` marker
+ * across two chunks. Line-buffering would answer that trivially, but at the
+ * cost of the thing streaming exists for: an LLM emits paragraph-length prose
+ * with no newline in it, so "emit only complete lines" means the reader
+ * watches a blank pane and then a whole paragraph at once.
+ *
+ * So instead: release everything unless the trailing partial line still looks
+ * like the beginning of a marker. Note the bold-delimiter prefix (`*`, `_`)
+ * only matches ALONE — `*S` can never become `**Sources:` or `Sources:`, so
+ * there is nothing to wait for and it is released immediately.
+ *
+ * The invariant this and SOURCES_BLOCK_RE jointly maintain is narrower than
+ * "every prefix of a marker matches this regex" — `Sources:**` is such a prefix
+ * and deliberately does not match. What actually holds: every prefix that does
+ * NOT already contain a complete `Sources:` matches here, and every prefix that
+ * does is caught by the full-marker `search()` that `push()` runs first. The
+ * ordering of those two checks is load-bearing, not incidental. `AC-10` pins
+ * the marker forms.
+ */
+const PARTIAL_SOURCES_RE = /^[ \t]*(?:\*|_|(?:\*\*|__)?(?:S|So|Sou|Sour|Sourc|Source|Sources|Sources:)?)$/
+
+/**
+ * The line terminators ECMAScript's `^` recognizes under the `m` flag:
+ * `\n`, `\r`, `\u2028` (LINE SEPARATOR) and `\u2029` (PARAGRAPH SEPARATOR).
+ *
+ * Any code that computes a line-start offset to hand to SOURCES_BLOCK_RE has to
+ * agree with the regex about what ends a line. Computing with
+ * `lastIndexOf('\n')` alone silently disagrees, and the disagreement is not
+ * benign: it lets `emitted` advance past a position the regex will later call a
+ * block start, so `emitted` moves BACKWARDS and `flush()` re-emits text the
+ * client already received.
+ *
+ * CRLF is accidentally safe — the `\n`-derived offset lands on a real line
+ * start — which is exactly why a CRLF test passes while a lone `\r` duplicates
+ * a character. Found by review, not by the suite; `AC-14` now pins it.
+ */
+const LINE_TERMINATORS = new Set(['\n', '\r', '\u2028', '\u2029'])
+
+/** Index just past the last line terminator strictly before `before`, or 0 if there is none. */
+function lastLineStart(text: string, before: number): number {
+  for (let i = before - 1; i >= 0; i -= 1) {
+    if (LINE_TERMINATORS.has(text[i])) return i + 1
+  }
+  return 0
+}
+
+/** What `createStreamingSourcesNormalizer` hands back. */
+export interface StreamingSourcesNormalizer {
+  /** Text safe to release now — `''` while the footer is being held. */
+  push(chunk: string): string
+  /** The normalized held-back footer, released once at end of stream. */
+  flush(): string
+}
+
+/**
+ * Streaming counterpart of `normalizePublicationSourceLines`, for the
+ * `stream: true` path that has no `parseJSON` step to hook (#251).
+ *
+ * The contract, and the property the tests assert against every possible chunk
+ * boundary: for any chunking of any input, concatenating every `push()` result
+ * plus `flush()` equals `normalizePublicationSourceLines(input, publications)`.
+ * The streamed bytes and the non-streamed answer are then the same citation
+ * contract, which is the entire point of the issue.
+ *
+ * This is possible without buffering the whole response because the `Sources:`
+ * block is a *trailing footer* and `normalizePublicationSourceLines` returns
+ * everything above it byte-identical (`head + rewritten`). So the body streams
+ * through untouched and only the footer is held — and the footer is the last
+ * thing generated, so in practice the delay is a single flush at end of
+ * stream, not a loss of progressive rendering.
+ *
+ * The full accumulated text — not just the held tail — is what gets normalized
+ * at flush: `resolveParsedPath` reads the answer body to resolve a bare
+ * `publications` entry by title or URL mention, and a tail-only view would
+ * silently lose those resolutions.
+ *
+ * A profile with no publications gets an identity pass-through: nothing is
+ * ever held, so a change that cannot affect the output also cannot affect
+ * latency.
+ */
+export function createStreamingSourcesNormalizer(publications: unknown): StreamingSourcesNormalizer {
+  if (rawPublications(publications).length === 0) {
+    return { push: (chunk) => chunk, flush: () => '' }
+  }
+
+  let full = ''
+  /** Characters of `full` already released. Invariant: once holding, this is exactly the block start. */
+  let emitted = 0
+  let holding = false
+
+  return {
+    push(chunk: string): string {
+      full += chunk
+      if (holding) return ''
+
+      // Rescan only the line `emitted` sits in, not all of `full` — the
+      // accumulated text grows with every chunk, and scanning it whole each
+      // time is quadratic in the answer length.
+      //
+      // The offset MUST be a real line start. Slicing at `emitted` itself
+      // would be faster still and is wrong: SOURCES_BLOCK_RE is `^`-anchored
+      // under `m`, and `^` matches the start of the sliced string, so a
+      // mid-line release would let prose like "…he wrote about " + "Sources:
+      // are cited inline" match a footer that is not at a line start. Anchoring
+      // to the enclosing line start keeps `^` meaning what it means in `full`.
+      // `lastLineStart` — not `lastIndexOf('\n')` — because `^` under `m` also
+      // treats \r, U+2028 and U+2029 as line starts; see LINE_TERMINATORS.
+      const scanFrom = lastLineStart(full, emitted)
+      const relativeStart = full.slice(scanFrom).search(SOURCES_BLOCK_RE)
+      const blockStart = relativeStart < 0 ? -1 : scanFrom + relativeStart
+      if (blockStart >= 0) {
+        holding = true
+        // `emitted` must never move backwards — that would make flush() re-emit
+        // text the client already received. With `lastLineStart` agreeing with
+        // the regex about line starts this cannot trigger; it is kept as an
+        // enforced invariant rather than an assumed one, because the failure it
+        // guards against is silent duplication in a live response body.
+        const start = Math.max(blockStart, emitted)
+        const out = full.slice(emitted, start)
+        emitted = start
+        return out
+      }
+
+      // Retain the trailing partial line only when it could still become a
+      // marker. `lastLineStart(full, full.length)` is 0 when no terminator has
+      // arrived yet, which is correct: SOURCES_BLOCK_RE is `^`-anchored under
+      // `m`, and start-of-string is a line start too.
+      const lineStart = lastLineStart(full, full.length)
+      const safeEnd =
+        lineStart >= emitted && PARTIAL_SOURCES_RE.test(full.slice(lineStart)) ? lineStart : full.length
+      const out = full.slice(emitted, safeEnd)
+      emitted = safeEnd
+      return out
+    },
+
+    flush(): string {
+      // Never saw a footer: release whatever the retention tail held back.
+      if (!holding) return full.slice(emitted)
+      return normalizePublicationSourceLines(full, publications).slice(emitted)
+    },
+  }
+}
+
+/**
+ * `createStreamingSourcesNormalizer` as a `TransformStream`, which is the shape
+ * both stream call sites want: `queryProfileStream` pipes the AI SDK's
+ * `textStream` through it, so HTTP `/query?stream=true` and the public MCP
+ * `ask_candidate` tool are both normalized from one place rather than each
+ * remembering to do it.
+ */
+export function normalizePublicationSourcesStream(publications: unknown): TransformStream<string, string> {
+  const normalizer = createStreamingSourcesNormalizer(publications)
+  return new TransformStream<string, string>({
+    transform(chunk, controller) {
+      const out = normalizer.push(chunk)
+      if (out.length > 0) controller.enqueue(out)
+    },
+    flush(controller) {
+      const out = normalizer.flush()
+      if (out.length > 0) controller.enqueue(out)
+    },
+  })
 }

@@ -14,7 +14,7 @@ import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '..
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
 import { isDeclineShapedAnswer } from '../lib/decline-phrases.js'
-import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths } from '../lib/publication-citations.js'
+import { citedPublications, normalizePublicationSourceLines, normalizePublicationSourcePaths, normalizePublicationSourcesStream } from '../lib/publication-citations.js'
 import { fetchProfile, PROFILE_ERROR_HTTP } from '../lib/profile-cache.js'
 import type { QueryResponse } from '../types.js'
 
@@ -369,6 +369,12 @@ export interface QueryProfileArgs {
   question: string
   callerHint: string
   style?: 'cited' | 'conversational'
+  /**
+   * Cancels the underlying provider call. Only the streaming path threads this
+   * today (from the HTTP request), so an abandoned stream stops generating
+   * instead of running to completion and being billed.
+   */
+  abortSignal?: AbortSignal
 }
 
 export interface ProfileNotFoundError {
@@ -570,10 +576,80 @@ export async function queryProfile(
   return response
 }
 
-/** Streaming variant — returns the streamText result for caller-controlled consumption. */
+/**
+ * What the streaming variant hands back: a text stream for caller-controlled
+ * consumption, already normalized.
+ *
+ * This is deliberately narrower than the raw `streamText` handle it used to
+ * return. Normalizing here rather than at each call site is what makes #251
+ * stay fixed — HTTP `stream=true` and the public MCP `ask_candidate` tool both
+ * consume this, and a third consumer added later cannot forget a step it never
+ * has to take.
+ */
+export interface QueryProfileStreamResult {
+  textStream: ReadableStream<string>
+  /**
+   * Why generation stopped. Call this only AFTER the stream has been fully
+   * consumed (the reader saw `done`, or threw); `undefined` means the SDK never
+   * reported one, which is itself the signal that generation did not finish
+   * cleanly.
+   *
+   * Deliberately a synchronous getter rather than `streamText`'s own
+   * `result.finishReason` promise, which CANNOT be awaited safely here. In
+   * ai@4.3.19 that promise is resolved from exactly one place — the event
+   * processor's flush — and that flush is skipped when no step ever completed.
+   * So on a provider error, or on an abort, it never settles at all. Awaiting
+   * it hung the MCP tool handler until the client's own timeout and dropped the
+   * observed_queries row entirely, on precisely the two failures this field
+   * exists to make visible. `onFinish` runs before the readable closes, so by
+   * the time a consumer's loop ends the value is already set.
+   *
+   * The signal matters because a truncated answer is otherwise indistinguishable
+   * from a complete one: the client gets a 200 and `observed_queries` stores the
+   * fragment as if it were the whole answer. The JSON path has logged
+   * `finish_reason` since #189.
+   */
+  finishReason: () => string | undefined
+}
+
+/**
+ * Identity transform that errors the stream at flush when the SDK swallowed a
+ * failure instead of surfacing one.
+ *
+ * ai@4 closes `textStream` NORMALLY for a provider failure that happens before
+ * the first step completes — the error becomes an internal part that
+ * `textStream` filters out, and only `onError` sees it. Left alone, HTTP
+ * returns an apparently successful empty 200 and the MCP tool returns an empty
+ * success result. Erroring here instead lets each surface's existing failure
+ * path run: the HTTP response body aborts (the headers are long since flushed,
+ * so an aborted body is the only signal left) and the MCP handler's catch
+ * logs the partial output and rethrows.
+ *
+ * Reads the flags through getters rather than taking values, because they are
+ * set by `onError` after this transform is constructed.
+ *
+ * Extracted and exported so the behavior is unit-testable without a live model:
+ * it is a semantic change to what a caller observes on failure, and inlining it
+ * would have left that change asserted by nothing.
+ */
+export function failClosedOnSwallowedError(
+  sawError: () => boolean,
+  getError: () => unknown,
+): TransformStream<string, string> {
+  return new TransformStream<string, string>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk)
+    },
+    flush(controller) {
+      if (sawError()) controller.error(getError())
+    },
+  })
+}
+
+/** Streaming variant — returns a normalized text stream for caller-controlled consumption. */
 export async function queryProfileStream(
   args: QueryProfileArgs,
-): Promise<ReturnType<typeof streamText> | ProfileNotFoundError | ProfileUnavailableError> {
+): Promise<QueryProfileStreamResult | ProfileNotFoundError | ProfileUnavailableError> {
   const skipThoughts = isBinaryQuestion(args.question)
   const [profileResult, thoughts] = await Promise.all([
     fetchProfile(),
@@ -586,12 +662,65 @@ export async function queryProfileStream(
 
   const prompt = buildQueryPrompt(profile, thoughts, args.question, args.callerHint)
 
-  return streamText({
+  // Same array `queryProfile` resolves index-form citations against, and for
+  // the same reason: unfiltered and unsorted, because those are the positions
+  // the model was shown.
+  const profilePublications = (profile as { publications?: unknown }).publications
+
+  // Captured from onFinish rather than read off `result.finishReason` — see
+  // QueryProfileStreamResult.finishReason for why that promise is unawaitable.
+  let observedFinishReason: string | undefined
+  let observedStreamError: unknown
+  let sawStreamError = false
+
+  const result = streamText({
     model: getModel(),
     maxTokens: maxTokensForQuestion(args.question, args.style ?? 'cited'),
     system: buildSystemPrompt('stream', args.style ?? 'cited', deriveCandidateName(profile), deriveCandidatePronouns(profile)),
     prompt,
+    onFinish: ({ finishReason }) => {
+      observedFinishReason = finishReason
+    },
+    // Lets a disconnecting client actually stop the generation. Without it the
+    // provider call runs to completion (and is billed) after the visitor has
+    // closed the tab, because `tee()` only cancels its source once BOTH
+    // branches cancel — and the fire-and-forget logging branch never does.
+    abortSignal: args.abortSignal,
+    // ai@4 handles stream errors two different ways, and only one of them
+    // reaches here. An error BEFORE the first step completes (a rejected
+    // provider call, an abort before the first byte) becomes an internal error
+    // part: the stream closes normally, nothing throws, and this callback is
+    // the only place it is observable. An error AFTER that errors `textStream`
+    // itself and never reaches this callback — the consumer sees the throw
+    // instead. Both leave `onFinish` uncalled, which is what makes an absent
+    // finishReason a reliable "did not complete" signal.
+    //
+    // An abandoned request is an expected event, not a fault: log it at warn so
+    // genuine provider failures stay findable at error level.
+    onError: ({ error }) => {
+      observedStreamError = error
+      sawStreamError = true
+      if (args.abortSignal?.aborted) {
+        console.warn('[query] stream aborted by the client before completion')
+        return
+      }
+      console.error('[query] stream error (ai@4 closes the stream normally on these):', error)
+    },
   })
+
+  // #251: the stream has no parseJSON step to hang post-processing off, so the
+  // publication-citation pass runs as a transform over the token stream
+  // instead. Nothing about the prompt changes — PROMPT_VERSION stays
+  // byte-identical, same as #177 chunk 2.
+  return {
+    textStream: result.textStream
+      .pipeThrough(normalizePublicationSourcesStream(profilePublications))
+      .pipeThrough(failClosedOnSwallowedError(() => sawStreamError, () => observedStreamError)),
+    // `aborted` distinguishes an abandoned request from "the SDK reported
+    // nothing" — both would otherwise land as a null finish_reason and be
+    // indistinguishable in the observed-query log.
+    finishReason: () => observedFinishReason ?? (args.abortSignal?.aborted ? 'aborted' : undefined),
+  }
 }
 
 // ── HTTP wrapper ────────────────────────────────────────────
@@ -638,17 +767,32 @@ async function handleQuery(
   if (stream) {
     // Conversational mode relies on the JSON sources[] array; stream returns plain text with no
     // JSON envelope, so conversational attribution cannot be emitted. Fall back to cited.
-    const result = await queryProfileStream({ question, callerHint, style: 'cited' })
+    const result = await queryProfileStream({
+      question,
+      callerHint,
+      style: 'cited',
+      abortSignal: c.req.raw.signal,
+    })
     if ('kind' in result) {
       const { status, body } = PROFILE_ERROR_HTTP[result.kind === 'profile_not_found' ? 'not_found' : 'unavailable']
       return c.json(body, status)
     }
 
     // Tee the stream: forward bytes to the client, collect text for post-hoc logging.
-    const live = result as ReturnType<typeof streamText>
-    const response = live.toTextStreamResponse()
-    const original = response.body
-    if (!original) return response
+    //
+    // This replaces the AI SDK's `toTextStreamResponse()`, which is no longer
+    // reachable now that queryProfileStream returns a normalized text stream
+    // rather than the raw handle (#251). That helper is exactly
+    // `new Response(textStream.pipeThrough(new TextEncoderStream()),
+    // { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8' } })`
+    // in ai@4.3.19, which is what the encode below and the return at the end of
+    // this branch reproduce — plus a `Cache-Control: no-store` the helper never
+    // set. So: same body framing and content type, one header added deliberately.
+    //
+    // The tee sits downstream of the normalizer on purpose: logObservedQuery
+    // must record the bytes the client actually received, not the model's raw
+    // pre-normalization text.
+    const original = result.textStream.pipeThrough(new TextEncoderStream())
 
     const [toClient, forLogging] = original.tee()
 
@@ -657,17 +801,44 @@ async function handleQuery(
       const reader = forLogging.getReader()
       const decoder = new TextDecoder()
       let collected = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        collected += decoder.decode(value, { stream: true })
+      // A client disconnect now aborts the provider call, which errors this
+      // branch mid-read. Log what was actually produced rather than losing the
+      // row entirely — an abandoned request is exactly the kind of traffic
+      // worth being able to see.
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          collected += decoder.decode(value, { stream: true })
+        }
+        collected += decoder.decode()
+      } catch (err) {
+        collected += decoder.decode()
+        // Not `(err as Error).message`: @hono/node-server aborts with a STRING
+        // reason ("Client connection prematurely closed.") and undici rejects
+        // with signal.reason as-is, so the caught value is often not an Error
+        // and `.message` logs undefined.
+        console.warn('[query] streaming ended early:', String(err))
       }
-      collected += decoder.decode()
       await logObservedQuery({
         source: 'http',
         question,
         caller_hint: callerHint,
-        response: { answer: collected },
+        // `finish_reason` is the only signal distinguishing a complete answer
+        // from one the provider cut short. Read synchronously AFTER the loop
+        // above has ended — awaiting the SDK's own promise here never settles
+        // on exactly those failures and dropped this row entirely.
+        //
+        // Streaming does not expose a generation-only duration. Omit
+        // meta.latency_ms rather than persisting wall-clock request/drain time
+        // in the `llm_ms` column; top-level latency_ms remains total elapsed.
+        response: {
+          answer: collected,
+          meta: {
+            model: MODEL,
+            finish_reason: result.finishReason(),
+          },
+        },
         latency_ms: Date.now() - overallStart,
         ip: requestIp,
         user_agent: userAgent,
@@ -676,7 +847,15 @@ async function handleQuery(
       console.warn('[query] background streaming log failed:', (err as Error).message)
     })
 
-    return new Response(toClient, response)
+    // `no-store` matches the JSON path below. A streamed answer is generated
+    // per-visitor and varies by caller hint, so an intermediary caching it
+    // would serve one visitor's answer to the next. The old
+    // `toTextStreamResponse()` never set this; constructing the response here
+    // is the first chance to make the two paths agree.
+    return new Response(toClient, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+    })
   }
 
   const result = await queryProfile({ question, callerHint, style: effectiveStyle })

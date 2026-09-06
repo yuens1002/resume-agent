@@ -118,7 +118,13 @@ Resolution never guesses. An array index is read against the profile's own publi
 
 The same pass populates a `publications` array on the response envelope — the parallel of `project_slugs` — carrying `slug`, `title`, `platform`, `canonical_url`, and `date` read from the profile record rather than from the model's prose.
 
-Because this is post-processing, the citation rules above are unchanged and `PROMPT_VERSION` is unaffected. Streaming responses (`stream=true`) return plain text with no envelope and are not normalized — they still emit a `Sources:` block, so a streamed answer carries the raw `publications[0]` form. Tracked in #251.
+Because this is post-processing, the citation rules above are unchanged and `PROMPT_VERSION` is unaffected.
+
+Streaming responses (`stream=true`, and the public MCP `ask_candidate` tool's stream mode) are normalized too, as of #251 — the pass runs as a transform over the token stream rather than after `parseJSON`. The prose `Sources:` block is a trailing footer, so the answer body streams through untouched and only the footer is held back and rewritten at end of stream. Both paths run the same normalization, so a publication citation takes the same documented `publications.<slug> — <canonical_url>` form on either one.
+
+The two are not byte-for-byte equivalent, and nothing here claims they are: streaming builds a different system prompt (`stream` mode carries no JSON-output rule), so the model's raw text differs before normalization runs, and the JSON path additionally applies `salvageTrailingSourcesBlock` and the #215 decline guard, neither of which has a streaming counterpart. What is guaranteed is the citation form, not the surrounding prose.
+
+What streaming does **not** carry is the structured `publications` array: there is no JSON envelope to put it on, response headers are flushed before the answer exists, and a JSON trailer would break the `text/plain` contract. The prose citation — `publications.<slug> — <canonical_url>` — is the whole attribution surface in stream mode. A caller that needs the structured records should not stream.
 
 ## Output format (JSON mode only)
 

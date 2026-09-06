@@ -20,6 +20,7 @@ import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
+import { MODEL } from '../lib/ai.js'
 import { queryProfile, queryProfileStream } from './query.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { fetchProfile } from '../lib/profile-cache.js'
@@ -115,7 +116,12 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
       const progressToken = (extra as { _meta?: { progressToken?: string | number } })._meta?.progressToken
 
       if (stream) {
-        const streamResult = await queryProfileStream({ question, callerHint })
+        // `extra.signal` is the MCP request's cancellation signal (@hono/mcp
+        // forwards the HTTP request's abort into the transport). Threading it
+        // gives this surface the same property the HTTP one has: a client that
+        // cancels stops the generation instead of leaving it to run to
+        // completion and be billed.
+        const streamResult = await queryProfileStream({ question, callerHint, abortSignal: extra.signal })
         if ('kind' in streamResult) {
           const message = streamResult.kind === 'profile_not_found'
             ? 'Profile not found.'
@@ -128,10 +134,15 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
 
         let collected = ''
         let chunkIndex = 0
-        const live = streamResult as Awaited<ReturnType<typeof queryProfileStream>>
-        // The non-error variant has a textStream AsyncIterable<string>
-        if ('textStream' in live) {
-          for await (const chunk of live.textStream) {
+        // Chunks arrive already publication-normalized (#251) — queryProfileStream
+        // runs the citation pass as a transform over the token stream, so the
+        // progress notifications, the final tool result, and the logged row all
+        // carry `publications.<slug> — <url>` rather than the model's raw
+        // `publications[0]`.
+        let streamError: unknown
+        let sawStreamError = false
+        try {
+          for await (const chunk of streamResult.textStream) {
             collected += chunk
             chunkIndex += 1
             if (progressToken !== undefined) {
@@ -149,18 +160,35 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
               }
             }
           }
+        } catch (error) {
+          sawStreamError = true
+          streamError = error
         }
 
         void logObservedQuery({
           source: 'mcp',
           question,
           caller_hint: callerHint,
-          response: { answer: collected },
+          // Same reasoning as the HTTP stream path: ai@4 closes the stream
+          // normally on a provider error, so without finish_reason a truncated
+          // answer is logged as if it were complete. Read synchronously after
+          // the loop — awaiting the SDK's own promise here never settled on a
+          // provider error and hung this handler until the client timed out.
+          // Streaming does not expose a generation-only duration, so omit
+          // meta.latency_ms rather than persisting wall-clock time as llm_ms.
+          response: {
+            answer: collected,
+            meta: {
+              model: MODEL,
+              finish_reason: streamResult.finishReason(),
+            },
+          },
           latency_ms: Date.now() - start,
           ip: reqCtx.ip,
           user_agent: reqCtx.userAgent,
         })
 
+        if (sawStreamError) throw streamError
         return { content: [{ type: 'text' as const, text: collected }] }
       }
 
