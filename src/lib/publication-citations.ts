@@ -77,11 +77,15 @@ const SOURCES_BLOCK_RE = /^[ \t]*(?:\*\*|__)?Sources:(?:\*\*|__)?/m
  * Every marker form SOURCES_BLOCK_RE accepts, as concrete strings.
  *
  * Exported so the tests iterate this instead of keeping their own hand-copied
- * list. A second copy is a list that silently stops matching the regex: adding
- * a form here (or to the regex) without updating the other would leave the new
- * form exercised by nothing, and the streaming suite is the only place the
- * underscore, tab-indented and indented-bold variants are covered at all.
- * `AC-10` asserts each entry really does match.
+ * list — the streaming suite is the only place the underscore, tab-indented and
+ * indented-bold variants are covered at all.
+ *
+ * The guard this buys is one-directional, and worth stating precisely rather
+ * than overclaiming: `AC-10` asserts every entry here IS accepted by
+ * SOURCES_BLOCK_RE, so an entry that stops matching fails loudly. The reverse —
+ * widening the regex without adding the form here — cannot be caught by
+ * enumeration, since a list has no way to know what the regex now also accepts.
+ * Adding a marker form means editing both.
  */
 export const SOURCES_MARKER_FORMS = [
   'Sources:',

@@ -116,7 +116,12 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
       const progressToken = (extra as { _meta?: { progressToken?: string | number } })._meta?.progressToken
 
       if (stream) {
-        const streamResult = await queryProfileStream({ question, callerHint })
+        // `extra.signal` is the MCP request's cancellation signal (@hono/mcp
+        // forwards the HTTP request's abort into the transport). Threading it
+        // gives this surface the same property the HTTP one has: a client that
+        // cancels stops the generation instead of leaving it to run to
+        // completion and be billed.
+        const streamResult = await queryProfileStream({ question, callerHint, abortSignal: extra.signal })
         if ('kind' in streamResult) {
           const message = streamResult.kind === 'profile_not_found'
             ? 'Profile not found.'
@@ -159,13 +164,16 @@ function buildPublicServer(reqCtx: RequestContext): McpServer {
           caller_hint: callerHint,
           // Same reasoning as the HTTP stream path: ai@4 closes the stream
           // normally on a provider error, so without finish_reason a truncated
-          // answer is logged as if it were complete.
+          // answer is logged as if it were complete. Read synchronously after
+          // the loop — awaiting the SDK's own promise here never settled on a
+          // provider error and hung this handler until the client timed out.
+          // `latency_ms` here is wall-clock, not the generation span.
           response: {
             answer: collected,
             meta: {
               model: MODEL,
               latency_ms: Date.now() - start,
-              finish_reason: await streamResult.finishReason,
+              finish_reason: streamResult.finishReason(),
             },
           },
           latency_ms: Date.now() - start,

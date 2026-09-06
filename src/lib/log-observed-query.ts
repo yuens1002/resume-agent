@@ -62,7 +62,10 @@ function hashIp(ip: string | undefined): string | null {
  * and the provider/finish_reason diagnostics (#189) — is unit-testable without
  * a live DB. `latency_ms` is the wall-clock total; `llm_ms` / `retrieval_ms` /
  * `provider` / `finish_reason` come from the response meta and are null when
- * absent (e.g. streaming callers log a partial payload with no meta).
+ * absent. Streaming callers now supply `model` and `finish_reason` (#251) but
+ * still no `provider` or `retrieval_ms`, and their `llm_ms` is wall-clock for
+ * the whole request rather than the generation span alone — that column means
+ * different things by `source`.
  */
 export function buildObservedQueryRow(input: LogInput, ipHash: string | null) {
   return {

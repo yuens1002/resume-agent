@@ -307,9 +307,9 @@ describe('AC-10: the partial-marker guard stays in sync with the block regex', (
   // These are the marker forms that regex accepts; splitting each at every
   // index is what proves no prefix of one is released early.
   it('every exported marker form is one SOURCES_BLOCK_RE actually accepts', () => {
-    // The list and the regex are two representations of the same thing. This
-    // is the tripwire that keeps them from drifting: extending one without the
-    // other used to leave the new form exercised by nothing.
+    // One-directional by nature: this catches a listed form the regex stops
+    // accepting, but cannot catch a regex widened without adding the form here
+    // — enumeration has no way to discover what a pattern now also matches.
     for (const marker of SOURCES_MARKER_FORMS) {
       const text = `Claim [1].\n\n${marker}\n[1] publications[0]`
       assert.notEqual(
@@ -488,12 +488,25 @@ describe('AC-16: chunk boundaries inside a surrogate pair', () => {
   })
 
   it('does not corrupt astral characters in the held footer', () => {
-    const withEmojiTitle = [pub('alpha-piece', { title: 'Shipping 🚀 Agents in Production' })]
-    const answer = 'Claim [1].\n\nSources:\n[1] publications[0]'
-    assert.equal(
-      runChunks([...answer], withEmojiTitle),
-      `Claim [1].\n\nSources:\n[1] publications.alpha-piece — ${withEmojiTitle[0].canonical_url}`,
-    )
+    // Earning the name takes three things the first draft of this case lacked:
+    // an astral character inside the HELD footer (not just in a title the code
+    // never reads), a bare `publications` citation so title matching actually
+    // runs against the body, and code-UNIT splitting so a boundary can land
+    // mid-pair. Cited by index with the emoji only in the title, this test
+    // could not fail for the reason its name gave.
+    const emojiTitle = 'Shipping 🚀 Agents in Production'
+    const withEmojiTitle = [pub('alpha-piece', { title: emojiTitle }), pub('beta-piece')]
+    const answer = `He wrote ${emojiTitle} 🎧 [1].\n\nSources:\n[1] publications — 🚀`
+    const expected = reference(answer, withEmojiTitle)
+
+    assert.ok(expected.includes('publications.alpha-piece'), 'sanity: the body mention must resolve the citation')
+    for (let i = 0; i <= answer.length; i += 1) {
+      assert.equal(
+        runChunks([answer.slice(0, i), answer.slice(i)], withEmojiTitle),
+        expected,
+        `code-unit split at ${i}`,
+      )
+    }
   })
 })
 
