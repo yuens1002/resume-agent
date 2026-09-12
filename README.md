@@ -91,6 +91,11 @@ When you fork this, your agent inherits four concrete commitments — enforced b
 
 ## Architecture
 
+The private MCP also supports a structured [job pipeline feed](docs/job-pipeline-feed.md):
+recorded totals, changes since a saved cursor, and due/overdue follow-ups. It
+requires the feed migration before use and leaves downstream decision processing
+and checkpoint acknowledgement to its consumer.
+
 ```
 [Local notes / recordings / Slack]
             |
@@ -495,6 +500,7 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 - `update_stage` — Move an application to a new stage (applied → phone_screen → technical → final → offer → rejected → withdrawn)
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
+- `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)
 - `get_application` — Get full details of an application (contacts, stage history)
 - `set_follow_up` — Set a follow-up date with notes
 - `search_applications` — Search applications by company, role, JD, or notes
