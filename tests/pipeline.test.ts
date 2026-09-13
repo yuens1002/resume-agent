@@ -351,6 +351,33 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", terminalDraftAppId);
   });
 
+  it("update_stage — permits an active-stage correction back to applied", async () => {
+    const result = await callTool("log_application", {
+      company: `${TEST_COMPANY}_activecorrection`,
+      role: TEST_ROLE,
+      source: "test",
+    });
+    const match = getText(result).match(/ID: ([0-9a-f-]{36})/);
+    assert.ok(match, "Response should contain a UUID");
+    const activeAppId = match[1];
+
+    const advanced = await callTool("update_stage", { application_id: activeAppId, stage: "phone_screen" });
+    assert.match(getText(advanced), /applied.*phone_screen/);
+    const corrected = await callTool("update_stage", { application_id: activeAppId, stage: "applied" });
+    assert.match(getText(corrected), /phone_screen.*applied/);
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data: appRow } = await supabase
+      .from("job_applications")
+      .select("stage")
+      .eq("id", activeAppId)
+      .single();
+    assert.equal(appRow?.stage, "applied");
+
+    await supabase.from("job_applications").delete().eq("id", activeAppId);
+  });
+
   it("log_application — omitting is_submitted still defaults to stage 'applied' (existing callers unaffected)", async () => {
     const result = await callTool("log_application", {
       company: `${TEST_COMPANY}_defaultsubmitted`,
