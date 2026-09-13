@@ -146,6 +146,7 @@ and checkpoint acknowledgement to its consumer.
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`). Within the first stream, `metadata.source` separates hand-written notes (`mcp`) from machine entries (`sync`, `telemetry`) — surfaced as `authored` on `/observations` |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
+| `application_resumes` + `application_scores` | MCP only (private) | Durable evidence bundle per submitted application — the exact tailored resume content and file (with a content hash), plus an append-only scoring-event history |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
@@ -496,12 +497,12 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 
 **Job pipeline tools:**
 - `score_match` — Score a job description against your profile
-- `log_application` — Log a new job application (auto-scores if JD provided)
+- `log_application` — Log a new job application (auto-scores if JD provided; optionally attach the exact tailored resume content and submitted docx/pdf, stored durably with a content hash as the evidence bundle for that submission)
 - `update_stage` — Move an application to a new stage (applied → phone_screen → technical → final → offer → rejected → withdrawn)
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
 - `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)
-- `get_application` — Get full details of an application (contacts, stage history)
+- `get_application` — Get full details of an application (contacts, stage history, job description, submitted resume content, and score history)
 - `set_follow_up` — Set a follow-up date with notes
 - `search_applications` — Search applications by company, role, JD, or notes
 
