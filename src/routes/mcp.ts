@@ -617,6 +617,8 @@ function buildServer(): McpServer {
   // ── Pipeline Tools ────────────────────────────────────────
 
   const STAGES = ['draft', 'applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
+  const SUBMITTED_PIPELINE_STAGES = ['applied', 'phone_screen', 'technical', 'final', 'offer'] as const
+  const TERMINAL_STAGES = ['rejected', 'withdrawn'] as const
 
   server.registerTool(
     'score_match',
@@ -661,7 +663,7 @@ function buildServer(): McpServer {
     {
       title: 'Log Job Application',
       description:
-        'Log a new job application. If a job description is provided, automatically scores fit against the candidate profile.',
+        'Log a new job application. If a job description is provided, automatically scores fit against the candidate profile. Pass is_submitted: false to save a tailored draft; use confirm_application_submission with the exact resume evidence after it is actually sent.',
       inputSchema: {
         company: z.string().describe('Company name'),
         role: z.string().describe('Job title / role name'),
@@ -678,6 +680,14 @@ function buildServer(): McpServer {
     },
     async ({ company, role, job_description, source, url, applied_at, notes, resume_content, docx_base64, pdf_base64, is_submitted }) => {
       try {
+        const hasDraftEvidence = (resume_content !== undefined && Object.keys(resume_content).length > 0) || Boolean(docx_base64 || pdf_base64)
+        if (is_submitted === false && !hasDraftEvidence) {
+          return {
+            content: [{ type: 'text' as const, text: 'A draft application requires tailored resume_content, docx_base64, or pdf_base64 so the exact submission can be confirmed later.' }],
+            isError: true,
+          }
+        }
+
         let scoreResult: Awaited<ReturnType<typeof scoreMatch>> = null
         if (job_description) scoreResult = await scoreMatch(job_description)
 
@@ -803,6 +813,14 @@ function buildServer(): McpServer {
               const { error: removeErr } = await supabase.storage.from('resume-artifacts').remove(uploadedPaths)
               if (removeErr) console.error(`resume-artifacts cleanup failed for ${uploadedPaths.join(', ')}: ${removeErr.message}`)
             }
+            if (initialStage === 'draft') {
+              const { error: deleteErr } = await supabase.from('job_applications').delete().eq('id', data.id)
+              if (deleteErr) console.error(`draft cleanup failed for ${data.id}: ${deleteErr.message}`)
+              return {
+                content: [{ type: 'text' as const, text: `Failed to save required draft evidence: ${(evidenceErr as Error).message}` }],
+                isError: true,
+              }
+            }
             evidenceNote = `\n(evidence bundle not fully saved: ${(evidenceErr as Error).message})`
           }
         }
@@ -827,7 +845,50 @@ function buildServer(): McpServer {
         return {
           content: [{
             type: 'text' as const,
-            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}${evidenceNote}`].filter(Boolean).join('\n'),
+            text: [`Application logged: ${company} — ${role}`, `Stage: ${initialStage} | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}${evidenceNote}`].filter(Boolean).join('\n'),
+          }],
+        }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'confirm_application_submission',
+    {
+      title: 'Confirm Application Submission',
+      description: 'Atomically confirm that a draft application was sent using one exact, previously unsubmitted resume evidence record. This is the only way to move a draft to applied.',
+      inputSchema: {
+        application_id: z.string().uuid().describe('The draft application ID'),
+        resume_id: z.string().uuid().describe('The exact unsubmitted application_resumes evidence ID that was sent'),
+        note: z.string().optional().describe('Optional note about the confirmed submission'),
+      },
+    },
+    async ({ application_id, resume_id, note }) => {
+      try {
+        const { data, error } = await supabase.rpc('confirm_application_submission', {
+          p_application_id: application_id,
+          p_resume_id: resume_id,
+          p_note: note ?? null,
+        })
+
+        if (error || !data) {
+          return { content: [{ type: 'text' as const, text: `Failed to confirm application submission: ${error?.message ?? 'No confirmation returned'}` }], isError: true }
+        }
+
+        const confirmed = data as {
+          application_id: string
+          resume_id: string
+          company: string
+          role: string
+          previous_stage: string
+          stage: string
+        }
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `${confirmed.company} — ${confirmed.role}: ${confirmed.previous_stage} → ${confirmed.stage}\nConfirmed resume evidence: ${confirmed.resume_id}`,
           }],
         }
       } catch (err: unknown) {
@@ -840,7 +901,7 @@ function buildServer(): McpServer {
     'update_stage',
     {
       title: 'Update Application Stage',
-      description: 'Move a job application to a new stage and record it in the history.',
+      description: 'Move a job application to a new stage and record it in the history. To move a draft to applied, use confirm_application_submission with the exact submitted resume evidence.',
       inputSchema: {
         application_id: z.string().uuid().describe('The application ID'),
         stage: z.enum(STAGES).describe('New stage'),
@@ -854,6 +915,37 @@ function buildServer(): McpServer {
 
         if (fetchErr || !app) {
           return { content: [{ type: 'text' as const, text: `Application not found: ${application_id}` }], isError: true }
+        }
+
+        if (stage === 'draft') {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: 'Draft is a creation-only stage. Create a new draft with log_application instead of moving an existing application back to draft.',
+            }],
+            isError: true,
+          }
+        }
+
+        const entersSubmittedPipeline = SUBMITTED_PIPELINE_STAGES.includes(stage as typeof SUBMITTED_PIPELINE_STAGES[number])
+        const isTerminal = TERMINAL_STAGES.includes(app.stage as typeof TERMINAL_STAGES[number])
+        if (entersSubmittedPipeline && app.stage === 'draft') {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: 'Only confirm_application_submission can enter the submitted pipeline from a draft because it requires the exact resume evidence that was sent.',
+            }],
+            isError: true,
+          }
+        }
+        if (entersSubmittedPipeline && isTerminal) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: 'Rejected or withdrawn applications cannot re-enter the submitted pipeline. Create a new application if the role is pursued again.',
+            }],
+            isError: true,
+          }
         }
 
         const { error: updateErr } = await supabase.from('job_applications').update({ stage }).eq('id', application_id)

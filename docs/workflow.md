@@ -173,7 +173,7 @@ What it does per repo (artisan-roast, artisan-roast-platform, resume-agent):
 
 To run this automatically on Windows, configure a Task Scheduler job to run `scripts/sync-nightly.bat` on a nightly schedule. Run it manually after shipping a significant feature to keep `/info` current without waiting for the next scheduled run.
 
-Once connected, 13 tools are available across two groups:
+Once connected, 14 tools are available across two groups:
 
 **Open Brain — personal knowledge capture**
 
@@ -190,8 +190,9 @@ Once connected, 13 tools are available across two groups:
 
 | Tool | What it does |
 |---|---|
-| `log_application` | Record a new job application with company, role, JD, and auto fit-score |
-| `update_stage` | Move an application through stages (`draft`, `applied`, `phone_screen`, `technical`, `final`, `offer`, `rejected`, `withdrawn`) |
+| `log_application` | Record a new job application with company, role, JD, and auto fit-score; `is_submitted: false` requires tailored resume evidence for a confirmable draft |
+| `confirm_application_submission` | Atomically mark one exact draft resume evidence record as sent and transition that draft to `applied` |
+| `update_stage` | Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it enters submitted pipeline stages) |
 | `add_contact` | Log a contact at a company with name, role, and notes |
 | `list_applications` | List all applications with optional stage/company filters |
 | `get_application` | Full detail on one application including stage history and contacts |
