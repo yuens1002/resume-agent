@@ -11,6 +11,7 @@ const options = { windowsHide: true, timeout: 30000, maxBuffer: 2 * 1024 * 1024 
 const migration = readFileSync('supabase/migrations/20260912000000_job_pipeline_feed.sql', 'utf8')
 const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
 const draftDueWorkMigration = readFileSync('supabase/migrations/20260913000001_job_pipeline_feed_drafts.sql', 'utf8')
+const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
   .replace(/^create extension if not exists pg_trgm;$/m, '')
   .replace(/^create index .*gin_trgm_ops.*;$/gm, '')
@@ -45,6 +46,7 @@ try {
   await sql(migration)
   await sql(evidenceBundleMigration)
   await sql(draftDueWorkMigration)
+  await sql(confirmationMigration)
 
   const beforeDraft = await readFeed()
   const draftId = await sql("insert into job_applications(company,role,stage,follow_up_date) values ('draft_feed','test','draft',current_date-1) returning id;")
@@ -58,6 +60,17 @@ try {
   assert.equal(appliedFeed.changes[0].application.stage, 'applied')
   assert.ok(appliedFeed.due_work.some(application => application.application_id === draftId))
   console.log('PASS drafts: SQL migration accepts feed snapshots, excludes draft due work, and replays transition')
+
+  const confirmationAppId = await sql("insert into job_applications(company,role,stage) values ('confirmation','test','draft') returning id;")
+  const confirmationResumeId = await sql(`insert into application_resumes(application_id,resume_content,is_submitted) values ('${confirmationAppId}','{}',false) returning id;`)
+  await sql(`insert into application_stages(application_id,stage,note) values ('${confirmationAppId}','draft','tailored');`)
+  const confirmation = JSON.parse(await sql(`select confirm_application_submission('${confirmationAppId}','${confirmationResumeId}','sent');`))
+  assert.equal(confirmation.application_id, confirmationAppId)
+  assert.equal(confirmation.resume_id, confirmationResumeId)
+  assert.equal(await sql(`select stage from job_applications where id='${confirmationAppId}';`), 'applied')
+  assert.equal(await sql(`select is_submitted from application_resumes where id='${confirmationResumeId}';`), 't')
+  assert.equal(await sql(`select count(*) from application_stages where application_id='${confirmationAppId}' and stage='applied' and note='sent';`), '1')
+  console.log('PASS confirmation: PostgreSQL atomically records selected evidence, stage, and history')
 
   for (const ending of ['commit', 'rollback']) {
     const before = await readFeed()
@@ -96,7 +109,7 @@ try {
   await Promise.all([replay, writer])
   assert.deepEqual((await readFeed(beforeReplay.next_cursor)).changes.map(change => change.application.company), ['during_migration'])
   console.log('PASS migration replay: concurrent writer waits and is journaled after commit')
-  console.log('outcome=passed: four PostgreSQL scenarios')
+  console.log('outcome=passed: six PostgreSQL scenarios')
 } finally {
   if (started) await run('docker', ['stop', container], options)
   console.log(`Isolated container retained: ${container}; started=${started}, stopped=${started}`)

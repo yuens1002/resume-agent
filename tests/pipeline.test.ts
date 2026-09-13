@@ -224,7 +224,7 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", scoreOnlyAppId);
   });
 
-  it("log_application — is_submitted: false lands as stage 'draft', not 'applied'", async () => {
+  it("log_application + confirm_application_submission keep the real writer path and exact evidence consistent", async () => {
     const result = await callTool("log_application", {
       company: `${TEST_COMPANY}_draft`,
       role: TEST_ROLE,
@@ -256,11 +256,126 @@ describe("Job Hunt Pipeline", () => {
 
     const { data: resumeRows } = await supabase
       .from("application_resumes")
-      .select("is_submitted")
+      .select("id, is_submitted")
       .eq("application_id", draftAppId);
     assert.equal(resumeRows?.[0]?.is_submitted, false);
 
+    const bypass = await callTool("update_stage", {
+      application_id: draftAppId,
+      stage: "phone_screen",
+    });
+    assert.match(getText(bypass), /confirm_application_submission/);
+
+    const confirmation = await callTool("confirm_application_submission", {
+      application_id: draftAppId,
+      resume_id: resumeRows![0].id,
+      note: "Integration-test confirmation",
+    });
+    assert.match(getText(confirmation), /draft.*applied/);
+
+    const { data: confirmedApp } = await supabase
+      .from("job_applications")
+      .select("stage")
+      .eq("id", draftAppId)
+      .single();
+    assert.equal(confirmedApp?.stage, "applied");
+
+    const { data: confirmedResumeRows } = await supabase
+      .from("application_resumes")
+      .select("id, is_submitted")
+      .eq("application_id", draftAppId);
+    assert.equal(confirmedResumeRows?.length, 1);
+    assert.equal(confirmedResumeRows?.[0]?.id, resumeRows![0].id);
+    assert.equal(confirmedResumeRows?.[0]?.is_submitted, true);
+
+    const { data: confirmedStageRows } = await supabase
+      .from("application_stages")
+      .select("stage, note")
+      .eq("application_id", draftAppId);
+    assert.equal(confirmedStageRows?.filter(row => row.stage === "draft").length, 1);
+    assert.equal(confirmedStageRows?.filter(row => row.stage === "applied").length, 1);
+    assert.ok(confirmedStageRows?.some(row => row.stage === "applied" && row.note === "Integration-test confirmation"));
+
     await supabase.from("job_applications").delete().eq("id", draftAppId);
+  });
+
+  it("log_application — rejects a draft without durable resume evidence", async () => {
+    const result = await callTool("log_application", {
+      company: `${TEST_COMPANY}_missingdraftproof`,
+      role: TEST_ROLE,
+      source: "test",
+      is_submitted: false,
+    });
+    const text = getText(result);
+    assert.match(text, /requires tailored resume_content, docx_base64, or pdf_base64/);
+    assert.doesNotMatch(text, /ID: [0-9a-f-]{36}/);
+  });
+
+  it("update_stage — cannot revive a terminal draft into the submitted pipeline without confirmation evidence", async () => {
+    const result = await callTool("log_application", {
+      company: `${TEST_COMPANY}_terminaldraft`,
+      role: TEST_ROLE,
+      source: "test",
+      resume_content: { summary: "Terminal draft summary" },
+      is_submitted: false,
+    });
+    const match = getText(result).match(/ID: ([0-9a-f-]{36})/);
+    assert.ok(match, "Response should contain a UUID");
+    const terminalDraftAppId = match[1];
+
+    const rejected = await callTool("update_stage", {
+      application_id: terminalDraftAppId,
+      stage: "rejected",
+    });
+    assert.match(getText(rejected), /draft.*rejected/);
+
+    for (const stage of ["applied", "phone_screen"]) {
+      const bypass = await callTool("update_stage", { application_id: terminalDraftAppId, stage });
+      assert.match(getText(bypass), /cannot re-enter the submitted pipeline/);
+    }
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data: appRow } = await supabase
+      .from("job_applications")
+      .select("stage")
+      .eq("id", terminalDraftAppId)
+      .single();
+    assert.equal(appRow?.stage, "rejected");
+    const { data: resumeRows } = await supabase
+      .from("application_resumes")
+      .select("is_submitted")
+      .eq("application_id", terminalDraftAppId);
+    assert.equal(resumeRows?.[0]?.is_submitted, false);
+
+    await supabase.from("job_applications").delete().eq("id", terminalDraftAppId);
+  });
+
+  it("update_stage — permits an active-stage correction back to applied", async () => {
+    const result = await callTool("log_application", {
+      company: `${TEST_COMPANY}_activecorrection`,
+      role: TEST_ROLE,
+      source: "test",
+    });
+    const match = getText(result).match(/ID: ([0-9a-f-]{36})/);
+    assert.ok(match, "Response should contain a UUID");
+    const activeAppId = match[1];
+
+    const advanced = await callTool("update_stage", { application_id: activeAppId, stage: "phone_screen" });
+    assert.match(getText(advanced), /applied.*phone_screen/);
+    const corrected = await callTool("update_stage", { application_id: activeAppId, stage: "applied" });
+    assert.match(getText(corrected), /phone_screen.*applied/);
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data: appRow } = await supabase
+      .from("job_applications")
+      .select("stage")
+      .eq("id", activeAppId)
+      .single();
+    assert.equal(appRow?.stage, "applied");
+
+    await supabase.from("job_applications").delete().eq("id", activeAppId);
   });
 
   it("log_application — omitting is_submitted still defaults to stage 'applied' (existing callers unaffected)", async () => {
