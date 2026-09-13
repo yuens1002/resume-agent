@@ -9,6 +9,8 @@ const run = promisify(execFile)
 const container = `job-feed-check-${randomUUID()}`
 const options = { windowsHide: true, timeout: 30000, maxBuffer: 2 * 1024 * 1024 }
 const migration = readFileSync('supabase/migrations/20260912000000_job_pipeline_feed.sql', 'utf8')
+const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
+const draftDueWorkMigration = readFileSync('supabase/migrations/20260913000001_job_pipeline_feed_drafts.sql', 'utf8')
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
   .replace(/^create extension if not exists pg_trgm;$/m, '')
   .replace(/^create index .*gin_trgm_ops.*;$/gm, '')
@@ -38,8 +40,24 @@ try {
   started = true
   await waitFor(async () => { try { return Number(await sql('select 1;')) === 1 } catch { return false } })
   await sql("create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create function auth.role() returns text language sql as $$ select current_user::text $$;")
+  await sql('create schema storage; create table storage.buckets (id text primary key, name text, public boolean); create table storage.objects (bucket_id text);')
   await sql(baseline)
   await sql(migration)
+  await sql(evidenceBundleMigration)
+  await sql(draftDueWorkMigration)
+
+  const beforeDraft = await readFeed()
+  const draftId = await sql("insert into job_applications(company,role,stage,follow_up_date) values ('draft_feed','test','draft',current_date-1) returning id;")
+  const draftFeed = await readFeed(beforeDraft.next_cursor)
+  assert.equal(draftFeed.summary.by_stage.draft, (beforeDraft.summary.by_stage.draft ?? 0) + 1)
+  assert.equal(draftFeed.changes[0].application.stage, 'draft')
+  assert.ok(!draftFeed.due_work.some(application => application.application_id === draftId))
+  assert.deepEqual((await readFeed(beforeDraft.next_cursor)).changes, draftFeed.changes)
+  await sql(`update job_applications set stage='applied' where id='${draftId}';`)
+  const appliedFeed = await readFeed(draftFeed.next_cursor)
+  assert.equal(appliedFeed.changes[0].application.stage, 'applied')
+  assert.ok(appliedFeed.due_work.some(application => application.application_id === draftId))
+  console.log('PASS drafts: SQL migration accepts feed snapshots, excludes draft due work, and replays transition')
 
   for (const ending of ['commit', 'rollback']) {
     const before = await readFeed()

@@ -12,6 +12,47 @@ Independent AC verification, line-level code/test review and main-thread holisti
 review are complete. Human Reviewer cells remain blank. Release and the overall
 decision-loop thesis are NOT verified.
 
+## Amendment: #259 draft-feed repair (2026-09-13)
+
+**Reviewed base:** `e36c9dadfb1d54dec67881fdd5460aa4ae99fd1b`; workspace
+changes are the pending #259 commit. **Verdict:** clear for the bounded feed
+repair. Draft snapshots are accepted by the runtime contract, remain in recorded
+totals and stage counts, and are omitted only from due work by the forward RPC
+migration. Cursor, unknown-stage refusal, private-route authentication, and
+overflow behavior remain covered.
+
+Independent review identified one P1 in the #258 writer path: the evidence-bundle
+migration permits `job_applications.stage = draft`, but not the corresponding
+`application_stages` history value; the current writer compensates by deleting the
+application on a history failure. It also has no explicit operation that selects a
+generated resume as the submitted one while moving a draft to applied. These are
+outside the feed-only repair and are tracked separately in #260; no source or
+production claim here treats a tailored resume as confirmed submission.
+
+### #259 evidence
+
+- `npm run build` passed.
+- `npm run test:job-feed` passed 18 focused feed/auth tests: direct SQL insertion,
+  summaries, overdue-draft exclusion, transition to applied, stable cursor replay,
+  unknown-stage refusal, migration replay, private registration and auth.
+- `npm run test:job-feed-postgres` passed an isolated PostgreSQL 16 chain with the
+  evidence and forward feed migrations, then the existing commit/rollback ordering,
+  migration-failure recovery and concurrent migration-replay scenarios.
+- `npm run test:unit` passed 710 tests with synthetic, non-production service/model
+  environment values. An unconfigured first attempt failed only at unrelated module
+  environment guards; no source change was made to accommodate it.
+
+### #259 docs and hygiene audit
+
+README and workflow stage listings, the feed contract, plan and AC rows now name
+draft semantics consistently. The contract distinguishes recorded rows from
+confirmed submissions and names the prerequisite migration order. No changed
+document adds private credentials, personal data, or a claim of deployed readback.
+Anchor, count, deictic-reference, retraction-propagation and same-document
+contradiction checks were clean after the final change. Production migration,
+matching deployed source revision, authenticated feed readback, and downstream
+outcome evidence remain release gates rather than source-test evidence.
+
 ## Executed evidence
 
 - npm run test:unit: 15 focused feed tests via pretest, then 710 existing unit

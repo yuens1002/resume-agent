@@ -498,7 +498,7 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 **Job pipeline tools:**
 - `score_match` — Score a job description against your profile
 - `log_application` — Log a new job application (auto-scores if JD provided; optionally attach the exact tailored resume content and submitted docx/pdf, stored durably with a content hash as the evidence bundle for that submission)
-- `update_stage` — Move an application to a new stage (applied → phone_screen → technical → final → offer → rejected → withdrawn)
+- `update_stage` — Move an application to a new stage (draft → applied → phone_screen → technical → final → offer → rejected → withdrawn)
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
 - `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)

@@ -7,7 +7,7 @@ export const JobFeedInputSchema = z.object({
   cursor: JobFeedCursorSchema.optional(),
   timezone: z.string().min(1).max(100).default('UTC'),
 }).strict()
-const StageSchema = z.enum(['applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'])
+const StageSchema = z.enum(['draft', 'applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'])
 const ApplicationSchema = z.object({
   application_id: z.string().uuid(), company: z.string(), role: z.string(), stage: StageSchema,
   applied_at: z.string().datetime({ offset: true }),
