@@ -1,7 +1,10 @@
 # Job pipeline feed
 
 `get_job_pipeline_feed` is an additive private MCP tool, available after applying
-`20260912000000_job_pipeline_feed.sql` and deploying the matching application.
+`20260912000000_job_pipeline_feed.sql`,
+`20260913000000_application_evidence_bundle.sql`, and
+`20260913000001_job_pipeline_feed_drafts.sql`, then deploying the matching
+application.
 It returns JSON text containing `{status: "ok", feed}` or
 `{status: "refused", code}` with MCP `isError`. It does not change applications
 or acknowledge downstream processing.
@@ -18,16 +21,17 @@ and the exact `next_cursor` object from the last durably processed response as
 The feed contains:
 
 - `summary.recorded_applications`: lifetime count of currently stored application
-  rows, including terminal stages. Deleting a row reduces this count. This is not
-  an independently verified total of real-world submissions. `by_stage` gives
-  current counts; absent stages have zero stored rows.
+  rows, including drafts and terminal stages. Deleting a row reduces this count.
+  This is not an independently verified total of real-world submissions.
+  `by_stage` gives current counts; absent stages have zero stored rows.
 - `changes`: relevant application inserts, updates, and deletes after the cursor,
   with stable journal sequence IDs and minimal source snapshots. Captured fields
   are identity, company, role, stage, applied time and follow-up date. Notes,
   resumes, contacts, raw email bodies and scoring details are not included.
-- `due_work`: current open applications with follow-up date on/before the local
-  date. Rejected/withdrawn entries are excluded. Offers remain actionable. This
-  is evaluated even when changes is empty; passage of time is an input.
+- `due_work`: current applied-or-later, non-terminal applications with a follow-up
+  date on/before the local date. Draft, rejected, and withdrawn entries are
+  excluded. Offers remain actionable. This is evaluated even when changes is
+  empty; passage of time is an input.
 - `as_of`, `history_available_since`, `baseline`, `next_cursor`: provenance and
   processing boundary. All collections and totals use one database snapshot.
 
@@ -60,14 +64,15 @@ Out-of-band writes that disable triggers or replace tables invalidate the feed.
 
 ## Rollout and verification
 
-The migration owns its BEGIN/COMMIT transaction; run the file through psql with
-ON_ERROR_STOP, without wrapping it in another transaction. It takes a source-table
-write lock (five-second acquisition timeout), so reapplication cannot expose a
-missing-trigger window. Retry a lock timeout later, not by removing the lock.
-It adds tables, a trigger and RPC; it does not backfill events or change existing
-application values. Application writes fail if their journal append fails.
-Reapplying preserves identity and history. Check migration status and the RPC
-under the deployed service identity before enabling a consumer.
+The original feed migration owns its BEGIN/COMMIT transaction; run each migration
+file through psql with ON_ERROR_STOP, without wrapping it in another transaction.
+The original takes a source-table write lock (five-second acquisition timeout), so
+reapplication cannot expose a missing-trigger window. Retry a lock timeout later,
+not by removing the lock. The draft follow-up migration replaces only the feed RPC:
+it does not backfill events or rewrite existing application values. Application
+writes fail if their journal append fails. Reapplying the draft migration preserves
+journal identity and history. Check migration status and the RPC under the deployed
+service identity before enabling a consumer.
 
 The RPC and journal are inaccessible to anonymous/authenticated database roles.
 The MCP tool inherits private-route auth. A tool's read-only annotation does not

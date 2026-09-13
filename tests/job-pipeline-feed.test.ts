@@ -10,6 +10,8 @@ import { registerJobPipelineFeed } from '../src/lib/job-pipeline-feed-tool.js'
 
 const migration = readFileSync('supabase/migrations/20260912000000_job_pipeline_feed.sql', 'utf8')
 const original = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
+const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
+const draftDueWorkMigration = readFileSync('supabase/migrations/20260913000001_job_pipeline_feed_drafts.sql', 'utf8')
 // PGlite lacks this optional index extension. Table/constraints/triggers/RLS
 // and the entire new migration execute unchanged.
 const baseline = original.replace(/^create extension if not exists pg_trgm;$/m, '')
@@ -29,9 +31,12 @@ const addApplication = async (followUp: string | null = null, stage = 'applied')
 }
 before(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create function auth.role() returns text language sql as $$ select current_user::text $$;")
+  await db.exec('create schema storage; create table storage.buckets (id text primary key, name text, public boolean); create table storage.objects (bucket_id text);')
   await db.exec(baseline)
   await db.exec("insert into job_applications(company, role) select 'Historical ' || n, 'Role' from generate_series(1, 150) n")
   await db.exec(migration)
+  await db.exec(evidenceBundleMigration)
+  await db.exec(draftDueWorkMigration)
 })
 after(() => db.close())
 
@@ -92,6 +97,25 @@ describe('job feed production SQL', () => {
     assert.notDeepEqual(west.due_work, east.due_work)
     assert.deepEqual(west.changes, east.changes)
   })
+  it('AC-03/05 draft rows cross the SQL-to-feed boundary, remain recorded, and become due after application', async () => {
+    const start = await queryFeed()
+    const { rows: [{ overdue }] } = await db.query<{ overdue: string }>("select (current_date-1)::text as overdue")
+    const draftId = await addApplication(overdue, 'draft')
+
+    const draftFeed = await queryFeed(start.next_cursor)
+    assert.equal(draftFeed.summary.recorded_applications, start.summary.recorded_applications + 1)
+    assert.equal(draftFeed.summary.by_stage.draft, (start.summary.by_stage.draft ?? 0) + 1)
+    assert.equal(draftFeed.changes[0].application.stage, 'draft')
+    assert.ok(!draftFeed.due_work.some(application => application.application_id === draftId))
+    assert.deepEqual((await queryFeed(start.next_cursor)).changes, draftFeed.changes)
+
+    await db.query("update job_applications set stage='applied' where id=$1", [draftId])
+    const appliedFeed = await queryFeed(draftFeed.next_cursor)
+    assert.equal(appliedFeed.changes.length, 1)
+    assert.equal(appliedFeed.changes[0].application.stage, 'applied')
+    assert.ok(appliedFeed.due_work.some(application => application.application_id === draftId))
+    assert.deepEqual((await queryFeed(draftFeed.next_cursor)).changes, appliedFeed.changes)
+  })
   it('AC-04 rejects wrong generation, future sequence and invalid timezone', async () => {
     const feed = await queryFeed()
     await assert.rejects(queryFeed({ ...feed.next_cursor, generation: '00000000-0000-0000-0000-000000000000' }), /cursor/)
@@ -107,7 +131,7 @@ describe('job feed production SQL', () => {
       const sequences = feed.changes.map(change => BigInt(change.sequence))
       assert.equal(sequences.length, 12)
       assert.deepEqual(sequences, [...sequences].sort((left, right) => left < right ? -1 : left > right ? 1 : 0))
-      const due = await db.query<{ id: string }>("select id from job_applications where follow_up_date<=current_date and stage not in ('rejected','withdrawn') order by follow_up_date,id")
+      const due = await db.query<{ id: string }>("select id from job_applications where follow_up_date<=current_date and stage not in ('draft','rejected','withdrawn') order by follow_up_date,id")
       assert.ok(due.rows.length >= 12)
       assert.deepEqual(feed.due_work.map(application => application.application_id), due.rows.map(application => application.id))
     } finally { await db.exec('rollback') }
@@ -137,12 +161,12 @@ describe('job feed production SQL', () => {
     assert.ok((await queryFeed()).summary.recorded_applications > 100)
     await db.exec('reset role')
   })
-  it('AC-01/04 rerunning migration preserves journal identity and records', async () => {
+  it('AC-01/04 rerunning the draft due-work migration preserves journal identity and records', async () => {
     await addApplication()
     const before = await queryFeed()
     const beforeJournal = await db.query('select * from job_pipeline_changes order by sequence')
     assert.ok(beforeJournal.rows.length > 0)
-    await db.exec(migration)
+    await db.exec(draftDueWorkMigration)
     const after = await queryFeed()
     assert.deepEqual(after.next_cursor, before.next_cursor)
     assert.deepEqual(after.summary, before.summary)
@@ -173,6 +197,17 @@ describe('job feed adapter and MCP registration', () => {
       assert.equal(result.status, 'refused')
       assert.ok(!JSON.stringify(result).includes('cursor') && !JSON.stringify(result).includes('private connection'))
     }
+  })
+  it('AC-05 unknown source stages refuse without returning a cursor', async () => {
+    const feed = await queryFeed()
+    const result = await readJobPipelineFeed({}, async () => ({
+      data: {
+        ...feed,
+        summary: { ...feed.summary, by_stage: { ...feed.summary.by_stage, unknown_stage: 1 } },
+      },
+      error: null,
+    }))
+    assert.deepEqual(result, { status: 'refused', code: 'invalid_source_payload' })
   })
   it('AC-05 malformed inputs refuse without invoking RPC', async () => {
     let calls = 0
