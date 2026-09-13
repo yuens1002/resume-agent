@@ -36,7 +36,8 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 
 ## In progress
 
-_None right now._
+- Job pipeline summary/change/due-work feed (#256): source verified; production
+  activation and end-to-end decision evidence pending.
 
 ---
 

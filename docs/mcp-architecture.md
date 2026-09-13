@@ -2,7 +2,7 @@
 
 Two MCP routes ship as part of the main Hono server:
 
-- **`/mcp`** — **private**, authenticated. Exposes the full 15-tool surface (Open Brain + job pipeline). Source: `src/routes/mcp.ts`.
+- **`/mcp`** — **private**, authenticated. Exposes Open Brain and job pipeline tools, including the [structured pipeline feed](job-pipeline-feed.md). Source: `src/routes/mcp.ts`.
 - **`/public-mcp`** — **public**, no auth, rate-limited. Exposes a single tool, `ask_candidate`, wrapping the same core logic as HTTP `POST /query`. Source: `src/routes/public-mcp.ts`.
 
 Shared infrastructure (CORS headers, origin allowlist) lives in `src/lib/mcp-common.ts`.

@@ -15,6 +15,7 @@ import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { mergePublication } from '../lib/publications.js'
+import { registerJobPipelineFeed } from '../lib/job-pipeline-feed-tool.js'
 import type { Project, Publication } from '../types.js'
 
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
@@ -73,6 +74,7 @@ Only extract what's explicitly there.`,
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: 'open-brain', version: '1.0.0' })
+  registerJobPipelineFeed(server, (name, args) => supabase.rpc(name, args))
 
   // ── Thoughts Tools ────────────────────────────────────────
 
