@@ -96,6 +96,12 @@ cannot substitute for these receipts.
 
 ## Human handoff
 
+2026-09-13: operator explicitly approved merge, production activation and
+verification, with discovered deficiencies tracked and #256 closed only after
+its source acceptance is proven. Live proof is a post-deployment gate, not a
+merge prerequisite. Release version prepared: 0.4.115. The approval does not
+stand in for a real job-follow-up disposition or authorize an outbound message.
+
 Review the ACs and this report before release. No migration, deployment, merge,
 version release or operator delivery has occurred. The workflow release and
 post-release retrospective phases remain pending. The planned multi-commit
