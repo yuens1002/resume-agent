@@ -15,4 +15,4 @@ Plan: plan.md. Role for every row: /backend-architect. Reviewer cells are reserv
 
 Thesis evidence is a separate activation gate in the cross-repo appendix. It cannot be marked passed by these source ACs.
 
-AC-04 concurrency ordering is inspection evidence only; a two-connection experiment remains required before activation. AC-06 verifies local transport/auth and SQL privileges, not deployed access. Independent line review found and corrected defects after the initial AC pass; the final verification includes those corrections.
+Initial AC-04 concurrency evidence was inspection only. On 2026-09-13 the isolated PostgreSQL runner additionally passed commit/rollback ordering, migration failure recovery and concurrent migration replay. AC-06 remains local transport/auth and SQL privileges, not deployed access. External review then corrected migration atomicity, aggregate ordering and AC-02's combined-mutation coverage; final release verification must include those fixes. The original 15-test pass did not prove them.

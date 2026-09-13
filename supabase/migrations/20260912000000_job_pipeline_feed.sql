@@ -1,4 +1,10 @@
 -- Minimal source journal; no historical events are fabricated on installation.
+-- db:push uses psql per file, without an outer transaction. Own this boundary
+-- so a failed/replayed migration cannot expose a missing capture trigger.
+begin;
+set local lock_timeout = '5s';
+lock table public.job_applications in share row exclusive mode;
+
 create table if not exists public.job_pipeline_feed_identity (
   singleton boolean primary key default true check (singleton),
   generation uuid not null default gen_random_uuid(),
@@ -21,14 +27,16 @@ grant select on public.job_pipeline_changes, public.job_pipeline_feed_identity t
 create or replace function public.capture_job_pipeline_change()
 returns trigger language plpgsql security definer set search_path = pg_catalog, public as $$
 declare
+  source_application public.job_applications%rowtype;
   current_application jsonb;
   previous_application jsonb;
 begin
-  current_application := case when TG_OP = 'DELETE' then to_jsonb(OLD) else to_jsonb(NEW) end;
+  if TG_OP = 'DELETE' then source_application := OLD;
+  else source_application := NEW; end if;
   select jsonb_build_object(
-    'application_id', current_application->'id', 'company', current_application->'company',
-    'role', current_application->'role', 'stage', current_application->'stage',
-    'applied_at', current_application->'applied_at', 'follow_up_date', current_application->'follow_up_date'
+    'application_id', source_application.id, 'company', source_application.company,
+    'role', source_application.role, 'stage', source_application.stage,
+    'applied_at', source_application.applied_at, 'follow_up_date', source_application.follow_up_date
   ) into current_application;
   if TG_OP = 'UPDATE' then
     previous_application := jsonb_build_object(
@@ -90,8 +98,8 @@ begin
     'summary', jsonb_build_object(
       'recorded_applications', (select count(*) from public.job_applications),
       'by_stage', coalesce((select jsonb_object_agg(stage, count) from stage_counts), '{}'::jsonb)),
-    'changes', coalesce((select jsonb_agg(changed) from changed), '[]'::jsonb),
-    'due_work', coalesce((select jsonb_agg(due) from due), '[]'::jsonb),
+    'changes', coalesce((select jsonb_agg(changed order by changed.sequence::bigint) from changed), '[]'::jsonb),
+    'due_work', coalesce((select jsonb_agg(due order by due.follow_up_date, due.application_id) from due), '[]'::jsonb),
     'invalid_cursor', p_generation is not null and (p_generation <> generation or p_after_sequence > high_water),
     'overflow', (select count(*) > 1000 from changed) or (select count(*) > 1000 from due)
   ) into envelope from bounds;
@@ -108,3 +116,4 @@ end;
 $$;
 revoke all on function public.get_job_pipeline_feed(uuid, bigint, text) from public, anon, authenticated;
 grant execute on function public.get_job_pipeline_feed(uuid, bigint, text) to service_role;
+commit;

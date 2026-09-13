@@ -60,7 +60,10 @@ Out-of-band writes that disable triggers or replace tables invalidate the feed.
 
 ## Rollout and verification
 
-Apply the migration transactionally through the normal database release process.
+The migration owns its BEGIN/COMMIT transaction; run the file through psql with
+ON_ERROR_STOP, without wrapping it in another transaction. It takes a source-table
+write lock (five-second acquisition timeout), so reapplication cannot expose a
+missing-trigger window. Retry a lock timeout later, not by removing the lock.
 It adds tables, a trigger and RPC; it does not backfill events or change existing
 application values. Application writes fail if their journal append fails.
 Reapplying preserves identity and history. Check migration status and the RPC
@@ -74,8 +77,11 @@ tracked in #247.
 Run `npm run test:job-feed` for real SQL in embedded PostgreSQL, schema/adapter
 tests, MCP registration and private/public route tests. The embedded database is
 single-connection: these tests do not demonstrate concurrent transaction behavior
-or production deployment. Production activation additionally needs two-connection
-commit/rollback ordering tests and an authenticated readback. Record that evidence
+or production deployment. Run `npm run test:job-feed-postgres` with Docker available
+for isolated PostgreSQL 16 commit/rollback ordering, migration failure recovery and
+concurrent migration replay checks. It uses no production credentials or network
+and retains stopped test containers for inspection. Production activation also
+requires an authenticated deployed readback. Record that evidence
 separately; a successful build is not a live readback.
 
 The external decision consumer must prove intake, queue visibility, delivery,

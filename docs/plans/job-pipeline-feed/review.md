@@ -75,11 +75,11 @@ payload was added to documentation. Diff review found no unrelated changes.
 
 ## Carried deficiencies and activation gates
 
-- The database journal lock ordering and STABLE snapshot are inspected, not
-  experimentally verified with two concurrent connections. Local PostgreSQL
-  lacked postgres.bki and Docker had no running daemon. No database was started
-  and no production connection was used. Commit/rollback ordering needs a
-  two-connection check before activation.
+- Initial verification inspected locking only: local PostgreSQL lacked
+  postgres.bki and Docker was unavailable. On 2026-09-13 Docker became available;
+  the added isolated PostgreSQL runner passed commit/rollback ordering, forced
+  migration failure recovery and migration replay with a concurrent writer.
+  The initial pass did not prove these properties; the new evidence does.
 - Migration application and deployed authenticated readback are pending.
 - The existing private MCP credential remains broader than read-only (#247).
 - Unlogged submissions, historical data contamination and conversion definitions
@@ -95,6 +95,39 @@ dated deferral, terminal run state and a duplicate-free next run. Source tests
 cannot substitute for these receipts.
 
 ## Human handoff
+
+### External review fix round (2026-09-13)
+
+Copilot round 1 on d2c16a7 found migration replay atomicity, aggregate ordering
+and an AC-02 test combining two separately required mutations. All were valid:
+the migration now owns BEGIN/COMMIT and locks the source table; both arrays order
+inside jsonb_agg; stage/date mutations are tested separately. The suppressed
+full-row JSON serialization concern was also fixed by selecting minimal fields
+from a typed source row. Production code and test fixes receive independent
+review before the second external round. A new numeric/date ordering test brings
+the focused suite to 16; the four Docker scenarios are reported separately.
+
+The operational runner uses psql -f - like db:push, not a single -c batch that
+could hide missing explicit transaction boundaries. It injects failure and
+delay at the trigger replacement boundary and checks actual subsequent writes.
+Reference: PostgreSQL 17 aggregate-function ordering and explicit-locking docs.
+
+Final fix-round evidence: independent AC verification reran 16 focused tests,
+710 existing units, build and AC gate successfully. Production and test reviewers
+each observed all four Docker scenarios pass. The test reviewer also removed the
+transaction/lock boundary in memory in an isolated database; the preservation
+assertion failed (zero triggers instead of one), proving it catches the original
+defect. No production access was used for these tests. Main-thread holistic
+recheck reconciled the contract, AC correction, plan refinement, changelog and
+test scripts against the final diff; no remaining source blocker found.
+
+Base checks for the fix: actual db:push and sibling migration were read; official
+PostgreSQL aggregate/lock references consulted; state stays in the source DB;
+existing feed schema and registration remain shared; no new variants, business
+labels or abstraction introduced; minimal field projection retains the declared
+contract. New operational test runner uses explicit synthetic-only resource names
+and no deployment credentials. Duplication check found no second feed consumer.
+Claims above are executed observations, not inferred from a successful build.
 
 2026-09-13: operator explicitly approved merge, production activation and
 verification, with discovered deficiencies tracked and #256 closed only after

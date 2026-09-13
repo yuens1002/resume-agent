@@ -30,6 +30,12 @@ The reader never acknowledges processing. It returns a proposed next cursor; sha
 
 ## Sequence
 
+Release refinement (2026-09-13): D4 also includes the disposable Docker/psql
+runner scripts/verify-job-feed-postgres.mjs for two-connection ordering and
+migration replay/failure recovery. The migration owns its transaction boundary
+because the existing db:push runner does not supply one. This is part of D1/D4,
+not a new downstream consumer implementation.
+
 1. Plan and ACs; mechanical coverage and anti-drift checks.
 2. Implement D1-D3 and D4; build and relevant regression suite.
 3. Independent AC verification, line-level review, holistic review, human review.
