@@ -95,9 +95,26 @@ create index if not exists application_scores_resume_id_idx on application_score
 -- nothing would catch it. NULL in either FK column still exempts the row
 -- (MATCH SIMPLE, Postgres's default), so a jd_fit score recorded with no
 -- resume attached is unaffected.
+--
+-- Wrapped in an explicit transaction: db-push runs this whole file with
+-- ON_ERROR_STOP but no outer transaction, so DROP then ADD as two
+-- autocommitted statements would leave application_scores with NO foreign
+-- key at all — not even the old single-column one — if the ADD ever failed
+-- (e.g. a pre-existing row with a genuinely cross-application resume_id).
+-- BEGIN/COMMIT makes the pair atomic: a failed ADD rolls back the DROP too.
+--
+-- ON DELETE SET NULL (resume_id) — the column-list form, not the bare
+-- `on delete set null` used before this fix. For a COMPOSITE foreign key,
+-- unqualified SET NULL nulls every referencing column, which here would
+-- include application_id — a NOT NULL column — turning a resume delete into
+-- a failed delete instead of the intended "keep the score, drop the resume
+-- link" behavior.
+begin;
 alter table application_scores drop constraint if exists application_scores_resume_id_fkey;
 alter table application_scores add constraint application_scores_resume_id_fkey
-  foreign key (application_id, resume_id) references application_resumes (application_id, id) on delete set null;
+  foreign key (application_id, resume_id) references application_resumes (application_id, id)
+  on delete set null (resume_id);
+commit;
 
 -- ── RLS ───────────────────────────────────────────────────
 alter table application_resumes enable row level security;
@@ -112,7 +129,15 @@ create policy "Service role full access" on application_scores
   for all using (auth.role() = 'service_role');
 
 -- ── Grants ────────────────────────────────────────────────
-grant select, insert, update, delete on table public.application_resumes to service_role;
+-- No update/delete here either: application_resumes is the durable
+-- versioned evidence — a later writer rewriting resume_content/hashes/urls
+-- in place instead of inserting a new version would defeat the whole
+-- point (and could orphan a blob whose hash no longer matches any row).
+-- Same REVOKE-then-GRANT reasoning as application_scores below: this
+-- table's first migration run granted update/delete too, and a narrower
+-- GRANT alone never retracts that.
+revoke update, delete on table public.application_resumes from service_role;
+grant select, insert on table public.application_resumes to service_role;
 -- No update/delete: application_scores is documented as append-only above —
 -- the RLS policy alone doesn't enforce that (`for all` covers every
 -- operation the grant permits), so this is the actual enforcement layer. A

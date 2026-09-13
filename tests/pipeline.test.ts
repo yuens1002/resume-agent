@@ -161,6 +161,44 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", evidenceAppId);
   });
 
+  it("log_application — attaches a PDF-only evidence bundle (separate upload/hash path from docx)", async () => {
+    const pdfBytes = Buffer.from("fake pdf bytes for pipeline test");
+    const result = await callTool("log_application", {
+      company: `${TEST_COMPANY}_pdfonly`,
+      role: TEST_ROLE,
+      source: "test",
+      resume_content: { summary: "PDF-only summary" },
+      pdf_base64: pdfBytes.toString("base64"),
+    });
+    const text = getText(result);
+    assert.doesNotMatch(text, /evidence bundle not fully saved/);
+
+    const match = text.match(/ID: ([0-9a-f-]{36})/);
+    assert.ok(match, "Response should contain a UUID");
+    const pdfAppId = match[1];
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data: resumeRows } = await supabase
+      .from("application_resumes")
+      .select("pdf_url, pdf_hash, docx_url, docx_hash")
+      .eq("application_id", pdfAppId);
+    assert.equal(resumeRows?.length, 1);
+    assert.equal(resumeRows![0].pdf_hash, createHash("sha256").update(pdfBytes).digest("hex"));
+    assert.equal(resumeRows![0].docx_url, null, "No docx was sent, so docx_url must stay null");
+    assert.equal(resumeRows![0].docx_hash, null);
+
+    const { data: fileData, error: downloadErr } = await supabase.storage
+      .from("resume-artifacts")
+      .download(resumeRows![0].pdf_url);
+    assert.ok(!downloadErr, `PDF blob should be downloadable: ${downloadErr?.message}`);
+    const downloadedBuf = Buffer.from(await fileData!.arrayBuffer());
+    assert.equal(downloadedBuf.toString(), pdfBytes.toString());
+
+    await supabase.storage.from("resume-artifacts").remove([resumeRows![0].pdf_url]);
+    await supabase.from("job_applications").delete().eq("id", pdfAppId);
+  });
+
   it("log_application — records the jd_fit score even when no resume evidence is attached", async () => {
     const result = await callTool("log_application", {
       company: `${TEST_COMPANY}_scoreonly`,
