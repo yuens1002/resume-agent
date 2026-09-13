@@ -1,4 +1,5 @@
 import '../lib/env.js'
+import { createHash, randomUUID } from 'node:crypto'
 import { timingSafeEqual } from '../lib/crypto.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPTransport } from '@hono/mcp'
@@ -10,7 +11,7 @@ import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { invalidateProfileCache } from '../lib/profile-cache.js'
 import { parseJSON } from '../lib/parse-json.js'
-import { scoreMatch } from '../lib/score-match.js'
+import { scoreMatch, MATCH_MODEL } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
@@ -615,7 +616,7 @@ function buildServer(): McpServer {
 
   // ── Pipeline Tools ────────────────────────────────────────
 
-  const STAGES = ['applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
+  const STAGES = ['draft', 'applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
 
   server.registerTool(
     'score_match',
@@ -669,17 +670,30 @@ function buildServer(): McpServer {
         url: z.string().optional().describe('Job posting URL'),
         applied_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Date applied if not today, e.g. 2026-03-25'),
         notes: z.string().optional().describe('Any initial notes about the role or company'),
+        resume_content: z.record(z.unknown()).optional().describe('The exact structured tailored-resume object that was generated for this submission — stored verbatim as the durable evidence record'),
+        docx_base64: z.string().optional().describe('The submitted .docx file, base64-encoded — stored durably with a content hash'),
+        pdf_base64: z.string().optional().describe('The submitted .pdf file, base64-encoded — stored durably with a content hash'),
+        is_submitted: z.boolean().optional().describe('Whether this resume version was actually sent to the employer, as opposed to tailored/staged but not yet confirmed submitted. Defaults to true — pass false for a call that logs ahead of confirmed submission (e.g. an automated tailoring pass a human hasn\'t applied with yet).'),
       },
     },
-    async ({ company, role, job_description, source, url, applied_at, notes }) => {
+    async ({ company, role, job_description, source, url, applied_at, notes, resume_content, docx_base64, pdf_base64, is_submitted }) => {
       try {
         let scoreResult: Awaited<ReturnType<typeof scoreMatch>> = null
         if (job_description) scoreResult = await scoreMatch(job_description)
+
+        // A caller logging ahead of confirmed submission (is_submitted:
+        // false) must not land in 'applied' — every stage-driven consumer
+        // (the pipeline feed's by_stage totals, job-hunt-agent's
+        // already-applied dedupe checks) trusts stage as ground truth for
+        // "this was actually sent", and would silently treat a merely-
+        // tailored entry as a real submission otherwise.
+        const initialStage = (is_submitted ?? true) ? 'applied' : 'draft'
 
         const { data, error } = await supabase
           .from('job_applications')
           .insert({
             company, role, job_description, source, url, notes,
+            stage: initialStage,
             applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
             ...(scoreResult && {
               fit_score: scoreResult.fit_score,
@@ -697,13 +711,113 @@ function buildServer(): McpServer {
 
         const { error: stageError } = await supabase.from('application_stages').insert({
           application_id: data.id,
-          stage: 'applied',
-          note: 'Application logged',
+          stage: initialStage,
+          note: initialStage === 'draft' ? 'Application tailored, not yet confirmed submitted' : 'Application logged',
         })
 
         if (stageError) {
           await supabase.from('job_applications').delete().eq('id', data.id)
           return { content: [{ type: 'text' as const, text: `Failed to log stage history: ${stageError.message}` }], isError: true }
+        }
+
+        // Durable evidence bundle: the exact resume content/file that was
+        // submitted. Best-effort — a failure here must not roll back the
+        // application record itself, since the application was genuinely
+        // logged either way. The jd_fit score below is recorded regardless
+        // of whether evidence was attached — it's the append-only history
+        // for every scored submission, not conditional on this bundle.
+        let evidenceNote = ''
+        let resumeId: string | undefined
+        if (resume_content || docx_base64 || pdf_base64) {
+          const uploadedPaths: string[] = []
+          // Only cleared once the application_resumes row exists — cleanup
+          // in the catch block below must not delete blobs a saved row is
+          // already pointing at (it would orphan the row's references
+          // instead of the blob), only ones left behind by a failure before
+          // that row was created.
+          let resumeRowCreated = false
+          // Generated upfront rather than left to the row's own default, so
+          // the storage path can be scoped to this specific resume version.
+          // Without it, every version for the same application uploads to
+          // the same `<app-id>/resume.<ext>` key and `upsert: true` quietly
+          // overwrites an earlier submitted blob with a later re-tailor's
+          // bytes while that earlier row's own hash still claims the old
+          // content.
+          const candidateResumeId = randomUUID()
+          try {
+            const uploads: { docx_url?: string; docx_hash?: string; pdf_url?: string; pdf_hash?: string } = {}
+            for (const [ext, base64, contentType] of [
+              ['docx', docx_base64, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+              ['pdf', pdf_base64, 'application/pdf'],
+            ] as const) {
+              if (!base64) continue
+              // Buffer.from(..., 'base64') silently drops invalid characters
+              // instead of throwing, so a corrupted payload would otherwise
+              // be hashed/stored/reported as success with no error surfaced.
+              // Whitespace is stripped first — line-wrapped base64 (the
+              // `base64`/`openssl base64` CLIs wrap at 76 columns by
+              // default) is otherwise valid and would fail this check.
+              const cleaned = base64.replace(/\s+/g, '')
+              if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
+                throw new Error(`${ext}_base64 is not valid base64`)
+              }
+              const buf = Buffer.from(cleaned, 'base64')
+              const hash = createHash('sha256').update(buf).digest('hex')
+              const path = `${data.id}/${candidateResumeId}/resume.${ext}`
+              const { error: uploadErr } = await supabase.storage
+                .from('resume-artifacts')
+                .upload(path, buf, { contentType, upsert: true })
+              if (uploadErr) throw new Error(`${ext} upload failed: ${uploadErr.message}`)
+              uploadedPaths.push(path)
+              if (ext === 'docx') { uploads.docx_url = path; uploads.docx_hash = hash }
+              else { uploads.pdf_url = path; uploads.pdf_hash = hash }
+            }
+
+            const { error: resumeErr } = await supabase
+              .from('application_resumes')
+              .insert({
+                id: candidateResumeId,
+                application_id: data.id,
+                resume_content: resume_content ?? {},
+                ...uploads,
+                is_submitted: is_submitted ?? true,
+              })
+            if (resumeErr) throw new Error(`resume record failed: ${resumeErr.message}`)
+            resumeRowCreated = true
+            resumeId = candidateResumeId
+            // Explicit positive marker, not just the absence of a failure
+            // note below — a caller running against an older, undeployed
+            // server that doesn't recognize resume_content/docx_base64/
+            // pdf_base64 at all would also produce a response with no
+            // failure marker (the fields are just silently ignored), which
+            // is indistinguishable from genuine success without this.
+            evidenceNote = '\n(evidence bundle saved)'
+          } catch (evidenceErr: unknown) {
+            // Best-effort cleanup so a partial failure before the
+            // application_resumes row exists (e.g. the pdf upload succeeds,
+            // then the resume-row insert itself fails) doesn't leave an
+            // orphaned blob in the bucket with no row pointing at it. Once
+            // that row exists (e.g. only the later score insert failed),
+            // the blobs stay — deleting them would orphan the row instead.
+            if (uploadedPaths.length && !resumeRowCreated) {
+              const { error: removeErr } = await supabase.storage.from('resume-artifacts').remove(uploadedPaths)
+              if (removeErr) console.error(`resume-artifacts cleanup failed for ${uploadedPaths.join(', ')}: ${removeErr.message}`)
+            }
+            evidenceNote = `\n(evidence bundle not fully saved: ${(evidenceErr as Error).message})`
+          }
+        }
+
+        if (scoreResult) {
+          const { error: scoreErr } = await supabase.from('application_scores').insert({
+            application_id: data.id,
+            resume_id: resumeId ?? null,
+            score_type: 'jd_fit',
+            score: scoreResult.fit_score,
+            rationale: scoreResult.verdict,
+            requirement_evidence: scoreResult.scoring,
+            model: MATCH_MODEL,
+          })
+          if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
         }
 
         const fitLine = scoreResult
@@ -713,7 +827,7 @@ function buildServer(): McpServer {
         return {
           content: [{
             type: 'text' as const,
-            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}`].filter(Boolean).join('\n'),
+            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}${evidenceNote}`].filter(Boolean).join('\n'),
           }],
         }
       } catch (err: unknown) {
@@ -847,17 +961,19 @@ function buildServer(): McpServer {
     'get_application',
     {
       title: 'Get Application Details',
-      description: 'Get the full details of a specific job application including contacts and stage history.',
+      description: 'Get the full details of a specific job application, including contacts, stage history, job description, submitted resume content, and score history.',
       inputSchema: {
         application_id: z.string().uuid().describe('The application ID'),
       },
     },
     async ({ application_id }) => {
       try {
-        const [appRes, contactsRes, stagesRes] = await Promise.all([
+        const [appRes, contactsRes, stagesRes, resumesRes, scoresRes] = await Promise.all([
           supabase.from('job_applications').select('*').eq('id', application_id).single(),
           supabase.from('job_contacts').select('name, title, linkedin, email, notes, created_at').eq('application_id', application_id).order('created_at'),
           supabase.from('application_stages').select('stage, note, occurred_at').eq('application_id', application_id).order('occurred_at'),
+          supabase.from('application_resumes').select('id, resume_content, docx_url, docx_hash, pdf_url, pdf_hash, is_submitted, generated_at').eq('application_id', application_id).order('generated_at'),
+          supabase.from('application_scores').select('resume_id, score_type, score, rationale, requirement_evidence, model, rubric_version, scored_at').eq('application_id', application_id).order('scored_at'),
         ])
 
         if (appRes.error || !appRes.data) {
@@ -877,6 +993,7 @@ function buildServer(): McpServer {
         if (a.url) lines.push(`URL: ${a.url}`)
         if (a.follow_up_date) lines.push(`Follow-up: ${a.follow_up_date}`)
         if (a.notes) lines.push(`Notes: ${a.notes}`)
+        if (a.job_description) lines.push('', `Job description:\n${a.job_description}`)
 
         if (contactsRes.data?.length) {
           lines.push('', 'Contacts:')
@@ -889,6 +1006,26 @@ function buildServer(): McpServer {
           lines.push('', 'Stage history:')
           for (const s of stagesRes.data) {
             lines.push(`  ${new Date(s.occurred_at).toLocaleDateString()} → ${s.stage}${s.note ? `: ${s.note}` : ''}`)
+          }
+        }
+
+        if (resumesRes.error) lines.push('', `Resume versions: unavailable (${resumesRes.error.message})`)
+        else if (resumesRes.data?.length) {
+          lines.push('', 'Resume versions:')
+          for (const r of resumesRes.data) {
+            const hashes = [r.docx_hash && `docx sha256: ${r.docx_hash}`, r.pdf_hash && `pdf sha256: ${r.pdf_hash}`].filter(Boolean).join(', ')
+            lines.push(`  ${r.is_submitted ? '[submitted]' : '[generated]'} ${new Date(r.generated_at).toLocaleDateString()} | ID: ${r.id}${hashes ? ` | ${hashes}` : ''}`)
+          }
+          const submitted = resumesRes.data.find((r) => r.is_submitted)
+          if (submitted) lines.push('', `Submitted resume content (JSON):\n${JSON.stringify(submitted.resume_content, null, 2)}`)
+        }
+
+        if (scoresRes.error) lines.push('', `Score history: unavailable (${scoresRes.error.message})`)
+        else if (scoresRes.data?.length) {
+          lines.push('', 'Score history:')
+          for (const s of scoresRes.data) {
+            const evidence = s.requirement_evidence ? ` | evidence: ${JSON.stringify(s.requirement_evidence)}` : ''
+            lines.push(`  ${new Date(s.scored_at).toLocaleDateString()} [${s.score_type}] ${s.score ?? '—'}${s.model ? ` (${s.model})` : ''}${s.rationale ? `: ${s.rationale}` : ''}${evidence}`)
           }
         }
 
@@ -947,7 +1084,7 @@ function buildServer(): McpServer {
         const sanitizedQuery = query.replace(/[%'"(),]/g, ' ').trim()
         const { data, error } = await supabase
           .from('job_applications')
-          .select('id, company, role, stage, fit_score, applied_at')
+          .select('id, company, role, stage, fit_score, applied_at, job_description')
           .or(`company.ilike.%${sanitizedQuery}%,role.ilike.%${sanitizedQuery}%,job_description.ilike.%${sanitizedQuery}%,notes.ilike.%${sanitizedQuery}%`)
           .order('applied_at', { ascending: false })
           .limit(limit ?? 10)
@@ -955,8 +1092,8 @@ function buildServer(): McpServer {
         if (error) return { content: [{ type: 'text' as const, text: `Error: ${error.message}` }], isError: true }
         if (!data || !data.length) return { content: [{ type: 'text' as const, text: `No applications found matching "${query}".` }] }
 
-        const rows = data.map((a: { id: string; company: string; role: string; stage: string; fit_score: number | null; applied_at: string }) =>
-          `• ${a.company} — ${a.role} | ${a.stage}${a.fit_score != null ? ` | fit: ${a.fit_score}` : ''} | ${new Date(a.applied_at).toLocaleDateString()}\n  ID: ${a.id}`
+        const rows = data.map((a: { id: string; company: string; role: string; stage: string; fit_score: number | null; applied_at: string; job_description: string | null }) =>
+          `• ${a.company} — ${a.role} | ${a.stage}${a.fit_score != null ? ` | fit: ${a.fit_score}` : ''} | ${new Date(a.applied_at).toLocaleDateString()}\n  ID: ${a.id}${a.job_description ? `\n  JD: ${a.job_description.slice(0, 200)}${a.job_description.length > 200 ? '…' : ''}` : ''}`
         )
 
         return { content: [{ type: 'text' as const, text: `${data.length} result(s) for "${query}":\n\n${rows.join('\n\n')}` }] }

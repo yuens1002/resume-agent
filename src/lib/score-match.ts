@@ -13,7 +13,7 @@ import type {
   MatchQualityEvidenceGrade,
 } from '../types.js'
 
-const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
+export const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
 const MATCH_MAX_TOKENS = 2048
 // Must exceed MATCH_MAX_TOKENS — see generateWithLengthRetry's retryCeiling
 // doc in ai.ts. A truncation retry at the same cap is a wasted duplicate call.
