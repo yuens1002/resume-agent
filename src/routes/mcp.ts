@@ -164,6 +164,55 @@ function buildServer(): McpServer {
   )
 
   server.registerTool(
+    'record_application_observed_outcome',
+    {
+      title: 'Record Observed Application Outcome',
+      description: 'Append a source-attributed email-only outcome observation. This never changes application stage and must not be inferred from stage.',
+      inputSchema: {
+        application_id: z.string().uuid(), source_identity: z.literal('granted_inbox'), source_event_id: z.string().min(1).max(512),
+        revision: z.number().int().positive(), event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
+        occurred_at: z.string().datetime({ offset: true }).optional(), source_ref: z.string().max(512).optional(), evidence_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        classification_note: z.string().max(1000).optional(), action_required: z.boolean().optional(), supersedes_event_id: z.string().uuid().optional(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/),
+      },
+    },
+    async (input) => {
+      const { data, error } = await supabase.rpc('record_application_observed_outcome', {
+        p_application_id: input.application_id, p_source_identity: input.source_identity, p_source_event_id: input.source_event_id, p_revision: input.revision,
+        p_event_type: input.event_type, p_occurred_at: input.occurred_at ?? null, p_source_ref: input.source_ref ?? null, p_evidence_hash: input.evidence_hash,
+        p_classification_note: input.classification_note ?? null, p_action_required: input.action_required ?? null, p_supersedes_event_id: input.supersedes_event_id ?? null, p_payload_hash: input.payload_hash,
+      })
+      return error || !data
+        ? { content: [{ type: 'text' as const, text: 'Outcome observation was refused.' }], isError: true }
+        : { content: [{ type: 'text' as const, text: JSON.stringify({ status: 'ok', outcome: data }) }] }
+    },
+  )
+
+  server.registerTool(
+    'record_application_outcome_check',
+    {
+      title: 'Record Application Outcome Coverage',
+      description: 'Append email-only reader coverage. No-response requires a complete bounded, source-attested submission window; unknown never becomes an outcome.',
+      inputSchema: {
+        application_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string().min(1).max(512),
+        period_start: z.string().datetime({ offset: true }), period_end: z.string().datetime({ offset: true }), query_scope: z.string().min(1).max(512),
+        application_time_start: z.string().datetime({ offset: true }).optional(), complete: z.boolean(), status: z.enum(['observed', 'no_response', 'unknown']),
+        source_ref: z.string().max(512).optional(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/),
+      },
+    },
+    async (input) => {
+      const { data, error } = await supabase.rpc('record_application_outcome_check', {
+        p_application_id: input.application_id, p_reader_channel: input.reader_channel, p_client_check_identity: input.client_check_identity,
+        p_period_start: input.period_start, p_period_end: input.period_end, p_query_scope: input.query_scope,
+        p_application_time_start: input.application_time_start ?? null, p_complete: input.complete, p_status: input.status,
+        p_source_ref: input.source_ref ?? null, p_payload_hash: input.payload_hash,
+      })
+      return error || !data
+        ? { content: [{ type: 'text' as const, text: 'Outcome coverage was refused.' }], isError: true }
+        : { content: [{ type: 'text' as const, text: JSON.stringify({ status: 'ok', outcome_check: data }) }] }
+    },
+  )
+
+  server.registerTool(
     'list_thoughts',
     {
       title: 'List Recent Thoughts',

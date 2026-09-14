@@ -215,6 +215,40 @@ describe('application evidence snapshot SQL', () => {
     )
     assert.equal(service.rows[0].allowed, true)
   })
+
+  it('preserves source-attributed outcome revisions and refuses conflicting or unsupported no-response coverage', async () => {
+    const application = await db.query<{ id: string }>("insert into job_applications(company, role) values ('outcome company', 'role') returning id")
+    const appId = application.rows[0].id
+    const sourceEventId = 'message:synthetic-1'
+    const evidenceHash = '1'.repeat(64)
+    const payloadHash = '2'.repeat(64)
+    const first = await db.query<{ outcome: { event_id: string; idempotent: boolean } }>(
+      "select public.record_application_observed_outcome($1::uuid, 'granted_inbox', $2, 1, 'other_response', null, 'uid:1', $3, 'automated acknowledgement', null, null, $4) as outcome",
+      [appId, sourceEventId, evidenceHash, payloadHash],
+    )
+    const replay = await db.query<{ outcome: { event_id: string; idempotent: boolean } }>(
+      "select public.record_application_observed_outcome($1::uuid, 'granted_inbox', $2, 1, 'other_response', null, 'uid:1', $3, 'automated acknowledgement', null, null, $4) as outcome",
+      [appId, sourceEventId, evidenceHash, payloadHash],
+    )
+    assert.equal(replay.rows[0].outcome.event_id, first.rows[0].outcome.event_id)
+    assert.equal(replay.rows[0].outcome.idempotent, true)
+    await assert.rejects(
+      db.query("select public.record_application_observed_outcome($1::uuid, 'granted_inbox', $2, 1, 'recruiter_contact', null, 'uid:1', $3, null, null, null, $4)", [appId, sourceEventId, evidenceHash, '3'.repeat(64)]),
+      /conflicts/,
+    )
+    await db.query(
+      "select public.record_application_observed_outcome($1::uuid, 'granted_inbox', $2, 2, 'recruiter_contact', null, 'uid:1', $3, 'human reply evidenced', false, $4::uuid, $5)",
+      [appId, sourceEventId, evidenceHash, first.rows[0].outcome.event_id, '4'.repeat(64)],
+    )
+    await assert.rejects(
+      db.query("select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-1', $2::timestamptz, $3::timestamptz, 'INBOX', null, false, 'no_response', null, $4)", [appId, '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', '5'.repeat(64)]),
+      /lacks complete attributed submission evidence/,
+    )
+    const snapshot = await createSnapshot()
+    const page = await getPage(snapshot.snapshot_id, null, 100)
+    const entry = page.applications.find(item => item.application.application_id === appId) as unknown as { observed_outcomes: Array<{ revision: number; event_type: string }> }
+    assert.deepEqual(entry.observed_outcomes.map(event => [event.revision, event.event_type]), [[1, 'other_response'], [2, 'recruiter_contact']])
+  })
 })
 
 describe('application evidence snapshot adapter and MCP tools', () => {

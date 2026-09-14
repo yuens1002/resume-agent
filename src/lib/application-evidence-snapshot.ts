@@ -94,6 +94,20 @@ const ApplicationEvidenceSchema = z.object({
     }).strict(),
     z.object({ status: z.literal('unverified'), confirmations: z.array(z.never()).max(0) }).strict(),
   ]),
+  observed_outcomes: z.array(z.object({
+    event_id: z.string().uuid(), source_identity: z.literal('granted_inbox'), source_event_id: z.string(),
+    revision: z.number().int().positive(),
+    event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
+    occurred_at: TimestampSchema.nullable(), recorded_at: TimestampSchema, source_ref: z.string().nullable(),
+    evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), classification_note: z.string().nullable(),
+    action_required: z.boolean().nullable(), supersedes_event_id: z.string().uuid().nullable(),
+  }).strict()),
+  outcome_checks: z.array(z.object({
+    check_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string(),
+    period_start: TimestampSchema, period_end: TimestampSchema, query_scope: z.string(),
+    application_time_start: TimestampSchema.nullable(), complete: z.boolean(),
+    status: z.enum(['observed', 'no_response', 'unknown']), source_ref: z.string().nullable(), recorded_at: TimestampSchema,
+  }).strict()),
   stage_history: z.array(z.object({
     stage_history_id: z.string().uuid(),
     stage: ApplicationStageSchema,
