@@ -7,8 +7,7 @@ const original = readFileSync('supabase/migrations/20260329000000_job_hunt_pipel
 const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
 const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
 const snapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
-  .replace(/^create extension if not exists pgcrypto;$/m, '')
-  .replace("encode(digest(convert_to(new.job_description, 'UTF8'), 'sha256'), 'hex')", "repeat(md5(new.job_description), 2)")
+  .replace("encode(pg_catalog.sha256(pg_catalog.convert_to(new.job_description, 'UTF8')), 'hex')", "repeat(md5(new.job_description), 2)")
 // PGlite lacks this optional index extension. The tables, constraints, RLS,
 // and confirmation function execute unchanged.
 const baseline = original.replace(/^create extension if not exists pg_trgm;$/m, '')

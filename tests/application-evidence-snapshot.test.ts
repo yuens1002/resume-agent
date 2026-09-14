@@ -19,13 +19,12 @@ const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipel
   .replace(/^create index .*gin_trgm_ops.*;$/gm, '')
 const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
 const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
-// PGlite does not package pgcrypto. The isolated PostgreSQL runner executes
-// the production migration unchanged and verifies the real SHA-256 values;
+// PGlite does not expose PostgreSQL 16's pg_catalog.sha256(bytea). The
+// isolated PostgreSQL runner executes the production migration unchanged;
 // this fixture only substitutes a 64-character placeholder for that engine.
 const snapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
-  .replace(/^create extension if not exists pgcrypto;$/m, '')
-  .replace("encode(digest(convert_to(new.job_description, 'UTF8'), 'sha256'), 'hex')", "repeat(md5(new.job_description), 2)")
-  .replaceAll("encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex')", "repeat(md5(v_payload::text), 2)")
+  .replace("encode(pg_catalog.sha256(pg_catalog.convert_to(new.job_description, 'UTF8')), 'hex')", "repeat(md5(new.job_description), 2)")
+  .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
 const db = new PGlite()
 
 type SnapshotMetadata = { snapshot_id: string; as_of: string; total_applications: number; snapshot_materialized: true }
