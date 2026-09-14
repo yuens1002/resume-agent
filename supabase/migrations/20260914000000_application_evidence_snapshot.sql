@@ -593,7 +593,28 @@ begin
     'drained_uid_count', p_drained_uid_count, 'source_ref', p_source_ref
   );
   v_payload_hash := encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex');
-  if p_status='no_response' and (not p_complete or p_matched_uid_count <> p_drained_uid_count or p_application_time_start is null or p_period_start > p_application_time_start or p_period_end < p_application_time_start or not exists (select 1 from public.application_submission_confirmations confirmation where confirmation.application_id=p_application_id and confirmation.confirmation_source='client_attested' and confirmation.actual_submission_occurred_at=p_application_time_start)) then raise exception 'No-response coverage lacks complete attributed submission evidence' using errcode = '22023'; end if;
+  if p_status='no_response' and (
+    not p_complete or p_matched_uid_count <> p_drained_uid_count
+    or p_application_time_start is null or p_period_start > p_application_time_start or p_period_end < p_application_time_start
+    or (select count(*) from public.application_submission_confirmations where application_id=p_application_id) <> 1
+    or not exists (
+      select 1 from public.application_submission_confirmations confirmation
+      join public.application_resumes resume
+        on resume.application_id=confirmation.application_id and resume.id=confirmation.resume_id
+      join public.application_job_description_versions jd
+        on jd.application_id=confirmation.application_id and jd.id=confirmation.submitted_job_description_version_id
+      where confirmation.application_id=p_application_id
+        and confirmation.confirmation_source='client_attested'
+        and nullif(btrim(confirmation.source_ref), '') is not null
+        and confirmation.actual_submission_occurred_at=p_application_time_start
+        and resume.is_submitted
+        and confirmation.submitted_artifact_hash ~ '^[a-f0-9]{64}$'
+        and case confirmation.submitted_artifact_format
+          when 'docx' then confirmation.submitted_artifact_hash=resume.docx_hash
+          when 'pdf' then confirmation.submitted_artifact_hash=resume.pdf_hash
+          else false end
+    )
+  ) then raise exception 'No-response coverage lacks complete attributed submission evidence' using errcode = '22023'; end if;
   insert into public.application_outcome_check_observations (id,application_id,reader_channel,client_check_identity,period_start,period_end,query_scope,application_time_start,complete,status,matched_uid_count,drained_uid_count,source_ref,canonical_payload,payload_hash,recorded_at)
   values (v_id,p_application_id,p_reader_channel,p_client_check_identity,p_period_start,p_period_end,p_query_scope,p_application_time_start,p_complete,p_status,p_matched_uid_count,p_drained_uid_count,p_source_ref,v_payload,v_payload_hash,v_recorded_at)
   on conflict (application_id, reader_channel, client_check_identity) do nothing

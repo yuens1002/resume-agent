@@ -255,16 +255,17 @@ describe('application evidence snapshot SQL', () => {
       db.query("select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-1', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', null, false, 'no_response', 0, 0, $4)", [appId, '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', coverageRef]),
       /lacks complete attributed submission evidence/,
     )
-    const confirmedApplication = await db.query<{ id: string }>("insert into job_applications(company, role, stage) values ('coverage company', 'role', 'draft') returning id")
+    const confirmedApplication = await db.query<{ id: string }>("insert into job_applications(company, role, stage, job_description) values ('coverage company', 'role', 'draft', 'captured synthetic JD') returning id")
     const confirmedApplicationId = confirmedApplication.rows[0].id
+    const confirmedJd = await db.query<{ id: string }>('select id from application_job_description_versions where application_id=$1', [confirmedApplicationId])
     const confirmedResume = await db.query<{ id: string }>(
       "insert into application_resumes(application_id, resume_content, pdf_hash, is_submitted) values ($1, '{\"summary\":\"coverage\"}'::jsonb, repeat('e', 64), false) returning id",
       [confirmedApplicationId],
     )
     const submissionTime = '2020-01-03T00:00:00.000Z'
     await db.query(
-      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', null, 'pdf', repeat('e', 64))",
-      [confirmedApplicationId, confirmedResume.rows[0].id, submissionTime],
+      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', $4::uuid, 'pdf', repeat('e', 64))",
+      [confirmedApplicationId, confirmedResume.rows[0].id, submissionTime, confirmedJd.rows[0].id],
     )
     const beforeSubmissionEnd = '2020-01-02T00:00:00.000Z'
     const beforeSubmissionRef = `imap-coverage:${'b'.repeat(64)}:124:${new Date(beforeSubmissionEnd).getTime()}:0:0`
@@ -277,6 +278,17 @@ describe('application evidence snapshot SQL', () => {
     )
     const coveringEnd = '2020-01-04T00:00:00.000Z'
     const coveringRef = `imap-coverage:${'b'.repeat(64)}:124:${new Date(coveringEnd).getTime()}:0:0`
+    for (const assignment of ["source_ref=null", "source_ref=' '", "submitted_job_description_version_id=null",
+      "submitted_artifact_format=null", "submitted_artifact_hash=null", "submitted_artifact_hash=repeat('f',64)"]) {
+      await db.exec('begin')
+      try {
+        await db.query(`update application_submission_confirmations set ${assignment} where application_id=$1`, [confirmedApplicationId])
+        await assert.rejects(db.query(
+          "select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'incomplete-anchor', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', $4::timestamptz, true, 'no_response', 0, 0, $5)",
+          [confirmedApplicationId, '2020-01-01T00:00:00.000Z', coveringEnd, submissionTime, coveringRef]),
+        /lacks complete attributed submission evidence/, assignment)
+      } finally { await db.exec('rollback') }
+    }
     const covering = await db.query<{ outcome: { idempotent: boolean } }>(
       "select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-includes-submission', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', $4::timestamptz, true, 'no_response', 0, 0, $5) as outcome",
       [confirmedApplicationId, '2020-01-01T00:00:00.000Z', coveringEnd, submissionTime, coveringRef],
