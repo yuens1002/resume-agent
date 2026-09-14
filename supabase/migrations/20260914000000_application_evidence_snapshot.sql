@@ -8,7 +8,8 @@
 
 begin;
 
-create extension if not exists pgcrypto;
+-- PostgreSQL 16 supplies pg_catalog.sha256(bytea); keep this migration
+-- independent of where an optional pgcrypto extension is installed.
 
 create table if not exists application_job_description_versions (
   id              uuid        primary key default gen_random_uuid(),
@@ -59,7 +60,7 @@ begin
     ) values (
       new.id,
       new.job_description,
-      encode(digest(convert_to(new.job_description, 'UTF8'), 'sha256'), 'hex'),
+      encode(pg_catalog.sha256(pg_catalog.convert_to(new.job_description, 'UTF8')), 'hex'),
       new.url,
       case
         when tg_op = 'UPDATE' and new.job_description_capture_operation_id is not distinct from old.job_description_capture_operation_id
@@ -554,7 +555,7 @@ begin
     'action_required', p_action_required,
     'supersedes_event_id', p_supersedes_event_id
   );
-  v_payload_hash := encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex');
+  v_payload_hash := encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex');
   if p_revision = 1 and p_supersedes_event_id is not null then raise exception 'Initial outcome revision cannot supersede an event' using errcode = '22023'; end if;
   if p_revision > 1 then
     select * into v_prior from public.application_observed_outcomes where id=p_supersedes_event_id and application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision-1;
@@ -592,7 +593,7 @@ begin
     'status', p_status, 'matched_uid_count', p_matched_uid_count,
     'drained_uid_count', p_drained_uid_count, 'source_ref', p_source_ref
   );
-  v_payload_hash := encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex');
+  v_payload_hash := encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex');
   if p_status='no_response' and (
     not p_complete or p_matched_uid_count <> p_drained_uid_count
     or p_application_time_start is null or p_period_start > p_application_time_start or p_period_end < p_application_time_start

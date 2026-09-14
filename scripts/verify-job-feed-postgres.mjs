@@ -41,7 +41,10 @@ try {
     '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', 'postgres:16-alpine'], options)
   started = true
   await waitFor(async () => { try { return Number(await sql('select 1;')) === 1 } catch { return false } })
-  await sql("create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create function auth.role() returns text language sql as $$ select current_user::text $$;")
+  // Production has pgcrypto outside public. The snapshot migration must not
+  // depend on that extension's schema because its SECURITY DEFINER functions
+  // intentionally restrict search_path to pg_catalog, public.
+  await sql("create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create schema extensions; create extension pgcrypto with schema extensions; create function auth.role() returns text language sql as $$ select current_user::text $$;")
   await sql('create schema storage; create table storage.buckets (id text primary key, name text, public boolean); create table storage.objects (bucket_id text);')
   await sql(baseline)
   await sql(migration)
@@ -49,6 +52,7 @@ try {
   await sql(draftDueWorkMigration)
   await sql(confirmationMigration)
   await sql(applicationEvidenceSnapshotMigration)
+  assert.equal(await sql("select to_regprocedure('pg_catalog.sha256(bytea)') is not null and to_regprocedure('public.digest(bytea,text)') is null and to_regprocedure('extensions.digest(bytea,text)') is not null;"), 't')
 
   const beforeDraft = await readFeed()
   const draftId = await sql("insert into job_applications(company,role,stage,follow_up_date) values ('draft_feed','test','draft',current_date-1) returning id;")
@@ -161,7 +165,7 @@ try {
   const parsedOutcomeResults = [JSON.parse(firstOutcomeResult), JSON.parse(secondOutcomeResult)]
   assert.equal(parsedOutcomeResults[0].event_id, parsedOutcomeResults[1].event_id)
   assert.deepEqual(parsedOutcomeResults.map(result => result.idempotent).sort(), [false, true])
-  assert.equal(await sql(`select payload_hash = encode(digest(convert_to(canonical_payload::text, 'UTF8'), 'sha256'), 'hex')
+  assert.equal(await sql(`select payload_hash = encode(pg_catalog.sha256(pg_catalog.convert_to(canonical_payload::text, 'UTF8')), 'hex')
     from application_observed_outcomes where application_id='${outcomeAppId}';`), 't')
   await sql('drop trigger slow_outcome_replay on application_observed_outcomes; drop function slow_outcome_replay();')
 
@@ -177,7 +181,7 @@ try {
   const parsedCoverageResults = [JSON.parse(firstCoverageResult), JSON.parse(secondCoverageResult)]
   assert.equal(parsedCoverageResults[0].check_id, parsedCoverageResults[1].check_id)
   assert.deepEqual(parsedCoverageResults.map(result => result.idempotent).sort(), [false, true])
-  assert.equal(await sql(`select payload_hash = encode(digest(convert_to(canonical_payload::text, 'UTF8'), 'sha256'), 'hex')
+  assert.equal(await sql(`select payload_hash = encode(pg_catalog.sha256(pg_catalog.convert_to(canonical_payload::text, 'UTF8')), 'hex')
     from application_outcome_check_observations where application_id='${outcomeAppId}' and client_check_identity='concurrent-coverage';`), 't')
   await sql('drop trigger slow_coverage_replay on application_outcome_check_observations; drop function slow_coverage_replay();')
   console.log('PASS outcome replay concurrency: duplicate source event/check calls converge on one SHA-256-bound immutable record')
