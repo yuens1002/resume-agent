@@ -340,6 +340,7 @@ begin
           'evidence_hash', outcome.evidence_hash,
           'classification_note', outcome.classification_note,
           'action_required', outcome.action_required,
+          'payload_hash', outcome.payload_hash,
           'supersedes_event_id', outcome.supersedes_event_id
         ) order by outcome.recorded_at, outcome.id)
         from public.application_observed_outcomes outcome where outcome.application_id = application.id

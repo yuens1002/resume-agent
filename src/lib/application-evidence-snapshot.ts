@@ -100,7 +100,7 @@ const ApplicationEvidenceSchema = z.object({
     event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
     occurred_at: TimestampSchema.nullable(), recorded_at: TimestampSchema, source_ref: z.string().nullable(),
     evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), classification_note: z.string().nullable(),
-    action_required: z.boolean().nullable(), supersedes_event_id: z.string().uuid().nullable(),
+    action_required: z.boolean().nullable(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/), supersedes_event_id: z.string().uuid().nullable(),
   }).strict()),
   outcome_checks: z.array(z.object({
     check_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string(),
