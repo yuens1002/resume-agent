@@ -51,6 +51,31 @@ from the application stage or `applied_at`. Neither field establishes ATS
 acceptance. Applications without such an event, including legacy submitted
 records, remain `unverified`.
 
+Observed response outcomes are a separate, append-only evidence history. Each
+event retains a source identity, source event identity, normalized event type,
+optional occurrence time, server recording time, bounded source reference,
+evidence hash, revision, and a correction-chain predecessor when applicable.
+The source event identity plus source identity/revision is idempotent; a
+conflicting replay refuses, and a correction appends a later revision only
+after proving the same application and source identity as its predecessor.
+Events never update application stages. The allowed event types are
+`recruiter_contact`, `screen_scheduled`, `screen_held`,
+`interview_scheduled`, `interview_held`, `cancellation`, `rejection`,
+`withdrawal`, `offer`, `offer_accepted`, `job_started`, and
+`other_response`. A generic or automated acknowledgement remains
+`other_response`; no event is reconstructed from stage. `offer_accepted` and
+`job_started` require explicitly attributed source content, not an offer or a
+label. `action_required` is optional and can be false only when explicit
+observed content establishes it.
+
+Outcome coverage is not an outcome. It is an append-only check observation
+that declares the actual reader channel, period start/end, query scope,
+complete flag, status (`observed`, `no_response`, or `unknown`), and server
+recording time. `no_response` requires a successfully drained granted reader,
+a bounded application-relevant window, and complete coverage; a partial,
+capped, failed, or ambiguous read is `unknown`. Snapshot entries retain all
+event revisions and all coverage observations immutably.
+
 ## Deliverables
 
 | ID | Deliverable | Kind |
@@ -60,6 +85,7 @@ records, remain `unverified`.
 | D3 | Private MCP registration, bounded verified artifact reader, and score-writer provenance binding | endpoint |
 | D4 | Isolated SQL, adapter, and transport tests using synthetic rows | verification |
 | D5 | Source-contract documentation | documentation |
+| D6 | Append-only observed-outcome and reader-coverage migration, bounded private MCP writes, and snapshot history | database/endpoint |
 
 ## Boundaries
 
@@ -68,4 +94,6 @@ records, remain `unverified`.
 - No guessed legacy capture, profile, rubric, submission, or outcome data.
 - A selected resume is actor-attributed evidence, not independent proof that an
   external ATS accepted a submission.
+- No raw email body is stored in source outcome history; no mail reader,
+  outbound mail, or access grant is added here.
 - No production migration, deployment, or live test data is part of this work.

@@ -14,3 +14,6 @@ verification.
 | AC-07 | D3 | Snapshot and artifact tools are private-only and transport schemas reject malformed input before source use | Local authenticated/public transport checks |
 | AC-08 | D3 | Artifact reader resolves only a stored application/resume pair, caps size, verifies bytes/hash, and never accepts arbitrary paths | Synthetic wrong-pair, size, unavailable, and mismatch fixtures refuse precisely |
 | AC-09 | D5 | Contract documents sensitive-field exclusions, snapshot semantics, provenance limits, artifact reads, and migration/deployment separation | Documentation review against schemas and SQL |
+| AC-10 | D6 | Outcome events are immutable, source-attributed, revisioned/idempotent, and never synthesize a stage or acceptance/job start | Isolated SQL replay/conflict/correction fixtures preserve every revision |
+| AC-11 | D6 | Coverage checks preserve reader channel, bounded scope/window, completeness, and unknown versus no-response semantics | Isolated partial/failure/complete fixtures refuse unsupported no-response claims |
+| AC-12 | D6 | Snapshot exports all event and coverage histories through the existing bounded reader without exposing raw email content | Adapter and page fixtures validate private typed histories |
