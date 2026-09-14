@@ -244,6 +244,33 @@ describe('application evidence snapshot SQL', () => {
       db.query("select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-1', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', null, false, 'no_response', 0, 0, $4)", [appId, '2026-09-01T00:00:00Z', '2026-09-02T00:00:00Z', coverageRef]),
       /lacks complete attributed submission evidence/,
     )
+    const confirmedApplication = await db.query<{ id: string }>("insert into job_applications(company, role, stage) values ('coverage company', 'role', 'draft') returning id")
+    const confirmedApplicationId = confirmedApplication.rows[0].id
+    const confirmedResume = await db.query<{ id: string }>(
+      "insert into application_resumes(application_id, resume_content, pdf_hash, is_submitted) values ($1, '{\"summary\":\"coverage\"}'::jsonb, repeat('e', 64), false) returning id",
+      [confirmedApplicationId],
+    )
+    const submissionTime = '2020-01-03T00:00:00.000Z'
+    await db.query(
+      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', null, 'pdf', repeat('e', 64))",
+      [confirmedApplicationId, confirmedResume.rows[0].id, submissionTime],
+    )
+    const beforeSubmissionEnd = '2020-01-02T00:00:00.000Z'
+    const beforeSubmissionRef = `imap-coverage:${'b'.repeat(64)}:124:${new Date(beforeSubmissionEnd).getTime()}:0:0`
+    await assert.rejects(
+      db.query(
+        "select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-before-submission', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', $4::timestamptz, true, 'no_response', 0, 0, $5)",
+        [confirmedApplicationId, '2020-01-01T00:00:00.000Z', beforeSubmissionEnd, submissionTime, beforeSubmissionRef],
+      ),
+      /lacks complete attributed submission evidence/,
+    )
+    const coveringEnd = '2020-01-04T00:00:00.000Z'
+    const coveringRef = `imap-coverage:${'b'.repeat(64)}:124:${new Date(coveringEnd).getTime()}:0:0`
+    const covering = await db.query<{ outcome: { idempotent: boolean } }>(
+      "select public.record_application_outcome_check($1::uuid, 'imap_inbox', 'coverage-includes-submission', $2::timestamptz, $3::timestamptz, 'inbox_internaldate_v1', $4::timestamptz, true, 'no_response', 0, 0, $5) as outcome",
+      [confirmedApplicationId, '2020-01-01T00:00:00.000Z', coveringEnd, submissionTime, coveringRef],
+    )
+    assert.equal(covering.rows[0].outcome.idempotent, false)
     const snapshot = await createSnapshot()
     const page = await getPage(snapshot.snapshot_id, null, 100)
     const entry = page.applications.find(item => item.application.application_id === appId) as unknown as { observed_outcomes: Array<{ revision: number; event_type: string }> }
