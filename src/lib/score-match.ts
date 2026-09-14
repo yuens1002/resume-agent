@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { generateText } from 'ai'
 import { getModel, generateWithLengthRetry } from './ai.js'
 import { fetchProfile } from './profile-cache.js'
@@ -14,6 +15,10 @@ import type {
 } from '../types.js'
 
 export const MATCH_MODEL = process.env.MATCH_MODEL ?? 'google/gemma-4-26b-a4b'
+// This label identifies the scoring instructions below, not a claim that
+// older score rows used this exact prompt. New application score rows persist
+// both this label and MATCH_RUBRIC_HASH with the profile input hash.
+export const MATCH_RUBRIC_VERSION = 'quality-extraction-v1'
 const MATCH_MAX_TOKENS = 2048
 // Must exceed MATCH_MAX_TOKENS — see generateWithLengthRetry's retryCeiling
 // doc in ai.ts. A truncation retry at the same cap is a wasted duplicate call.
@@ -124,6 +129,20 @@ Respond ONLY with valid JSON. No prose, no markdown fences.
   "verdict": "one sentence explaining the overall fit honestly"
 }`
 
+export const MATCH_RUBRIC_HASH = createHash('sha256').update(SCORING_RUBRIC).digest('hex')
+
+export interface MatchScoreProvenance {
+  model: string
+  rubric_version: string
+  rubric_hash: string
+  profile_hash: string
+}
+
+export interface ScoreMatchWithProvenanceResult {
+  response: MatchResponse
+  provenance: MatchScoreProvenance
+}
+
 const IMPORTANCE_WEIGHT: Record<MatchQualityImportance, number> = {
   must_have: 2,
   preferred: 1,
@@ -179,14 +198,15 @@ export function qualityScore(
   return numerator / denominator
 }
 
-// Returns MatchResponse on success, null on model/parse failure. Throws
-// ProfileNotFoundError if the profile row is absent, ProfileUnavailableError
-// if the data source is unreachable and no cached copy exists.
-export async function scoreMatch(
+// Returns the match response plus persisted-input fingerprints on success,
+// null on model/parse failure. Throws ProfileNotFoundError if the profile row
+// is absent, ProfileUnavailableError if the data source is unreachable and no
+// cached copy exists.
+export async function scoreMatchWithProvenance(
   jobDescription: string,
   callerHint?: string,
   modelOverride?: string,
-): Promise<MatchResponse | null> {
+): Promise<ScoreMatchWithProvenanceResult | null> {
   const profileResult = await fetchProfile()
 
   if (profileResult.kind === 'not_found') throw new ProfileNotFoundError()
@@ -245,11 +265,34 @@ export async function scoreMatch(
   }
 
   return {
-    fit_score,
-    matched,
-    gaps,
-    verdict: scores.verdict,
-    recommended_action,
-    scoring,
+    response: {
+      fit_score,
+      matched,
+      gaps,
+      verdict: scores.verdict,
+      recommended_action,
+      scoring,
+    },
+    provenance: {
+      model: modelOverride ?? MATCH_MODEL,
+      rubric_version: MATCH_RUBRIC_VERSION,
+      rubric_hash: MATCH_RUBRIC_HASH,
+      // Hash the same formatted profile string interpolated into the model
+      // prompt above. This is provenance for the evaluated input, not a claim
+      // that an older score used the current profile.
+      profile_hash: createHash('sha256').update(JSON.stringify(profile, null, 2)).digest('hex'),
+    },
   }
+}
+
+// Keep the existing public scoring surface stable. Evidence-producing callers
+// opt into scoreMatchWithProvenance rather than asking unrelated routes to
+// expose private profile-input fingerprints.
+export async function scoreMatch(
+  jobDescription: string,
+  callerHint?: string,
+  modelOverride?: string,
+): Promise<MatchResponse | null> {
+  const result = await scoreMatchWithProvenance(jobDescription, callerHint, modelOverride)
+  return result?.response ?? null
 }

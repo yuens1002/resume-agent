@@ -11,12 +11,15 @@ import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { invalidateProfileCache } from '../lib/profile-cache.js'
 import { parseJSON } from '../lib/parse-json.js'
-import { scoreMatch, MATCH_MODEL } from '../lib/score-match.js'
+import { scoreMatch, scoreMatchWithProvenance, type MatchScoreProvenance } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { mergePublication } from '../lib/publications.js'
 import { registerJobPipelineFeed } from '../lib/job-pipeline-feed-tool.js'
+import { registerApplicationEvidenceSnapshotTools } from '../lib/application-evidence-snapshot-tool.js'
+import { APPLICATION_STAGES } from '../lib/application-evidence-snapshot.js'
+import { registerApplicationResumeArtifactTool } from '../lib/application-resume-artifact-tool.js'
 import type { Project, Publication } from '../types.js'
 
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
@@ -76,6 +79,30 @@ Only extract what's explicitly there.`,
 function buildServer(): McpServer {
   const server = new McpServer({ name: 'open-brain', version: '1.0.0' })
   registerJobPipelineFeed(server, (name, args) => supabase.rpc(name, args))
+  registerApplicationEvidenceSnapshotTools(server, (name, args) => supabase.rpc(name, args))
+  registerApplicationResumeArtifactTool(server, {
+    readResume: async (applicationId, resumeId) => {
+      const { data, error } = await supabase
+        .from('application_resumes')
+        .select('docx_url, docx_hash, pdf_url, pdf_hash')
+        .eq('application_id', applicationId)
+        .eq('id', resumeId)
+        .maybeSingle()
+      return { data, error }
+    },
+    download: async path => {
+      const { data, error } = await supabase.storage.from('resume-artifacts').createSignedUrl(path, 60)
+      if (error || !data?.signedUrl) return { data: null, error: error ?? new Error('missing signed artifact URL') }
+      try {
+        const response = await fetch(data.signedUrl)
+        return response.ok && response.body
+          ? { data: response.body, error: null }
+          : { data: null, error: new Error(`artifact download failed with ${response.status}`) }
+      } catch (downloadError) {
+        return { data: null, error: downloadError }
+      }
+    },
+  })
 
   // ── Thoughts Tools ────────────────────────────────────────
 
@@ -134,6 +161,55 @@ function buildServer(): McpServer {
         return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
       }
     }
+  )
+
+  server.registerTool(
+    'record_application_observed_outcome',
+    {
+      title: 'Record Observed Application Outcome',
+      description: 'Append a source-attributed email-only outcome observation. This never changes application stage and must not be inferred from stage.',
+      inputSchema: {
+        application_id: z.string().uuid(), source_identity: z.literal('granted_inbox'), source_event_id: z.string().min(1).max(512),
+        revision: z.number().int().positive(), event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
+        occurred_at: z.string().datetime({ offset: true }).optional(), source_ref: z.string().regex(/^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$/), evidence_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        classification_code: z.enum(['automated_ack', 'explicit_email_content', 'ambiguous_email_content', 'unclassified']), action_required: z.boolean().optional(), supersedes_event_id: z.string().uuid().optional(),
+      },
+    },
+    async (input) => {
+      const { data, error } = await supabase.rpc('record_application_observed_outcome', {
+        p_application_id: input.application_id, p_source_identity: input.source_identity, p_source_event_id: input.source_event_id, p_revision: input.revision,
+        p_event_type: input.event_type, p_occurred_at: input.occurred_at ?? null, p_source_ref: input.source_ref, p_evidence_hash: input.evidence_hash,
+        p_classification_code: input.classification_code, p_action_required: input.action_required ?? null, p_supersedes_event_id: input.supersedes_event_id ?? null,
+      })
+      return error || !data
+        ? { content: [{ type: 'text' as const, text: 'Outcome observation was refused.' }], isError: true }
+        : { content: [{ type: 'text' as const, text: JSON.stringify({ status: 'ok', outcome: data }) }] }
+    },
+  )
+
+  server.registerTool(
+    'record_application_outcome_check',
+    {
+      title: 'Record Application Outcome Coverage',
+      description: 'Append email-only reader coverage. No-response requires a complete bounded, source-attested submission window; unknown never becomes an outcome.',
+      inputSchema: {
+        application_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string().min(1).max(512),
+        period_start: z.string().datetime({ offset: true }), period_end: z.string().datetime({ offset: true }), query_scope: z.string().min(1).max(512),
+        application_time_start: z.string().datetime({ offset: true }).optional(), complete: z.boolean(), status: z.enum(['observed', 'no_response', 'unknown']),
+        matched_uid_count: z.number().int().nonnegative(), drained_uid_count: z.number().int().nonnegative(), source_ref: z.string().regex(/^imap-coverage:[a-f0-9]{64}:[1-9][0-9]{0,9}:[0-9]{1,13}:[0-9]{1,10}:[0-9]{1,10}$/),
+      },
+    },
+    async (input) => {
+      const { data, error } = await supabase.rpc('record_application_outcome_check', {
+        p_application_id: input.application_id, p_reader_channel: input.reader_channel, p_client_check_identity: input.client_check_identity,
+        p_period_start: input.period_start, p_period_end: input.period_end, p_query_scope: input.query_scope,
+        p_application_time_start: input.application_time_start ?? null, p_complete: input.complete, p_status: input.status,
+        p_matched_uid_count: input.matched_uid_count, p_drained_uid_count: input.drained_uid_count, p_source_ref: input.source_ref,
+      })
+      return error || !data
+        ? { content: [{ type: 'text' as const, text: 'Outcome coverage was refused.' }], isError: true }
+        : { content: [{ type: 'text' as const, text: JSON.stringify({ status: 'ok', outcome_check: data }) }] }
+    },
   )
 
   server.registerTool(
@@ -616,7 +692,7 @@ function buildServer(): McpServer {
 
   // ── Pipeline Tools ────────────────────────────────────────
 
-  const STAGES = ['draft', 'applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
+  const STAGES = APPLICATION_STAGES
   const SUBMITTED_PIPELINE_STAGES = ['applied', 'phone_screen', 'technical', 'final', 'offer'] as const
   const TERMINAL_STAGES = ['rejected', 'withdrawn'] as const
 
@@ -689,7 +765,12 @@ function buildServer(): McpServer {
         }
 
         let scoreResult: Awaited<ReturnType<typeof scoreMatch>> = null
-        if (job_description) scoreResult = await scoreMatch(job_description)
+        let scoreProvenance: MatchScoreProvenance | undefined
+        if (job_description) {
+          const scored = await scoreMatchWithProvenance(job_description)
+          scoreResult = scored?.response ?? null
+          scoreProvenance = scored?.provenance
+        }
 
         // A caller logging ahead of confirmed submission (is_submitted:
         // false) must not land in 'applied' — every stage-driven consumer
@@ -698,11 +779,16 @@ function buildServer(): McpServer {
         // "this was actually sent", and would silently treat a merely-
         // tailored entry as a real submission otherwise.
         const initialStage = (is_submitted ?? true) ? 'applied' : 'draft'
+        // This token binds the score to the JD capture caused by this exact
+        // writer operation. Content hashes alone are not sufficient: an
+        // application can legitimately capture the same text more than once.
+        const jobDescriptionCaptureOperationId = job_description ? randomUUID() : undefined
 
         const { data, error } = await supabase
           .from('job_applications')
           .insert({
             company, role, job_description, source, url, notes,
+            job_description_capture_operation_id: jobDescriptionCaptureOperationId,
             stage: initialStage,
             applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
             ...(scoreResult && {
@@ -826,16 +912,41 @@ function buildServer(): McpServer {
         }
 
         if (scoreResult) {
-          const { error: scoreErr } = await supabase.from('application_scores').insert({
-            application_id: data.id,
-            resume_id: resumeId ?? null,
-            score_type: 'jd_fit',
-            score: scoreResult.fit_score,
-            rationale: scoreResult.verdict,
-            requirement_evidence: scoreResult.scoring,
-            model: MATCH_MODEL,
-          })
-          if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
+          let jobDescriptionVersionId: string | null = null
+          if (jobDescriptionCaptureOperationId) {
+            const { data: descriptionVersions, error: descriptionVersionErr } = await supabase
+              .from('application_job_description_versions')
+              .select('id')
+              .eq('application_id', data.id)
+              .eq('capture_operation_id', jobDescriptionCaptureOperationId)
+              .limit(2)
+            if (descriptionVersionErr || !descriptionVersions || descriptionVersions.length !== 1) {
+              evidenceNote += '\n(score provenance incomplete: job description version unavailable)'
+            } else {
+              jobDescriptionVersionId = descriptionVersions[0].id
+            }
+          }
+          // A score version without the exact operation-bound JD version is
+          // not reviewable provenance. Keep the application result, but do
+          // not create a score-history row that would be mistaken for one.
+          if (!jobDescriptionVersionId) {
+            evidenceNote += '\n(score history not saved: operation-bound job description version unavailable)'
+          } else {
+            const { error: scoreErr } = await supabase.from('application_scores').insert({
+              application_id: data.id,
+              resume_id: resumeId ?? null,
+              job_description_version_id: jobDescriptionVersionId,
+              score_type: 'jd_fit',
+              score: scoreResult.fit_score,
+              rationale: scoreResult.verdict,
+              requirement_evidence: scoreResult.scoring,
+              model: scoreProvenance?.model ?? null,
+              rubric_version: scoreProvenance?.rubric_version ?? null,
+              rubric_hash: scoreProvenance?.rubric_hash ?? null,
+              profile_hash: scoreProvenance?.profile_hash ?? null,
+            })
+            if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
+          }
         }
 
         const fitLine = scoreResult
@@ -863,14 +974,26 @@ function buildServer(): McpServer {
         application_id: z.string().uuid().describe('The draft application ID'),
         resume_id: z.string().uuid().describe('The exact unsubmitted application_resumes evidence ID that was sent'),
         note: z.string().optional().describe('Optional note about the confirmed submission'),
+        actual_submission_occurred_at: z.string().datetime({ offset: true }).optional().describe('Optional time the client says the submission occurred. This is distinct from server recording time and is not independently verified.'),
+        confirmation_source: z.enum(['client_attested', 'unknown']).optional().describe('Attribution for this internal confirmation. Defaults to unknown; client_attested is not independent ATS evidence.'),
+        source_ref: z.string().max(512).optional().describe('Optional client-provided reference for the attestation; never interpreted as an arbitrary storage path.'),
+        submitted_job_description_version_id: z.string().uuid().optional().describe('Optional JD version actually used for the sent application; must belong to this application.'),
+        submitted_artifact_format: z.enum(['docx', 'pdf']).optional().describe('Optional exact artifact format the client attests was sent.'),
+        submitted_artifact_hash: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('Optional SHA-256 of the exact artifact the client attests was sent; validated against the selected resume.'),
       },
     },
-    async ({ application_id, resume_id, note }) => {
+    async ({ application_id, resume_id, note, actual_submission_occurred_at, confirmation_source, source_ref, submitted_job_description_version_id, submitted_artifact_format, submitted_artifact_hash }) => {
       try {
         const { data, error } = await supabase.rpc('confirm_application_submission', {
           p_application_id: application_id,
           p_resume_id: resume_id,
           p_note: note ?? null,
+          p_actual_submission_occurred_at: actual_submission_occurred_at ?? null,
+          p_confirmation_source: confirmation_source ?? 'unknown',
+          p_source_ref: source_ref ?? null,
+          p_submitted_job_description_version_id: submitted_job_description_version_id ?? null,
+          p_submitted_artifact_format: submitted_artifact_format ?? null,
+          p_submitted_artifact_hash: submitted_artifact_hash ?? null,
         })
 
         if (error || !data) {

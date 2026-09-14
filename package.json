@@ -18,6 +18,7 @@
     "test:rubric": "tsx --test tests/score-resume.test.ts",
     "test:job-feed": "node scripts/check-job-feed-acs.mjs && tsx --test tests/job-pipeline-feed.test.ts tests/job-pipeline-feed-auth.test.ts",
     "test:job-feed-postgres": "node scripts/verify-job-feed-postgres.mjs",
+    "test:application-evidence-source": "tsx --test tests/application-evidence-snapshot.test.ts tests/application-submission-confirmation.test.ts tests/job-pipeline-feed.test.ts tests/job-pipeline-feed-auth.test.ts",
     "pretest:unit": "npm run test:job-feed",
     "test": "echo 'Run npm run test:unit for unit tests, npm run test:integration for live integration tests.'",
     "test:integration": "tsx --env-file=.env.local --test tests/pipeline.test.ts tests/update-profile.test.ts tests/projects-and-scoring.test.ts",

@@ -28,13 +28,18 @@ it('AC-06 private route rejects missing/wrong credentials before serving tools',
     assert.equal((await privateRoute.request('/', listingRequest(key))).status, 401)
   }
 })
-it('AC-06 authenticated private listing includes feed; public listing excludes it', async () => {
+it('AC-06 authenticated private listing includes private readers; public listing excludes them', async () => {
   const privateResponse = await privateRoute.request('/', listingRequest(process.env.OPEN_BRAIN_KEY))
   assert.equal(privateResponse.status, 200)
-  assert.ok((await toolNames(privateResponse)).includes('get_job_pipeline_feed'))
+  const privateNames = await toolNames(privateResponse)
+  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page', 'get_application_resume_artifact']) {
+    assert.ok(privateNames.includes(name), `private listing should include ${name}`)
+  }
   const publicResponse = await publicRoute.request('/', listingRequest())
   assert.equal(publicResponse.status, 200)
   const publicNames = await toolNames(publicResponse)
   assert.ok(publicNames.includes('ask_candidate'))
-  assert.ok(!publicNames.includes('get_job_pipeline_feed'))
+  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page', 'get_application_resume_artifact']) {
+    assert.ok(!publicNames.includes(name), `public listing must exclude ${name}`)
+  }
 })
