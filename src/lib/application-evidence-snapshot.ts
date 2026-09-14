@@ -83,6 +83,9 @@ const ApplicationEvidenceSchema = z.object({
       confirmations: z.array(z.object({
         submission_confirmation_id: z.string().uuid(),
         resume_id: z.string().uuid(),
+        submitted_job_description_version_id: z.string().uuid().nullable(),
+        submitted_artifact_format: z.enum(['docx', 'pdf']).nullable(),
+        submitted_artifact_hash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
         actual_submission_occurred_at: TimestampSchema.nullable(),
         confirmation_recorded_at: TimestampSchema,
         confirmation_source: z.enum(['client_attested', 'unknown']),

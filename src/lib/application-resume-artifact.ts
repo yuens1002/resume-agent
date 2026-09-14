@@ -21,7 +21,7 @@ export type ApplicationResumeArtifactSource = {
     data: ResumeArtifactRow | null
     error: unknown | null
   }>
-  download: (path: string) => PromiseLike<{ data: Blob | null; error: unknown | null }>
+  download: (path: string) => PromiseLike<{ data: ReadableStream<Uint8Array> | null; error: unknown | null }>
 }
 
 type ArtifactRefusalCode =
@@ -55,18 +55,29 @@ export async function getApplicationResumeArtifact(input: unknown, source: Appli
     : [row.pdf_url, row.pdf_hash, 'application/pdf'] as const
   if (!path || !expectedHash || !/^[a-f0-9]{64}$/.test(expectedHash)) return refusal('artifact_not_found')
 
-  let blob: Blob | null
+  let stream: ReadableStream<Uint8Array> | null
   try {
     const result = await source.download(path)
     if (result.error) return refusal('artifact_unavailable')
-    blob = result.data
+    stream = result.data
   } catch {
     return refusal('artifact_unavailable')
   }
-  if (!blob) return refusal('artifact_unavailable')
-  if (blob.size > MAX_ARTIFACT_BYTES) return refusal('artifact_too_large')
-
-  const bytes = Buffer.from(await blob.arrayBuffer())
+  if (!stream) return refusal('artifact_unavailable')
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let sizeBytes = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    sizeBytes += value.byteLength
+    if (sizeBytes > MAX_ARTIFACT_BYTES) {
+      await reader.cancel('artifact size cap exceeded')
+      return refusal('artifact_too_large')
+    }
+    chunks.push(value)
+  }
+  const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)))
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   if (sha256 !== expectedHash) return refusal('artifact_hash_mismatch')
 
@@ -77,7 +88,7 @@ export async function getApplicationResumeArtifact(input: unknown, source: Appli
       resume_id,
       format,
       mime_type,
-      size_bytes: bytes.byteLength,
+      size_bytes: sizeBytes,
       sha256,
       bytes_base64: bytes.toString('base64'),
     },

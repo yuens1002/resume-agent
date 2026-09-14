@@ -138,7 +138,7 @@ describe('application evidence snapshot SQL', () => {
     )
     const actualSubmissionTime = '2026-09-14T12:00:00.000Z'
     await db.query(
-      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref')",
+      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', null, null, null)",
       [confirmationApplication.rows[0].id, confirmationResume.rows[0].id, actualSubmissionTime],
     )
 
@@ -263,7 +263,7 @@ describe('application resume artifact reader', () => {
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   const source = (overrides: Partial<{
     row: { docx_url: string | null; docx_hash: string | null; pdf_url: string | null; pdf_hash: string | null } | null
-    blob: Blob | null
+    stream: ReadableStream<Uint8Array> | null
     readError: unknown | null
     downloadError: unknown | null
   }> = {}) => ({
@@ -271,7 +271,7 @@ describe('application resume artifact reader', () => {
       data: overrides.row === undefined ? { docx_url: 'owned/doc.docx', docx_hash: sha256, pdf_url: null, pdf_hash: null } : overrides.row,
       error: overrides.readError ?? null,
     }),
-    download: async () => ({ data: overrides.blob === undefined ? new Blob([bytes]) : overrides.blob, error: overrides.downloadError ?? null }),
+    download: async () => ({ data: overrides.stream === undefined ? new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }) : overrides.stream, error: overrides.downloadError ?? null }),
   })
 
   it('resolves only the stored application/resume artifact and verifies returned bytes', async () => {
@@ -286,8 +286,14 @@ describe('application resume artifact reader', () => {
   it('refuses a missing/wrong application-resume pair, oversized or unavailable bytes, and a hash mismatch', async () => {
     const request = { application_id: applicationId, resume_id: resumeId, format: 'docx' as const }
     assert.deepEqual(await getApplicationResumeArtifact(request, source({ row: null })), { status: 'refused', code: 'artifact_not_found' })
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ blob: new Blob([new Uint8Array(MAX_ARTIFACT_BYTES + 1)]) })), { status: 'refused', code: 'artifact_too_large' })
+    let cancelled = false
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(MAX_ARTIFACT_BYTES + 1)) },
+      cancel() { cancelled = true },
+    })
+    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: oversized })), { status: 'refused', code: 'artifact_too_large' })
+    assert.equal(cancelled, true)
     assert.deepEqual(await getApplicationResumeArtifact(request, source({ downloadError: new Error('synthetic') })), { status: 'refused', code: 'artifact_unavailable' })
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ blob: new Blob([Buffer.from('different bytes')]) })), { status: 'refused', code: 'artifact_hash_mismatch' })
+    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: new ReadableStream({ start(controller) { controller.enqueue(Buffer.from('different bytes')); controller.close() } }) })), { status: 'refused', code: 'artifact_hash_mismatch' })
   })
 })

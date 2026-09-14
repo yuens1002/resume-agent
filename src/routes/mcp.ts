@@ -90,7 +90,18 @@ function buildServer(): McpServer {
         .maybeSingle()
       return { data, error }
     },
-    download: path => supabase.storage.from('resume-artifacts').download(path),
+    download: async path => {
+      const { data, error } = await supabase.storage.from('resume-artifacts').createSignedUrl(path, 60)
+      if (error || !data?.signedUrl) return { data: null, error: error ?? new Error('missing signed artifact URL') }
+      try {
+        const response = await fetch(data.signedUrl)
+        return response.ok && response.body
+          ? { data: response.body, error: null }
+          : { data: null, error: new Error(`artifact download failed with ${response.status}`) }
+      } catch (downloadError) {
+        return { data: null, error: downloadError }
+      }
+    },
   })
 
   // ── Thoughts Tools ────────────────────────────────────────
@@ -849,18 +860,21 @@ function buildServer(): McpServer {
         if (scoreResult) {
           let jobDescriptionVersionId: string | null = null
           if (job_description) {
-            const { data: descriptionVersion, error: descriptionVersionErr } = await supabase
+            const loggedJobDescriptionHash = createHash('sha256').update(job_description).digest('hex')
+            let descriptionQuery = supabase
               .from('application_job_description_versions')
               .select('id')
               .eq('application_id', data.id)
-              .order('captured_at', { ascending: false })
-              .order('id', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-            if (descriptionVersionErr || !descriptionVersion) {
+              .eq('content_hash', loggedJobDescriptionHash)
+              .limit(2)
+            descriptionQuery = url === undefined
+              ? descriptionQuery.is('source_url', null)
+              : descriptionQuery.eq('source_url', url)
+            const { data: descriptionVersions, error: descriptionVersionErr } = await descriptionQuery
+            if (descriptionVersionErr || !descriptionVersions || descriptionVersions.length !== 1) {
               evidenceNote += '\n(score provenance incomplete: job description version unavailable)'
             } else {
-              jobDescriptionVersionId = descriptionVersion.id
+              jobDescriptionVersionId = descriptionVersions[0].id
             }
           }
           const { error: scoreErr } = await supabase.from('application_scores').insert({
@@ -907,9 +921,12 @@ function buildServer(): McpServer {
         actual_submission_occurred_at: z.string().datetime({ offset: true }).optional().describe('Optional time the client says the submission occurred. This is distinct from server recording time and is not independently verified.'),
         confirmation_source: z.enum(['client_attested', 'unknown']).optional().describe('Attribution for this internal confirmation. Defaults to unknown; client_attested is not independent ATS evidence.'),
         source_ref: z.string().max(512).optional().describe('Optional client-provided reference for the attestation; never interpreted as an arbitrary storage path.'),
+        submitted_job_description_version_id: z.string().uuid().optional().describe('Optional JD version actually used for the sent application; must belong to this application.'),
+        submitted_artifact_format: z.enum(['docx', 'pdf']).optional().describe('Optional exact artifact format the client attests was sent.'),
+        submitted_artifact_hash: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('Optional SHA-256 of the exact artifact the client attests was sent; validated against the selected resume.'),
       },
     },
-    async ({ application_id, resume_id, note, actual_submission_occurred_at, confirmation_source, source_ref }) => {
+    async ({ application_id, resume_id, note, actual_submission_occurred_at, confirmation_source, source_ref, submitted_job_description_version_id, submitted_artifact_format, submitted_artifact_hash }) => {
       try {
         const { data, error } = await supabase.rpc('confirm_application_submission', {
           p_application_id: application_id,
@@ -918,6 +935,9 @@ function buildServer(): McpServer {
           p_actual_submission_occurred_at: actual_submission_occurred_at ?? null,
           p_confirmation_source: confirmation_source ?? 'unknown',
           p_source_ref: source_ref ?? null,
+          p_submitted_job_description_version_id: submitted_job_description_version_id ?? null,
+          p_submitted_artifact_format: submitted_artifact_format ?? null,
+          p_submitted_artifact_hash: submitted_artifact_hash ?? null,
         })
 
         if (error || !data) {

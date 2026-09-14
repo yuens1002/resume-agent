@@ -88,6 +88,9 @@ create table if not exists application_submission_confirmations (
   id                          uuid        primary key default gen_random_uuid(),
   application_id              uuid        not null references public.job_applications(id) on delete cascade,
   resume_id                   uuid        not null,
+  submitted_job_description_version_id uuid,
+  submitted_artifact_format   text check (submitted_artifact_format in ('docx', 'pdf')),
+  submitted_artifact_hash     text,
   actual_submission_occurred_at timestamptz,
   confirmation_recorded_at    timestamptz not null default statement_timestamp(),
   confirmation_source         text        not null check (confirmation_source in ('client_attested', 'unknown')),
@@ -96,7 +99,10 @@ create table if not exists application_submission_confirmations (
   unique (application_id, resume_id),
   foreign key (application_id, resume_id)
     references public.application_resumes (application_id, id)
-    on delete cascade
+    on delete cascade,
+  foreign key (application_id, submitted_job_description_version_id)
+    references public.application_job_description_versions (application_id, id)
+    on delete set null (submitted_job_description_version_id)
 );
 
 create index if not exists application_submission_confirmations_application_id_recorded_at_idx
@@ -159,10 +165,8 @@ declare
   v_as_of timestamptz := statement_timestamp();
   v_total integer;
 begin
-  select count(*)::integer into v_total from public.job_applications;
-
   insert into public.application_evidence_snapshots (id, as_of, total_applications)
-  values (v_snapshot_id, v_as_of, v_total);
+  values (v_snapshot_id, v_as_of, 0);
 
   insert into public.application_evidence_snapshot_entries (snapshot_id, ordinal, application_id, evidence)
   select
@@ -250,6 +254,9 @@ begin
             select jsonb_agg(jsonb_build_object(
               'submission_confirmation_id', confirmation.id,
               'resume_id', confirmation.resume_id,
+              'submitted_job_description_version_id', confirmation.submitted_job_description_version_id,
+              'submitted_artifact_format', confirmation.submitted_artifact_format,
+              'submitted_artifact_hash', confirmation.submitted_artifact_hash,
               'actual_submission_occurred_at', confirmation.actual_submission_occurred_at,
               'confirmation_recorded_at', confirmation.confirmation_recorded_at,
               'confirmation_source', confirmation.confirmation_source,
@@ -273,6 +280,14 @@ begin
     )
   from public.job_applications application;
 
+  -- Derive the declared total from the exact relation just materialized. A
+  -- separate pre-insert count would be a different READ COMMITTED statement
+  -- and could disagree with concurrent application writes.
+  get diagnostics v_total = row_count;
+  update public.application_evidence_snapshots
+  set total_applications = v_total
+  where id = v_snapshot_id;
+
   return jsonb_build_object(
     'snapshot_id', v_snapshot_id,
     'as_of', v_as_of,
@@ -291,7 +306,10 @@ create or replace function public.confirm_application_submission(
   p_note text,
   p_actual_submission_occurred_at timestamptz,
   p_confirmation_source text,
-  p_source_ref text
+  p_source_ref text,
+  p_submitted_job_description_version_id uuid default null,
+  p_submitted_artifact_format text default null,
+  p_submitted_artifact_hash text default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -311,6 +329,12 @@ begin
   if p_source_ref is not null and length(p_source_ref) > 512 then
     raise exception 'Confirmation source reference is too long' using errcode = '22023';
   end if;
+  if p_submitted_artifact_format is not null and p_submitted_artifact_format not in ('docx', 'pdf') then
+    raise exception 'Submitted artifact format is invalid' using errcode = '22023';
+  end if;
+  if (p_submitted_artifact_format is null) <> (p_submitted_artifact_hash is null) then
+    raise exception 'Submitted artifact format and hash must be supplied together' using errcode = '22023';
+  end if;
 
   select * into v_application
   from public.job_applications
@@ -318,6 +342,13 @@ begin
   for update;
   if not found then
     raise exception 'Application not found' using errcode = 'P0001';
+  end if;
+  if p_submitted_artifact_format = 'docx' and not exists (
+    select 1 from public.application_resumes where id = v_resume_id and docx_hash = p_submitted_artifact_hash
+  ) or p_submitted_artifact_format = 'pdf' and not exists (
+    select 1 from public.application_resumes where id = v_resume_id and pdf_hash = p_submitted_artifact_hash
+  ) then
+    raise exception 'Submitted artifact hash does not match the selected resume' using errcode = '22023';
   end if;
   if v_application.stage <> 'draft' then
     raise exception 'Only draft applications can be confirmed as submitted' using errcode = 'P0001';
@@ -338,10 +369,10 @@ begin
   insert into public.application_stages (application_id, stage, note)
   values (p_application_id, 'applied', coalesce(nullif(btrim(p_note), ''), 'Application submission confirmed'));
   insert into public.application_submission_confirmations (
-    application_id, resume_id, actual_submission_occurred_at,
+    application_id, resume_id, submitted_job_description_version_id, submitted_artifact_format, submitted_artifact_hash, actual_submission_occurred_at,
     confirmation_recorded_at, confirmation_source, source_ref
   ) values (
-    p_application_id, v_resume_id, p_actual_submission_occurred_at,
+    p_application_id, v_resume_id, p_submitted_job_description_version_id, p_submitted_artifact_format, p_submitted_artifact_hash, p_actual_submission_occurred_at,
     statement_timestamp(), p_confirmation_source, nullif(btrim(p_source_ref), '')
   );
 
@@ -365,7 +396,7 @@ language sql
 security definer
 set search_path = pg_catalog, public
 as $$
-  select public.confirm_application_submission($1, $2, $3, null, 'unknown', null);
+  select public.confirm_application_submission($1, $2, $3, null, 'unknown', null, null, null, null);
 $$;
 
 create or replace function public.get_application_evidence_snapshot_page(
@@ -442,8 +473,8 @@ revoke all on function public.get_application_evidence_snapshot_page(uuid, integ
 revoke all on function public.get_application_evidence_snapshot_page(uuid, integer, integer) from anon, authenticated;
 grant execute on function public.get_application_evidence_snapshot_page(uuid, integer, integer) to service_role;
 
-revoke all on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text) from public;
-revoke all on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text) from anon, authenticated;
-grant execute on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text) to service_role;
+revoke all on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text, uuid, text, text) from public;
+revoke all on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text, uuid, text, text) from anon, authenticated;
+grant execute on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text, uuid, text, text) to service_role;
 
 commit;
