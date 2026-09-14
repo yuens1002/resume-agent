@@ -11,12 +11,15 @@ import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
 import { invalidateProfileCache } from '../lib/profile-cache.js'
 import { parseJSON } from '../lib/parse-json.js'
-import { scoreMatch, MATCH_MODEL } from '../lib/score-match.js'
+import { scoreMatch, scoreMatchWithProvenance, type MatchScoreProvenance } from '../lib/score-match.js'
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
 import { mergePublication } from '../lib/publications.js'
 import { registerJobPipelineFeed } from '../lib/job-pipeline-feed-tool.js'
+import { registerApplicationEvidenceSnapshotTools } from '../lib/application-evidence-snapshot-tool.js'
+import { APPLICATION_STAGES } from '../lib/application-evidence-snapshot.js'
+import { registerApplicationResumeArtifactTool } from '../lib/application-resume-artifact-tool.js'
 import type { Project, Publication } from '../types.js'
 
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
@@ -76,6 +79,19 @@ Only extract what's explicitly there.`,
 function buildServer(): McpServer {
   const server = new McpServer({ name: 'open-brain', version: '1.0.0' })
   registerJobPipelineFeed(server, (name, args) => supabase.rpc(name, args))
+  registerApplicationEvidenceSnapshotTools(server, (name, args) => supabase.rpc(name, args))
+  registerApplicationResumeArtifactTool(server, {
+    readResume: async (applicationId, resumeId) => {
+      const { data, error } = await supabase
+        .from('application_resumes')
+        .select('docx_url, docx_hash, pdf_url, pdf_hash')
+        .eq('application_id', applicationId)
+        .eq('id', resumeId)
+        .maybeSingle()
+      return { data, error }
+    },
+    download: path => supabase.storage.from('resume-artifacts').download(path),
+  })
 
   // ── Thoughts Tools ────────────────────────────────────────
 
@@ -616,7 +632,7 @@ function buildServer(): McpServer {
 
   // ── Pipeline Tools ────────────────────────────────────────
 
-  const STAGES = ['draft', 'applied', 'phone_screen', 'technical', 'final', 'offer', 'rejected', 'withdrawn'] as const
+  const STAGES = APPLICATION_STAGES
   const SUBMITTED_PIPELINE_STAGES = ['applied', 'phone_screen', 'technical', 'final', 'offer'] as const
   const TERMINAL_STAGES = ['rejected', 'withdrawn'] as const
 
@@ -689,7 +705,12 @@ function buildServer(): McpServer {
         }
 
         let scoreResult: Awaited<ReturnType<typeof scoreMatch>> = null
-        if (job_description) scoreResult = await scoreMatch(job_description)
+        let scoreProvenance: MatchScoreProvenance | undefined
+        if (job_description) {
+          const scored = await scoreMatchWithProvenance(job_description)
+          scoreResult = scored?.response ?? null
+          scoreProvenance = scored?.provenance
+        }
 
         // A caller logging ahead of confirmed submission (is_submitted:
         // false) must not land in 'applied' — every stage-driven consumer
@@ -826,14 +847,34 @@ function buildServer(): McpServer {
         }
 
         if (scoreResult) {
+          let jobDescriptionVersionId: string | null = null
+          if (job_description) {
+            const { data: descriptionVersion, error: descriptionVersionErr } = await supabase
+              .from('application_job_description_versions')
+              .select('id')
+              .eq('application_id', data.id)
+              .order('captured_at', { ascending: false })
+              .order('id', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            if (descriptionVersionErr || !descriptionVersion) {
+              evidenceNote += '\n(score provenance incomplete: job description version unavailable)'
+            } else {
+              jobDescriptionVersionId = descriptionVersion.id
+            }
+          }
           const { error: scoreErr } = await supabase.from('application_scores').insert({
             application_id: data.id,
             resume_id: resumeId ?? null,
+            job_description_version_id: jobDescriptionVersionId,
             score_type: 'jd_fit',
             score: scoreResult.fit_score,
             rationale: scoreResult.verdict,
             requirement_evidence: scoreResult.scoring,
-            model: MATCH_MODEL,
+            model: scoreProvenance?.model ?? null,
+            rubric_version: scoreProvenance?.rubric_version ?? null,
+            rubric_hash: scoreProvenance?.rubric_hash ?? null,
+            profile_hash: scoreProvenance?.profile_hash ?? null,
           })
           if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
         }
@@ -863,14 +904,20 @@ function buildServer(): McpServer {
         application_id: z.string().uuid().describe('The draft application ID'),
         resume_id: z.string().uuid().describe('The exact unsubmitted application_resumes evidence ID that was sent'),
         note: z.string().optional().describe('Optional note about the confirmed submission'),
+        actual_submission_occurred_at: z.string().datetime({ offset: true }).optional().describe('Optional time the client says the submission occurred. This is distinct from server recording time and is not independently verified.'),
+        confirmation_source: z.enum(['client_attested', 'unknown']).optional().describe('Attribution for this internal confirmation. Defaults to unknown; client_attested is not independent ATS evidence.'),
+        source_ref: z.string().max(512).optional().describe('Optional client-provided reference for the attestation; never interpreted as an arbitrary storage path.'),
       },
     },
-    async ({ application_id, resume_id, note }) => {
+    async ({ application_id, resume_id, note, actual_submission_occurred_at, confirmation_source, source_ref }) => {
       try {
         const { data, error } = await supabase.rpc('confirm_application_submission', {
           p_application_id: application_id,
           p_resume_id: resume_id,
           p_note: note ?? null,
+          p_actual_submission_occurred_at: actual_submission_occurred_at ?? null,
+          p_confirmation_source: confirmation_source ?? 'unknown',
+          p_source_ref: source_ref ?? null,
         })
 
         if (error || !data) {

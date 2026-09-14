@@ -503,6 +503,9 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
 - `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)
+- `create_application_evidence_snapshot` — Materialize a protected, immutable source snapshot for bounded evidence review ([contract](docs/application-evidence-snapshot.md); requires evidence-snapshot migration)
+- `get_application_evidence_snapshot_page` — Read one bounded evidence page from a snapshot; its terminal marker applies only to that response ([contract](docs/application-evidence-snapshot.md))
+- `get_application_resume_artifact` — Read one bounded, hash-verified DOCX/PDF artifact by application and resume IDs ([contract](docs/application-evidence-snapshot.md))
 - `get_application` — Get full details of an application (contacts, stage history, job description, submitted resume content, and score history)
 - `set_follow_up` — Set a follow-up date with notes
 - `search_applications` — Search applications by company, role, JD, or notes
