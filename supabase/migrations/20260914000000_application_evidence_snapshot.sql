@@ -236,13 +236,14 @@ declare
 begin
   -- This provisional row is never visible outside this function's transaction.
   -- The source relation and final `as_of` are set together below in one SQL
-  -- statement, so READ COMMITTED cannot combine a later source row with an
-  -- earlier declared timestamp.
+  -- statement. clock_timestamp() is evaluated once at this materialization,
+  -- not statement_timestamp(), which still denotes the outer client command
+  -- even when this VOLATILE function takes a newer READ COMMITTED snapshot.
   insert into public.application_evidence_snapshots (id, as_of, total_applications)
   values (v_snapshot_id, '-infinity'::timestamptz, 0);
 
   with snapshot_boundary as materialized (
-    select statement_timestamp() as as_of
+    select clock_timestamp() as as_of
   ), source_rows as materialized (
     select
       row_number() over (order by application.applied_at desc, application.id)::integer as ordinal,

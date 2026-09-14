@@ -93,6 +93,27 @@ try {
   assert.equal(await sql("select has_function_privilege('service_role', 'public.get_application_evidence_snapshot_page(uuid,integer,integer)', 'execute');"), 't')
   console.log('PASS evidence snapshot: PostgreSQL materializes immutable JD evidence and restricts snapshot RPCs')
 
+  // A VOLATILE function takes a fresh MVCC snapshot for its materialization
+  // query, but statement_timestamp() remains the outer client command time.
+  // Force a commit after that outer command and before the source query.
+  await sql(`create function slow_snapshot_header() returns trigger language plpgsql as $$
+    begin perform pg_sleep(1); return new; end; $$;
+    create trigger slow_snapshot_header before insert on application_evidence_snapshots
+    for each row execute function slow_snapshot_header();`)
+  const delayedCapture = sql("set application_name='snapshot_delayed_header'; select create_application_evidence_snapshot();")
+  await waitFor(countIsOne("select count(*) from pg_stat_activity where application_name='snapshot_delayed_header' and wait_event='PgSleep';"))
+  const laterCommittedId = await sql("insert into job_applications(company,role) values ('committed_after_capture_command','test') returning id;")
+  const delayedSnapshot = JSON.parse(await delayedCapture)
+  const delayedPage = JSON.parse(await sql(`select get_application_evidence_snapshot_page('${delayedSnapshot.snapshot_id}',null,100);`))
+  assert.ok(delayedPage.applications.some(entry => entry.application.application_id === laterCommittedId))
+  assert.equal(await sql(`select (entry.evidence->'application'->>'created_at')::timestamptz <= snapshot.as_of
+    from application_evidence_snapshots snapshot
+    join application_evidence_snapshot_entries entry on entry.snapshot_id=snapshot.id
+    where snapshot.id='${delayedSnapshot.snapshot_id}' and entry.application_id='${laterCommittedId}';`), 't',
+  'materialization as_of must not predate a row committed after the outer command began')
+  await sql('drop trigger slow_snapshot_header on application_evidence_snapshots; drop function slow_snapshot_header();')
+  console.log('PASS evidence snapshot boundary: delayed source query timestamps its own materialization, not the outer command')
+
   // Each snapshot derives its total from the INSERT ... SELECT that materializes
   // entries, rather than from a separately timed count. Exercise that invariant
   // while another session creates applications between snapshot requests.
@@ -198,7 +219,7 @@ try {
   await Promise.all([replay, writer])
   assert.deepEqual((await readFeed(beforeReplay.next_cursor)).changes.map(change => change.application.company), ['during_migration'])
   console.log('PASS migration replay: concurrent writer waits and is journaled after commit')
-  console.log('outcome=passed: eight PostgreSQL scenarios')
+  console.log('outcome=passed: nine PostgreSQL scenarios')
 } finally {
   if (started) await run('docker', ['stop', container], options)
   console.log(`Isolated container retained: ${container}; started=${started}, stopped=${started}`)
