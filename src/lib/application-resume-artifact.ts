@@ -67,15 +67,22 @@ export async function getApplicationResumeArtifact(input: unknown, source: Appli
   const reader = stream.getReader()
   const chunks: Uint8Array[] = []
   let sizeBytes = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    sizeBytes += value.byteLength
-    if (sizeBytes > MAX_ARTIFACT_BYTES) {
-      await reader.cancel('artifact size cap exceeded')
-      return refusal('artifact_too_large')
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      sizeBytes += value.byteLength
+      if (sizeBytes > MAX_ARTIFACT_BYTES) {
+        await reader.cancel('artifact size cap exceeded')
+        return refusal('artifact_too_large')
+      }
+      chunks.push(value)
     }
-    chunks.push(value)
+  } catch {
+    try { await reader.cancel('artifact stream failed') } catch { /* best-effort */ }
+    return refusal('artifact_unavailable')
+  } finally {
+    reader.releaseLock()
   }
   const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)))
   const sha256 = createHash('sha256').update(bytes).digest('hex')

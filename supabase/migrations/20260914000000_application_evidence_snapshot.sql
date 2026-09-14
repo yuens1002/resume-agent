@@ -16,6 +16,7 @@ create table if not exists application_job_description_versions (
   content         text        not null,
   content_hash    text        not null,
   source_url      text,
+  capture_operation_id uuid,
   captured_at     timestamptz not null default statement_timestamp(),
   created_at      timestamptz not null default now()
 );
@@ -27,6 +28,14 @@ create index if not exists application_job_description_versions_application_id_c
 -- JD version from some other application.
 create unique index if not exists application_job_description_versions_application_id_id_idx
   on application_job_description_versions (application_id, id);
+
+alter table public.job_applications
+  add column if not exists job_description_capture_operation_id uuid;
+alter table public.application_job_description_versions
+  add column if not exists capture_operation_id uuid;
+create unique index if not exists application_job_description_versions_capture_operation_idx
+  on public.application_job_description_versions (application_id, capture_operation_id)
+  where capture_operation_id is not null;
 
 -- The application writer is not the only possible future writer. Capturing at
 -- the table boundary keeps every new non-null JD write versioned, while an
@@ -46,12 +55,17 @@ begin
     or new.job_description is distinct from old.job_description
     or new.url is distinct from old.url then
     insert into public.application_job_description_versions (
-      application_id, content, content_hash, source_url, captured_at
+      application_id, content, content_hash, source_url, capture_operation_id, captured_at
     ) values (
       new.id,
       new.job_description,
       encode(digest(convert_to(new.job_description, 'UTF8'), 'sha256'), 'hex'),
       new.url,
+      case
+        when tg_op = 'UPDATE' and new.job_description_capture_operation_id is not distinct from old.job_description_capture_operation_id
+          then gen_random_uuid()
+        else new.job_description_capture_operation_id
+      end,
       statement_timestamp()
     );
   end if;
@@ -318,6 +332,7 @@ as $$
 declare
   v_application public.job_applications%rowtype;
   v_resume_id uuid;
+  v_selected_artifact_hash text;
 begin
   if p_confirmation_source not in ('client_attested', 'unknown') then
     raise exception 'Confirmation source is invalid' using errcode = '22023';
@@ -335,6 +350,9 @@ begin
   if (p_submitted_artifact_format is null) <> (p_submitted_artifact_hash is null) then
     raise exception 'Submitted artifact format and hash must be supplied together' using errcode = '22023';
   end if;
+  if p_submitted_artifact_hash is not null and p_submitted_artifact_hash !~ '^[a-f0-9]{64}$' then
+    raise exception 'Submitted artifact hash is invalid' using errcode = '22023';
+  end if;
 
   select * into v_application
   from public.job_applications
@@ -342,13 +360,6 @@ begin
   for update;
   if not found then
     raise exception 'Application not found' using errcode = 'P0001';
-  end if;
-  if p_submitted_artifact_format = 'docx' and not exists (
-    select 1 from public.application_resumes where id = v_resume_id and docx_hash = p_submitted_artifact_hash
-  ) or p_submitted_artifact_format = 'pdf' and not exists (
-    select 1 from public.application_resumes where id = v_resume_id and pdf_hash = p_submitted_artifact_hash
-  ) then
-    raise exception 'Submitted artifact hash does not match the selected resume' using errcode = '22023';
   end if;
   if v_application.stage <> 'draft' then
     raise exception 'Only draft applications can be confirmed as submitted' using errcode = 'P0001';
@@ -362,6 +373,16 @@ begin
   for update;
   if not found then
     raise exception 'Unsubmitted resume evidence not found for application' using errcode = 'P0001';
+  end if;
+  if p_submitted_artifact_format = 'docx' then
+    select docx_hash into v_selected_artifact_hash
+    from public.application_resumes where id = v_resume_id;
+  elsif p_submitted_artifact_format = 'pdf' then
+    select pdf_hash into v_selected_artifact_hash
+    from public.application_resumes where id = v_resume_id;
+  end if;
+  if p_submitted_artifact_format is not null and v_selected_artifact_hash is distinct from p_submitted_artifact_hash then
+    raise exception 'Submitted artifact hash does not match the selected resume' using errcode = '22023';
   end if;
 
   update public.application_resumes set is_submitted = true where id = v_resume_id;

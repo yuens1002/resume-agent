@@ -730,11 +730,16 @@ function buildServer(): McpServer {
         // "this was actually sent", and would silently treat a merely-
         // tailored entry as a real submission otherwise.
         const initialStage = (is_submitted ?? true) ? 'applied' : 'draft'
+        // This token binds the score to the JD capture caused by this exact
+        // writer operation. Content hashes alone are not sufficient: an
+        // application can legitimately capture the same text more than once.
+        const jobDescriptionCaptureOperationId = job_description ? randomUUID() : undefined
 
         const { data, error } = await supabase
           .from('job_applications')
           .insert({
             company, role, job_description, source, url, notes,
+            job_description_capture_operation_id: jobDescriptionCaptureOperationId,
             stage: initialStage,
             applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
             ...(scoreResult && {
@@ -859,18 +864,13 @@ function buildServer(): McpServer {
 
         if (scoreResult) {
           let jobDescriptionVersionId: string | null = null
-          if (job_description) {
-            const loggedJobDescriptionHash = createHash('sha256').update(job_description).digest('hex')
-            let descriptionQuery = supabase
+          if (jobDescriptionCaptureOperationId) {
+            const { data: descriptionVersions, error: descriptionVersionErr } = await supabase
               .from('application_job_description_versions')
               .select('id')
               .eq('application_id', data.id)
-              .eq('content_hash', loggedJobDescriptionHash)
+              .eq('capture_operation_id', jobDescriptionCaptureOperationId)
               .limit(2)
-            descriptionQuery = url === undefined
-              ? descriptionQuery.is('source_url', null)
-              : descriptionQuery.eq('source_url', url)
-            const { data: descriptionVersions, error: descriptionVersionErr } = await descriptionQuery
             if (descriptionVersionErr || !descriptionVersions || descriptionVersions.length !== 1) {
               evidenceNote += '\n(score provenance incomplete: job description version unavailable)'
             } else {

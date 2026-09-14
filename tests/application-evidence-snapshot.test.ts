@@ -35,7 +35,7 @@ type SnapshotPage = {
     application: { application_id: string; company: string }
     job_description: { status: string; versions: unknown[] }
     score_versions: unknown[]
-    submission_confirmation: { status: string; confirmations: Array<{ resume_id: string; confirmation_source: string; confirmation_recorded_at: string; actual_submission_occurred_at: string | null; source_ref: string | null }> }
+    submission_confirmation: { status: string; confirmations: Array<{ resume_id: string; confirmation_source: string; confirmation_recorded_at: string; actual_submission_occurred_at: string | null; source_ref: string | null; submitted_artifact_format: string | null; submitted_artifact_hash: string | null; submitted_job_description_version_id: string | null }> }
   }>
   next_cursor: { ordinal: number } | null
   is_final_page: boolean
@@ -74,8 +74,11 @@ describe('application evidence snapshot SQL', () => {
     // a capture version. Production migration never performs this deletion.
     await db.query('delete from application_job_description_versions where application_id = $1', [legacy.rows[0].id])
 
+    const captureOperationId = '00000000-0000-4000-8000-000000000001'
+    const replacementCaptureOperationId = '00000000-0000-4000-8000-000000000002'
     const current = await db.query<{ id: string }>(
-      "insert into job_applications(company, role, job_description, url) values ('current company', 'role', 'current JD', 'https://example.test/posting') returning id",
+      "insert into job_applications(company, role, job_description, url, job_description_capture_operation_id) values ('current company', 'role', 'current JD', 'https://example.test/posting', $1::uuid) returning id",
+      [captureOperationId],
     )
     const applicationId = current.rows[0].id
     const jdVersion = await db.query<{ id: string; content_hash: string }>(
@@ -85,17 +88,17 @@ describe('application evidence snapshot SQL', () => {
     assert.match(jdVersion.rows[0].content_hash, /^[a-f0-9]{64}$/)
 
     const updated = await db.query<{ id: string }>(
-      "update job_applications set job_description = 'current JD v2', url = 'https://example.test/posting-v2' where id = $1 returning id",
-      [applicationId],
+      "update job_applications set job_description = 'current JD v2', url = 'https://example.test/posting-v2', job_description_capture_operation_id = $2::uuid where id = $1 returning id",
+      [applicationId, replacementCaptureOperationId],
     )
     assert.equal(updated.rows.length, 1)
-    const allJdVersions = await db.query<{ content: string; source_url: string }>(
-      'select content, source_url from application_job_description_versions where application_id = $1 order by captured_at, id',
+    const allJdVersions = await db.query<{ content: string; source_url: string; capture_operation_id: string }>(
+      'select content, source_url, capture_operation_id from application_job_description_versions where application_id = $1 order by captured_at, id',
       [applicationId],
     )
-    assert.deepEqual(allJdVersions.rows.map(row => [row.content, row.source_url]), [
-      ['current JD', 'https://example.test/posting'],
-      ['current JD v2', 'https://example.test/posting-v2'],
+    assert.deepEqual(allJdVersions.rows.map(row => [row.content, row.source_url, row.capture_operation_id]), [
+      ['current JD', 'https://example.test/posting', captureOperationId],
+      ['current JD v2', 'https://example.test/posting-v2', replacementCaptureOperationId],
     ])
 
     const resumeA = await db.query<{ id: string }>(
@@ -130,16 +133,20 @@ describe('application evidence snapshot SQL', () => {
     )
 
     const confirmationApplication = await db.query<{ id: string }>(
-      "insert into job_applications(company, role, stage) values ('confirmation company', 'role', 'draft') returning id",
+      "insert into job_applications(company, role, stage, job_description) values ('confirmation company', 'role', 'draft', 'confirmation JD') returning id",
+    )
+    const confirmationJdVersion = await db.query<{ id: string }>(
+      'select id from application_job_description_versions where application_id = $1', [confirmationApplication.rows[0].id],
     )
     const confirmationResume = await db.query<{ id: string }>(
-      "insert into application_resumes(application_id, resume_content, is_submitted) values ($1, '{\"summary\":\"confirmed\"}'::jsonb, false) returning id",
+      "insert into application_resumes(application_id, resume_content, pdf_hash, docx_hash, is_submitted) values ($1, '{\"summary\":\"confirmed\"}'::jsonb, repeat('e',64), repeat('f',64), false) returning id",
       [confirmationApplication.rows[0].id],
     )
+    const confirmationHash = await db.query<{ pdf_hash: string }>('select pdf_hash from application_resumes where id = $1', [confirmationResume.rows[0].id])
     const actualSubmissionTime = '2026-09-14T12:00:00.000Z'
     await db.query(
-      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', null, null, null)",
-      [confirmationApplication.rows[0].id, confirmationResume.rows[0].id, actualSubmissionTime],
+      "select public.confirm_application_submission($1::uuid, $2::uuid, null, $3::timestamptz, 'client_attested', 'synthetic-ref', $4::uuid, 'pdf', $5)",
+      [confirmationApplication.rows[0].id, confirmationResume.rows[0].id, actualSubmissionTime, confirmationJdVersion.rows[0].id, confirmationHash.rows[0].pdf_hash],
     )
 
     const snapshot = await createSnapshot()
@@ -158,6 +165,9 @@ describe('application evidence snapshot SQL', () => {
     ])
     assert.equal(new Date(confirmationEntry.submission_confirmation.confirmations[0].actual_submission_occurred_at!).toISOString(), actualSubmissionTime)
     assert.equal(confirmationEntry.submission_confirmation.confirmations[0].source_ref, 'synthetic-ref')
+    assert.equal(confirmationEntry.submission_confirmation.confirmations[0].submitted_artifact_format, 'pdf')
+    assert.equal(confirmationEntry.submission_confirmation.confirmations[0].submitted_artifact_hash, confirmationHash.rows[0].pdf_hash)
+    assert.equal(confirmationEntry.submission_confirmation.confirmations[0].submitted_job_description_version_id, confirmationJdVersion.rows[0].id)
     assert.match(confirmationEntry.submission_confirmation.confirmations[0].confirmation_recorded_at, /T/)
   })
 
@@ -294,6 +304,8 @@ describe('application resume artifact reader', () => {
     assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: oversized })), { status: 'refused', code: 'artifact_too_large' })
     assert.equal(cancelled, true)
     assert.deepEqual(await getApplicationResumeArtifact(request, source({ downloadError: new Error('synthetic') })), { status: 'refused', code: 'artifact_unavailable' })
+    const broken = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error('synthetic stream failure')) } })
+    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: broken })), { status: 'refused', code: 'artifact_unavailable' })
     assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: new ReadableStream({ start(controller) { controller.enqueue(Buffer.from('different bytes')); controller.close() } }) })), { status: 'refused', code: 'artifact_hash_mismatch' })
   })
 })

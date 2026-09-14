@@ -93,6 +93,33 @@ try {
   assert.equal(await sql("select has_function_privilege('service_role', 'public.get_application_evidence_snapshot_page(uuid,integer,integer)', 'execute');"), 't')
   console.log('PASS evidence snapshot: PostgreSQL materializes immutable JD evidence and restricts snapshot RPCs')
 
+  // Each snapshot derives its total from the INSERT ... SELECT that materializes
+  // entries, rather than from a separately timed count. Exercise that invariant
+  // while another session creates applications between snapshot requests.
+  const concurrentSnapshotWriter = sql(`set application_name='evidence_snapshot_writer'; do $$
+    begin
+      for n in 1..12 loop
+        insert into job_applications(company, role, job_description)
+        values ('snapshot_writer_' || n, 'test', 'writer JD ' || n);
+        perform pg_sleep(0.05);
+      end loop;
+    end;
+  $$;`)
+  await waitFor(countIsOne("select count(*) from pg_stat_activity where application_name='evidence_snapshot_writer' and wait_event='PgSleep';"))
+  const concurrentSnapshots = []
+  for (let n = 0; n < 3; n++) concurrentSnapshots.push(JSON.parse(await sql('select create_application_evidence_snapshot();')).snapshot_id)
+  await concurrentSnapshotWriter
+  for (const snapshotId of concurrentSnapshots) {
+    const reconciled = await sql(`select snapshot.total_applications || ':' || count(entry.application_id)
+      from application_evidence_snapshots snapshot
+      left join application_evidence_snapshot_entries entry on entry.snapshot_id = snapshot.id
+      where snapshot.id = '${snapshotId}'
+      group by snapshot.total_applications;`)
+    const [total, entries] = reconciled.split(':').map(Number)
+    assert.equal(total, entries)
+  }
+  console.log('PASS evidence snapshot concurrency: each materialized count equals its own entry scope during writes')
+
   for (const ending of ['commit', 'rollback']) {
     const before = await readFeed()
     const first = sql(`set application_name='feed_first'; begin;
