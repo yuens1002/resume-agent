@@ -53,8 +53,12 @@ records, remain `unverified`.
 
 Observed response outcomes are a separate, append-only evidence history. Each
 event retains a source identity, source event identity, normalized event type,
-optional occurrence time, server recording time, bounded source reference,
-evidence hash, revision, and a correction-chain predecessor when applicable.
+optional occurrence time, server recording time, opaque source reference,
+evidence hash, enum classification code, revision, and a correction-chain
+predecessor when applicable. The reference and event identity are the same
+`imap:<mailbox-hash>:<uidvalidity>:<uid>` tuple; no address, Message-ID, or
+raw email text is retained. The server derives the canonical replay digest;
+callers cannot supply it.
 The source event identity plus source identity/revision is idempotent; a
 conflicting replay refuses, and a correction appends a later revision only
 after proving the same application and source identity as its predecessor.
@@ -71,10 +75,13 @@ observed content establishes it.
 Outcome coverage is not an outcome. It is an append-only check observation
 that declares the actual reader channel, period start/end, query scope,
 complete flag, status (`observed`, `no_response`, or `unknown`), and server
-recording time. `no_response` requires a successfully drained granted reader,
-a bounded application-relevant window, and complete coverage; a partial,
-capped, failed, or ambiguous read is `unknown`. Snapshot entries retain all
-event revisions and all coverage observations immutably.
+recording time. `no_response` is only a scoped producer receipt for the
+existing granted INBOX reader, never an all-channel absence claim. It requires
+a successfully drained reader receipt with opaque mailbox/UIDVALIDITY/count
+binding, a bounded application-relevant window, and complete coverage; a
+partial, capped, failed, or ambiguous read is `unknown`. Applications with
+immutable outcome history cannot be deleted implicitly. Snapshot entries
+retain all event revisions and all coverage observations immutably.
 
 ## Deliverables
 

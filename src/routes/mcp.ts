@@ -171,15 +171,15 @@ function buildServer(): McpServer {
       inputSchema: {
         application_id: z.string().uuid(), source_identity: z.literal('granted_inbox'), source_event_id: z.string().min(1).max(512),
         revision: z.number().int().positive(), event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
-        occurred_at: z.string().datetime({ offset: true }).optional(), source_ref: z.string().max(512).optional(), evidence_hash: z.string().regex(/^[a-f0-9]{64}$/),
-        classification_note: z.string().max(1000).optional(), action_required: z.boolean().optional(), supersedes_event_id: z.string().uuid().optional(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        occurred_at: z.string().datetime({ offset: true }).optional(), source_ref: z.string().regex(/^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$/), evidence_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        classification_code: z.enum(['automated_ack', 'explicit_email_content', 'ambiguous_email_content', 'unclassified']), action_required: z.boolean().optional(), supersedes_event_id: z.string().uuid().optional(),
       },
     },
     async (input) => {
       const { data, error } = await supabase.rpc('record_application_observed_outcome', {
         p_application_id: input.application_id, p_source_identity: input.source_identity, p_source_event_id: input.source_event_id, p_revision: input.revision,
-        p_event_type: input.event_type, p_occurred_at: input.occurred_at ?? null, p_source_ref: input.source_ref ?? null, p_evidence_hash: input.evidence_hash,
-        p_classification_note: input.classification_note ?? null, p_action_required: input.action_required ?? null, p_supersedes_event_id: input.supersedes_event_id ?? null, p_payload_hash: input.payload_hash,
+        p_event_type: input.event_type, p_occurred_at: input.occurred_at ?? null, p_source_ref: input.source_ref, p_evidence_hash: input.evidence_hash,
+        p_classification_code: input.classification_code, p_action_required: input.action_required ?? null, p_supersedes_event_id: input.supersedes_event_id ?? null,
       })
       return error || !data
         ? { content: [{ type: 'text' as const, text: 'Outcome observation was refused.' }], isError: true }
@@ -196,7 +196,7 @@ function buildServer(): McpServer {
         application_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string().min(1).max(512),
         period_start: z.string().datetime({ offset: true }), period_end: z.string().datetime({ offset: true }), query_scope: z.string().min(1).max(512),
         application_time_start: z.string().datetime({ offset: true }).optional(), complete: z.boolean(), status: z.enum(['observed', 'no_response', 'unknown']),
-        source_ref: z.string().max(512).optional(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/),
+        matched_uid_count: z.number().int().nonnegative(), drained_uid_count: z.number().int().nonnegative(), source_ref: z.string().regex(/^imap-coverage:[a-f0-9]{64}:[1-9][0-9]{0,9}:[0-9]{1,13}:[0-9]{1,10}:[0-9]{1,10}$/),
       },
     },
     async (input) => {
@@ -204,7 +204,7 @@ function buildServer(): McpServer {
         p_application_id: input.application_id, p_reader_channel: input.reader_channel, p_client_check_identity: input.client_check_identity,
         p_period_start: input.period_start, p_period_end: input.period_end, p_query_scope: input.query_scope,
         p_application_time_start: input.application_time_start ?? null, p_complete: input.complete, p_status: input.status,
-        p_source_ref: input.source_ref ?? null, p_payload_hash: input.payload_hash,
+        p_matched_uid_count: input.matched_uid_count, p_drained_uid_count: input.drained_uid_count, p_source_ref: input.source_ref,
       })
       return error || !data
         ? { content: [{ type: 'text' as const, text: 'Outcome coverage was refused.' }], isError: true }

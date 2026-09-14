@@ -98,15 +98,15 @@ const ApplicationEvidenceSchema = z.object({
     event_id: z.string().uuid(), source_identity: z.literal('granted_inbox'), source_event_id: z.string(),
     revision: z.number().int().positive(),
     event_type: z.enum(['recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response']),
-    occurred_at: TimestampSchema.nullable(), recorded_at: TimestampSchema, source_ref: z.string().nullable(),
-    evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), classification_note: z.string().nullable(),
+    occurred_at: TimestampSchema.nullable(), recorded_at: TimestampSchema, source_ref: z.string().regex(/^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$/),
+    evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), classification_code: z.enum(['automated_ack', 'explicit_email_content', 'ambiguous_email_content', 'unclassified']),
     action_required: z.boolean().nullable(), payload_hash: z.string().regex(/^[a-f0-9]{64}$/), supersedes_event_id: z.string().uuid().nullable(),
   }).strict()),
   outcome_checks: z.array(z.object({
     check_id: z.string().uuid(), reader_channel: z.literal('imap_inbox'), client_check_identity: z.string(),
     period_start: TimestampSchema, period_end: TimestampSchema, query_scope: z.string(),
     application_time_start: TimestampSchema.nullable(), complete: z.boolean(),
-    status: z.enum(['observed', 'no_response', 'unknown']), source_ref: z.string().nullable(), recorded_at: TimestampSchema,
+    status: z.enum(['observed', 'no_response', 'unknown']), matched_uid_count: z.number().int().nonnegative(), drained_uid_count: z.number().int().nonnegative(), source_ref: z.string().regex(/^imap-coverage:[a-f0-9]{64}:[1-9][0-9]{0,9}:[0-9]{1,13}:[0-9]{1,10}:[0-9]{1,10}$/), recorded_at: TimestampSchema,
   }).strict()),
   stage_history: z.array(z.object({
     stage_history_id: z.string().uuid(),

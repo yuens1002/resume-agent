@@ -124,34 +124,44 @@ create index if not exists application_submission_confirmations_application_id_r
 
 create table if not exists public.application_observed_outcomes (
   id uuid primary key default gen_random_uuid(),
-  application_id uuid not null references public.job_applications(id) on delete cascade,
+  -- Outcome history is immutable audit evidence. A supported application
+  -- deletion must explicitly reconcile it rather than silently erasing it.
+  application_id uuid not null references public.job_applications(id) on delete restrict,
   source_identity text not null check (source_identity = 'granted_inbox'),
-  source_event_id text not null check (length(source_event_id) between 1 and 512),
+  -- Opaque mailbox hash + UIDVALIDITY + UID: never a Message-ID, address, or
+  -- raw mail content, and stable across IMAP UID resets/accounts.
+  source_event_id text not null check (source_event_id ~ '^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$'),
   revision integer not null check (revision > 0),
   event_type text not null check (event_type in ('recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response')),
   occurred_at timestamptz,
   recorded_at timestamptz not null default statement_timestamp(),
-  source_ref text check (source_ref is null or length(source_ref) <= 512),
+  source_ref text not null check (source_ref ~ '^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$'),
   evidence_hash text not null check (evidence_hash ~ '^[a-f0-9]{64}$'),
-  classification_note text check (classification_note is null or length(classification_note) <= 1000),
+  classification_code text not null check (classification_code in ('automated_ack', 'explicit_email_content', 'ambiguous_email_content', 'unclassified')),
   action_required boolean,
   supersedes_event_id uuid references public.application_observed_outcomes(id),
+  canonical_payload jsonb not null,
   payload_hash text not null check (payload_hash ~ '^[a-f0-9]{64}$'),
   unique (application_id, source_identity, source_event_id, revision)
 );
 
 create table if not exists public.application_outcome_check_observations (
   id uuid primary key default gen_random_uuid(),
-  application_id uuid not null references public.job_applications(id) on delete cascade,
+  application_id uuid not null references public.job_applications(id) on delete restrict,
   reader_channel text not null check (reader_channel = 'imap_inbox'),
   client_check_identity text not null check (length(client_check_identity) between 1 and 512),
   period_start timestamptz not null,
   period_end timestamptz not null,
-  query_scope text not null check (length(query_scope) between 1 and 512),
+  query_scope text not null check (query_scope = 'inbox_internaldate_v1'),
   application_time_start timestamptz,
   complete boolean not null,
   status text not null check (status in ('observed', 'no_response', 'unknown')),
-  source_ref text check (source_ref is null or length(source_ref) <= 512),
+  matched_uid_count integer not null check (matched_uid_count >= 0),
+  drained_uid_count integer not null check (drained_uid_count >= 0),
+  -- An opaque producer receipt, not a claim that every response channel was
+  -- searched. Its mailbox tuple/time/count binding is validated by the RPC.
+  source_ref text not null check (source_ref ~ '^imap-coverage:[a-f0-9]{64}:[1-9][0-9]{0,9}:[0-9]{1,13}:[0-9]{1,10}:[0-9]{1,10}$'),
+  canonical_payload jsonb not null,
   payload_hash text not null check (payload_hash ~ '^[a-f0-9]{64}$'),
   recorded_at timestamptz not null default statement_timestamp(),
   unique (application_id, reader_channel, client_check_identity)
@@ -338,7 +348,7 @@ begin
           'recorded_at', outcome.recorded_at,
           'source_ref', outcome.source_ref,
           'evidence_hash', outcome.evidence_hash,
-          'classification_note', outcome.classification_note,
+          'classification_code', outcome.classification_code,
           'action_required', outcome.action_required,
           'payload_hash', outcome.payload_hash,
           'supersedes_event_id', outcome.supersedes_event_id
@@ -356,6 +366,8 @@ begin
           'application_time_start', outcome_check.application_time_start,
           'complete', outcome_check.complete,
           'status', outcome_check.status,
+          'matched_uid_count', outcome_check.matched_uid_count,
+          'drained_uid_count', outcome_check.drained_uid_count,
           'source_ref', outcome_check.source_ref,
           'recorded_at', outcome_check.recorded_at
         ) order by outcome_check.recorded_at, outcome_check.id)
@@ -502,18 +514,33 @@ $$;
 create or replace function public.record_application_observed_outcome(
   p_application_id uuid, p_source_identity text, p_source_event_id text,
   p_revision integer, p_event_type text, p_occurred_at timestamptz,
-  p_source_ref text, p_evidence_hash text, p_classification_note text,
-  p_action_required boolean, p_supersedes_event_id uuid, p_payload_hash text
+  p_source_ref text, p_evidence_hash text, p_classification_code text,
+  p_action_required boolean, p_supersedes_event_id uuid
 ) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, public
 as $$
-declare v_existing public.application_observed_outcomes%rowtype; v_prior public.application_observed_outcomes%rowtype; v_recorded_at timestamptz := statement_timestamp(); v_id uuid := gen_random_uuid();
+declare v_existing public.application_observed_outcomes%rowtype; v_prior public.application_observed_outcomes%rowtype; v_recorded_at timestamptz := statement_timestamp(); v_id uuid := gen_random_uuid(); v_payload_hash text; v_payload jsonb;
 begin
   if p_source_identity <> 'granted_inbox' or p_event_type not in ('recruiter_contact', 'screen_scheduled', 'screen_held', 'interview_scheduled', 'interview_held', 'cancellation', 'rejection', 'withdrawal', 'offer', 'offer_accepted', 'job_started', 'other_response') then raise exception 'Outcome source or type is invalid' using errcode = '22023'; end if;
+  if p_source_event_id !~ '^imap:[a-f0-9]{64}:[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$' or p_source_ref is distinct from p_source_event_id then raise exception 'Outcome source reference is invalid' using errcode = '22023'; end if;
+  if p_evidence_hash !~ '^[a-f0-9]{64}$' or p_classification_code not in ('automated_ack', 'explicit_email_content', 'ambiguous_email_content', 'unclassified') then raise exception 'Outcome evidence classification is invalid' using errcode = '22023'; end if;
+  if (p_event_type in ('offer_accepted','job_started') or p_action_required is false) and p_classification_code <> 'explicit_email_content' then raise exception 'Outcome requires explicit attributed email evidence' using errcode = '22023'; end if;
   if p_occurred_at is not null and p_occurred_at > v_recorded_at then raise exception 'Outcome occurrence cannot be after source recording time' using errcode = '22023'; end if;
+  -- Canonical server calculation prevents a caller from claiming idempotency
+  -- with a stale digest for changed event content.
+  v_payload := jsonb_build_object(
+    'application_id', p_application_id, 'source_identity', p_source_identity,
+    'source_event_id', p_source_event_id, 'revision', p_revision,
+    'event_type', p_event_type, 'occurred_at', p_occurred_at,
+    'source_ref', p_source_ref, 'evidence_hash', p_evidence_hash,
+    'classification_code', p_classification_code,
+    'action_required', p_action_required,
+    'supersedes_event_id', p_supersedes_event_id
+  );
+  v_payload_hash := repeat(md5(v_payload::text), 2);
   select * into v_existing from public.application_observed_outcomes where application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision;
   if found then
-    if v_existing.payload_hash = p_payload_hash then return jsonb_build_object('event_id', v_existing.id, 'recorded_at', v_existing.recorded_at, 'idempotent', true); end if;
+    if v_existing.canonical_payload = v_payload then return jsonb_build_object('event_id', v_existing.id, 'recorded_at', v_existing.recorded_at, 'idempotent', true); end if;
     raise exception 'Outcome replay conflicts with existing source identity and revision' using errcode = '22023';
   end if;
   if p_revision = 1 and p_supersedes_event_id is not null then raise exception 'Initial outcome revision cannot supersede an event' using errcode = '22023'; end if;
@@ -521,8 +548,8 @@ begin
     select * into v_prior from public.application_observed_outcomes where id=p_supersedes_event_id and application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision-1;
     if not found then raise exception 'Outcome correction predecessor is invalid' using errcode = '22023'; end if;
   end if;
-  insert into public.application_observed_outcomes (id, application_id, source_identity, source_event_id, revision, event_type, occurred_at, recorded_at, source_ref, evidence_hash, classification_note, action_required, supersedes_event_id, payload_hash)
-  values (v_id,p_application_id,p_source_identity,p_source_event_id,p_revision,p_event_type,p_occurred_at,v_recorded_at,nullif(btrim(p_source_ref),''),p_evidence_hash,nullif(btrim(p_classification_note),''),p_action_required,p_supersedes_event_id,p_payload_hash);
+  insert into public.application_observed_outcomes (id, application_id, source_identity, source_event_id, revision, event_type, occurred_at, recorded_at, source_ref, evidence_hash, classification_code, action_required, supersedes_event_id, canonical_payload, payload_hash)
+  values (v_id,p_application_id,p_source_identity,p_source_event_id,p_revision,p_event_type,p_occurred_at,v_recorded_at,p_source_ref,p_evidence_hash,p_classification_code,p_action_required,p_supersedes_event_id,v_payload,v_payload_hash);
   return jsonb_build_object('event_id',v_id,'recorded_at',v_recorded_at,'idempotent',false);
 end;
 $$;
@@ -531,21 +558,32 @@ create or replace function public.record_application_outcome_check(
   p_application_id uuid, p_reader_channel text, p_client_check_identity text,
   p_period_start timestamptz, p_period_end timestamptz, p_query_scope text,
   p_application_time_start timestamptz, p_complete boolean, p_status text,
-  p_source_ref text, p_payload_hash text
+  p_matched_uid_count integer, p_drained_uid_count integer, p_source_ref text
 ) returns jsonb
 language plpgsql security definer set search_path = pg_catalog, public
 as $$
-declare v_existing public.application_outcome_check_observations%rowtype; v_id uuid := gen_random_uuid(); v_recorded_at timestamptz := statement_timestamp();
+declare v_existing public.application_outcome_check_observations%rowtype; v_id uuid := gen_random_uuid(); v_recorded_at timestamptz := statement_timestamp(); v_payload_hash text; v_payload jsonb; v_ref_parts text[];
 begin
-  if p_reader_channel <> 'imap_inbox' or p_status not in ('observed','no_response','unknown') or p_period_start > p_period_end or p_period_end > v_recorded_at then raise exception 'Outcome coverage is invalid' using errcode = '22023'; end if;
+  if p_reader_channel <> 'imap_inbox' or p_status not in ('observed','no_response','unknown') or p_query_scope <> 'inbox_internaldate_v1' or p_period_start > p_period_end or p_period_end > v_recorded_at or p_matched_uid_count < 0 or p_drained_uid_count < 0 then raise exception 'Outcome coverage is invalid' using errcode = '22023'; end if;
+  v_ref_parts := regexp_match(p_source_ref, '^imap-coverage:([a-f0-9]{64}):([1-9][0-9]{0,9}):([0-9]{1,13}):([0-9]{1,10}):([0-9]{1,10})$');
+  if v_ref_parts is null or v_ref_parts[3] <> floor(extract(epoch from p_period_end) * 1000)::bigint::text or v_ref_parts[4] <> p_matched_uid_count::text or v_ref_parts[5] <> p_drained_uid_count::text then raise exception 'Outcome coverage receipt is invalid' using errcode = '22023'; end if;
+  v_payload := jsonb_build_object(
+    'application_id', p_application_id, 'reader_channel', p_reader_channel,
+    'client_check_identity', p_client_check_identity, 'period_start', p_period_start,
+    'period_end', p_period_end, 'query_scope', p_query_scope,
+    'application_time_start', p_application_time_start, 'complete', p_complete,
+    'status', p_status, 'matched_uid_count', p_matched_uid_count,
+    'drained_uid_count', p_drained_uid_count, 'source_ref', p_source_ref
+  );
+  v_payload_hash := repeat(md5(v_payload::text), 2);
   select * into v_existing from public.application_outcome_check_observations where application_id=p_application_id and reader_channel=p_reader_channel and client_check_identity=p_client_check_identity;
   if found then
-    if v_existing.payload_hash=p_payload_hash then return jsonb_build_object('check_id',v_existing.id,'recorded_at',v_existing.recorded_at,'idempotent',true); end if;
+    if v_existing.canonical_payload=v_payload then return jsonb_build_object('check_id',v_existing.id,'recorded_at',v_existing.recorded_at,'idempotent',true); end if;
     raise exception 'Outcome coverage replay conflicts with existing identity' using errcode = '22023';
   end if;
-  if p_status='no_response' and (not p_complete or nullif(btrim(p_source_ref),'') is null or p_application_time_start is null or p_period_start > p_application_time_start or not exists (select 1 from public.application_submission_confirmations confirmation where confirmation.application_id=p_application_id and confirmation.confirmation_source='client_attested' and confirmation.actual_submission_occurred_at=p_application_time_start)) then raise exception 'No-response coverage lacks complete attributed submission evidence' using errcode = '22023'; end if;
-  insert into public.application_outcome_check_observations (id,application_id,reader_channel,client_check_identity,period_start,period_end,query_scope,application_time_start,complete,status,source_ref,payload_hash,recorded_at)
-  values (v_id,p_application_id,p_reader_channel,p_client_check_identity,p_period_start,p_period_end,p_query_scope,p_application_time_start,p_complete,p_status,nullif(btrim(p_source_ref),''),p_payload_hash,v_recorded_at);
+  if p_status='no_response' and (not p_complete or p_matched_uid_count <> p_drained_uid_count or p_application_time_start is null or p_period_start > p_application_time_start or not exists (select 1 from public.application_submission_confirmations confirmation where confirmation.application_id=p_application_id and confirmation.confirmation_source='client_attested' and confirmation.actual_submission_occurred_at=p_application_time_start)) then raise exception 'No-response coverage lacks complete attributed submission evidence' using errcode = '22023'; end if;
+  insert into public.application_outcome_check_observations (id,application_id,reader_channel,client_check_identity,period_start,period_end,query_scope,application_time_start,complete,status,matched_uid_count,drained_uid_count,source_ref,canonical_payload,payload_hash,recorded_at)
+  values (v_id,p_application_id,p_reader_channel,p_client_check_identity,p_period_start,p_period_end,p_query_scope,p_application_time_start,p_complete,p_status,p_matched_uid_count,p_drained_uid_count,p_source_ref,v_payload,v_payload_hash,v_recorded_at);
   return jsonb_build_object('check_id',v_id,'recorded_at',v_recorded_at,'idempotent',false);
 end;
 $$;
@@ -628,9 +666,9 @@ revoke all on function public.confirm_application_submission(uuid, uuid, text, t
 revoke all on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text, uuid, text, text) from anon, authenticated;
 grant execute on function public.confirm_application_submission(uuid, uuid, text, timestamptz, text, text, uuid, text, text) to service_role;
 
-revoke all on function public.record_application_observed_outcome(uuid,text,text,integer,text,timestamptz,text,text,text,boolean,uuid,text) from public, anon, authenticated;
-grant execute on function public.record_application_observed_outcome(uuid,text,text,integer,text,timestamptz,text,text,text,boolean,uuid,text) to service_role;
-revoke all on function public.record_application_outcome_check(uuid,text,text,timestamptz,timestamptz,text,timestamptz,boolean,text,text,text) from public, anon, authenticated;
-grant execute on function public.record_application_outcome_check(uuid,text,text,timestamptz,timestamptz,text,timestamptz,boolean,text,text,text) to service_role;
+revoke all on function public.record_application_observed_outcome(uuid,text,text,integer,text,timestamptz,text,text,text,boolean,uuid) from public, anon, authenticated;
+grant execute on function public.record_application_observed_outcome(uuid,text,text,integer,text,timestamptz,text,text,text,boolean,uuid) to service_role;
+revoke all on function public.record_application_outcome_check(uuid,text,text,timestamptz,timestamptz,text,timestamptz,boolean,text,integer,integer,text) from public, anon, authenticated;
+grant execute on function public.record_application_outcome_check(uuid,text,text,timestamptz,timestamptz,text,timestamptz,boolean,text,integer,integer,text) to service_role;
 
 commit;
