@@ -20,19 +20,26 @@ const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipel
 const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000_application_evidence_bundle.sql', 'utf8')
 const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
 // PGlite does not package pgcrypto. The isolated PostgreSQL runner executes
-// the production migration unchanged; this replacement keeps the PGlite
-// contract fixture focused on trigger/snapshot behavior with the same
-// 64-character hash shape.
+// the production migration unchanged and verifies the real SHA-256 values;
+// this fixture only substitutes a 64-character placeholder for that engine.
 const snapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
   .replace(/^create extension if not exists pgcrypto;$/m, '')
   .replace("encode(digest(convert_to(new.job_description, 'UTF8'), 'sha256'), 'hex')", "repeat(md5(new.job_description), 2)")
+  .replaceAll("encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex')", "repeat(md5(v_payload::text), 2)")
 const db = new PGlite()
 
 type SnapshotMetadata = { snapshot_id: string; as_of: string; total_applications: number; snapshot_materialized: true }
 type SnapshotPage = {
   snapshot: SnapshotMetadata
   applications: Array<{
-    application: { application_id: string; company: string }
+    application: {
+      application_id: string
+      company: string
+      fit_score: number | null
+      match_verdict: string | null
+      match_scoring: unknown | null
+      recommended_action: string | null
+    }
     job_description: { status: string; versions: unknown[] }
     score_versions: unknown[]
     submission_confirmation: { status: string; confirmations: Array<{ resume_id: string; confirmation_source: string; confirmation_recorded_at: string; actual_submission_occurred_at: string | null; source_ref: string | null; submitted_artifact_format: string | null; submitted_artifact_hash: string | null; submitted_job_description_version_id: string | null }> }
@@ -77,7 +84,7 @@ describe('application evidence snapshot SQL', () => {
     const captureOperationId = '00000000-0000-4000-8000-000000000001'
     const replacementCaptureOperationId = '00000000-0000-4000-8000-000000000002'
     const current = await db.query<{ id: string }>(
-      "insert into job_applications(company, role, job_description, url, job_description_capture_operation_id) values ('current company', 'role', 'current JD', 'https://example.test/posting', $1::uuid) returning id",
+      "insert into job_applications(company, role, job_description, url, job_description_capture_operation_id, fit_score, match_verdict, match_scoring, recommended_action) values ('current company', 'role', 'current JD', 'https://example.test/posting', $1::uuid, 0.81, 'strong match', '{\"source\":\"fixture\"}'::jsonb, 'apply') returning id",
       [captureOperationId],
     )
     const applicationId = current.rows[0].id
@@ -154,6 +161,10 @@ describe('application evidence snapshot SQL', () => {
     const currentEntry = page.applications.find(entry => entry.application.application_id === applicationId)!
     const legacyEntry = page.applications.find(entry => entry.application.application_id === legacy.rows[0].id)!
     assert.equal(currentEntry.job_description.status, 'versioned')
+    assert.equal(currentEntry.application.fit_score, 0.81)
+    assert.equal(currentEntry.application.match_verdict, 'strong match')
+    assert.deepEqual(currentEntry.application.match_scoring, { source: 'fixture' })
+    assert.equal(currentEntry.application.recommended_action, 'apply')
     assert.equal(currentEntry.job_description.versions.length, 2)
     assert.equal(currentEntry.score_versions.length, 2)
     assert.equal(legacyEntry.job_description.status, 'legacy_unversioned')

@@ -49,6 +49,10 @@ const ApplicationEvidenceSchema = z.object({
     source: z.string().nullable(),
     url: z.string().nullable(),
     follow_up_date: z.string().date().nullable(),
+    fit_score: z.number().nullable(),
+    match_verdict: z.string().nullable(),
+    match_scoring: JsonValueSchema.nullable(),
+    recommended_action: z.string().nullable(),
   }).strict(),
   job_description: JobDescriptionSchema,
   resume_versions: z.array(z.object({

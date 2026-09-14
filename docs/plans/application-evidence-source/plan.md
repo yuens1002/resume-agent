@@ -20,13 +20,15 @@ mix versions when a writer changes an application between calls.
 Two private MCP tools form one materialized reader:
 
 1. `create_application_evidence_snapshot` creates an immutable source snapshot
-   and returns its opaque identifier, source `as_of` timestamp, and count.
+   and returns its opaque identifier, source `as_of` timestamp, and count. Its
+   source relation and declared timestamp share one database read boundary.
 2. `get_application_evidence_snapshot_page` reads one bounded page from that
    snapshot using its opaque identifier and ordinal cursor. It returns a final
    page marker only when that response ends the materialized snapshot; callers
    reconcile all page ordinals to the declared count.
 
-Each snapshot entry contains current application fields, immutable JD versions
+Each snapshot entry contains complete current application fields (including
+fit/match/recommendation values), immutable JD versions
 when available, explicitly-labelled legacy unversioned JD text when present,
 resume-version metadata/content and durable file hashes/paths, append-only
 score records, internal submission-confirmation events, and stage timestamps.
@@ -39,8 +41,9 @@ it never accepts an arbitrary URL or storage path.
 The contract is private MCP only.
 
 New `job_description` writes create an immutable version with text, source URL,
-capture time, and content hash. Newly recorded scores reference that version
-and record the exact profile and scoring-rubric hashes used at evaluation.
+capture time, and content hash. A newly recorded score is persisted only when
+it can reference that exact operation-bound version and records the exact
+profile and scoring-rubric hashes used at evaluation.
 Existing records are not backfilled or relabelled: absent version fields remain
 unknown.
 
@@ -59,9 +62,10 @@ predecessor when applicable. The reference and event identity are the same
 `imap:<mailbox-hash>:<uidvalidity>:<uid>` tuple; no address, Message-ID, or
 raw email text is retained. The server derives the canonical replay digest;
 callers cannot supply it.
-The source event identity plus source identity/revision is idempotent; a
-conflicting replay refuses, and a correction appends a later revision only
-after proving the same application and source identity as its predecessor.
+The source event identity plus source identity/revision is atomically
+idempotent even under concurrent replay; a conflicting replay refuses, and a
+correction appends a later revision only after proving the same application and
+source identity as its predecessor.
 Events never update application stages. The allowed event types are
 `recruiter_contact`, `screen_scheduled`, `screen_held`,
 `interview_scheduled`, `interview_held`, `cancellation`, `rejection`,
@@ -78,7 +82,8 @@ complete flag, status (`observed`, `no_response`, or `unknown`), and server
 recording time. `no_response` is only a scoped producer receipt for the
 existing granted INBOX reader, never an all-channel absence claim. It requires
 a successfully drained reader receipt with opaque mailbox/UIDVALIDITY/count
-binding, a bounded application-relevant window, and complete coverage; a
+binding, a bounded application-relevant window, complete coverage, and a
+canonical database-computed SHA-256 payload digest; a
 partial, capped, failed, or ambiguous read is `unknown`. Applications with
 immutable outcome history cannot be deleted implicitly. Snapshot entries
 retain all event revisions and all coverage observations immutably.

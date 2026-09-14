@@ -34,16 +34,19 @@ page for its snapshot. It does not assert that another consumer fetched or
 processed any earlier page. A consumer reconciles its collected ordinals with
 `total_applications` before it represents a cohort as complete.
 
-Entries are materialized at creation time, so a later application update never
-changes a page from an existing snapshot. The snapshot is intentionally not an
-acknowledgement, submission confirmation, or external-ATS acceptance record.
+Entries and the declared `as_of` are materialized from the same database read
+boundary, so a later application update never changes a page from an existing
+snapshot or appears under an earlier timestamp. The snapshot is intentionally
+not an acknowledgement, submission confirmation, or external-ATS acceptance
+record.
 
 ## Evidence and provenance
 
-The response includes application fields; immutable JD versions; explicitly
-labelled legacy JD text when no version exists; resume-version content and
-artifact paths/hashes; append-only score history; internal submission-
-confirmation events; and stage timestamps.
+The response includes complete current application fields, including current
+fit/match/recommendation values; immutable JD versions; explicitly labelled
+legacy JD text when no version exists; resume-version content and artifact
+paths/hashes; append-only score history; internal submission-confirmation
+events; inbox-scoped outcome history/checks; and stage timestamps.
 
 Snapshot pages exclude contacts, free-form application notes, and artifact
 file bytes. The endpoint is private-only because resume content and job
@@ -68,11 +71,19 @@ ATS evidence. An application without a captured confirmation event, including
 legacy submitted records, is `unverified` rather than guessed.
 
 New JD writes create a version containing its text, source URL, capture time,
-and SHA-256 content hash. New `log_application` score-history rows retain the
+and SHA-256 content hash. A new `log_application` score-history row is written
+only when its exact operation-bound JD version is available; it retains the
 evaluated resume ID when supplied, JD-version ID, model, rubric version and
 hash, and the hash of the exact serialized profile input. The feature never
 backfills historical JD, profile, rubric, resume, or score provenance: null or
 `legacy_unversioned` means the source did not retain that fact.
+
+`record_application_observed_outcome` appends an attributed, revisioned inbox
+event. `record_application_outcome_check` appends an inbox-reader coverage
+observation. Both derive a canonical SHA-256 payload hash in the database and
+make exact concurrent replays idempotent; a replay with changed content
+refuses. Coverage is scoped evidence from the named reader, never proof that
+all response channels were searched.
 
 ## Refusals
 

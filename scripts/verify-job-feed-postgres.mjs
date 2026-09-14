@@ -117,8 +117,49 @@ try {
       group by snapshot.total_applications;`)
     const [total, entries] = reconciled.split(':').map(Number)
     assert.equal(total, entries)
+    assert.equal(await sql(`select bool_and((entry.evidence->'application'->>'created_at')::timestamptz <= snapshot.as_of)
+      from application_evidence_snapshots snapshot
+      join application_evidence_snapshot_entries entry on entry.snapshot_id = snapshot.id
+      where snapshot.id = '${snapshotId}';`), 't')
   }
-  console.log('PASS evidence snapshot concurrency: each materialized count equals its own entry scope during writes')
+  console.log('PASS evidence snapshot concurrency: each materialized count equals its own entry scope and declared as-of boundary during writes')
+
+  // Force two independent sessions through the old check-then-insert window.
+  // The second call must return the committed canonical event, not leak a
+  // unique-constraint failure. This exercises PostgreSQL, not a mock RPC.
+  const outcomeAppId = await sql("insert into job_applications(company,role) values ('outcome_replay','test') returning id;")
+  const outcomeEventId = `imap:${'c'.repeat(64)}:321:654`
+  const outcomeEvidenceHash = 'd'.repeat(64)
+  await sql(`create function slow_outcome_replay() returns trigger language plpgsql as $$ begin perform pg_sleep(0.5); return new; end; $$;
+    create trigger slow_outcome_replay before insert on application_observed_outcomes for each row execute function slow_outcome_replay();`)
+  const outcomeSql = `select record_application_observed_outcome('${outcomeAppId}', 'granted_inbox', '${outcomeEventId}', 1, 'other_response', null, '${outcomeEventId}', '${outcomeEvidenceHash}', 'automated_ack', null, null);`
+  const firstOutcome = sql(`set application_name='outcome_replay_first'; ${outcomeSql}`)
+  await waitFor(countIsOne("select count(*) from pg_stat_activity where application_name='outcome_replay_first' and wait_event='PgSleep';"))
+  const secondOutcome = sql(`set application_name='outcome_replay_second'; ${outcomeSql}`)
+  const [firstOutcomeResult, secondOutcomeResult] = await Promise.all([firstOutcome, secondOutcome])
+  const parsedOutcomeResults = [JSON.parse(firstOutcomeResult), JSON.parse(secondOutcomeResult)]
+  assert.equal(parsedOutcomeResults[0].event_id, parsedOutcomeResults[1].event_id)
+  assert.deepEqual(parsedOutcomeResults.map(result => result.idempotent).sort(), [false, true])
+  assert.equal(await sql(`select payload_hash = encode(digest(convert_to(canonical_payload::text, 'UTF8'), 'sha256'), 'hex')
+    from application_observed_outcomes where application_id='${outcomeAppId}';`), 't')
+  await sql('drop trigger slow_outcome_replay on application_observed_outcomes; drop function slow_outcome_replay();')
+
+  const coverageEnd = '2020-01-04T00:00:00.000Z'
+  const coverageRef = `imap-coverage:${'e'.repeat(64)}:987:${new Date(coverageEnd).getTime()}:0:0`
+  await sql(`create function slow_coverage_replay() returns trigger language plpgsql as $$ begin perform pg_sleep(0.5); return new; end; $$;
+    create trigger slow_coverage_replay before insert on application_outcome_check_observations for each row execute function slow_coverage_replay();`)
+  const coverageSql = `select record_application_outcome_check('${outcomeAppId}', 'imap_inbox', 'concurrent-coverage', '2020-01-01T00:00:00Z', '${coverageEnd}', 'inbox_internaldate_v1', null, false, 'unknown', 0, 0, '${coverageRef}');`
+  const firstCoverage = sql(`set application_name='coverage_replay_first'; ${coverageSql}`)
+  await waitFor(countIsOne("select count(*) from pg_stat_activity where application_name='coverage_replay_first' and wait_event='PgSleep';"))
+  const secondCoverage = sql(`set application_name='coverage_replay_second'; ${coverageSql}`)
+  const [firstCoverageResult, secondCoverageResult] = await Promise.all([firstCoverage, secondCoverage])
+  const parsedCoverageResults = [JSON.parse(firstCoverageResult), JSON.parse(secondCoverageResult)]
+  assert.equal(parsedCoverageResults[0].check_id, parsedCoverageResults[1].check_id)
+  assert.deepEqual(parsedCoverageResults.map(result => result.idempotent).sort(), [false, true])
+  assert.equal(await sql(`select payload_hash = encode(digest(convert_to(canonical_payload::text, 'UTF8'), 'sha256'), 'hex')
+    from application_outcome_check_observations where application_id='${outcomeAppId}' and client_check_identity='concurrent-coverage';`), 't')
+  await sql('drop trigger slow_coverage_replay on application_outcome_check_observations; drop function slow_coverage_replay();')
+  console.log('PASS outcome replay concurrency: duplicate source event/check calls converge on one SHA-256-bound immutable record')
 
   for (const ending of ['commit', 'rollback']) {
     const before = await readFeed()
@@ -157,7 +198,7 @@ try {
   await Promise.all([replay, writer])
   assert.deepEqual((await readFeed(beforeReplay.next_cursor)).changes.map(change => change.application.company), ['during_migration'])
   console.log('PASS migration replay: concurrent writer waits and is journaled after commit')
-  console.log('outcome=passed: seven PostgreSQL scenarios')
+  console.log('outcome=passed: eight PostgreSQL scenarios')
 } finally {
   if (started) await run('docker', ['stop', container], options)
   console.log(`Isolated container retained: ${container}; started=${started}, stopped=${started}`)

@@ -231,167 +231,183 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_snapshot_id uuid := gen_random_uuid();
-  v_as_of timestamptz := statement_timestamp();
+  v_as_of timestamptz;
   v_total integer;
 begin
+  -- This provisional row is never visible outside this function's transaction.
+  -- The source relation and final `as_of` are set together below in one SQL
+  -- statement, so READ COMMITTED cannot combine a later source row with an
+  -- earlier declared timestamp.
   insert into public.application_evidence_snapshots (id, as_of, total_applications)
-  values (v_snapshot_id, v_as_of, 0);
+  values (v_snapshot_id, '-infinity'::timestamptz, 0);
 
-  insert into public.application_evidence_snapshot_entries (snapshot_id, ordinal, application_id, evidence)
-  select
-    v_snapshot_id,
-    row_number() over (order by application.applied_at desc, application.id)::integer,
-    application.id,
-    jsonb_build_object(
-      'application', jsonb_build_object(
-        'application_id', application.id,
-        'company', application.company,
-        'role', application.role,
-        'stage', application.stage,
-        'applied_at', application.applied_at,
-        'created_at', application.created_at,
-        'updated_at', application.updated_at,
-        'source', application.source,
-        'url', application.url,
-        'follow_up_date', application.follow_up_date
-      ),
-      'job_description', case
-        when exists (
-          select 1 from public.application_job_description_versions jd
-          where jd.application_id = application.id
-        ) then jsonb_build_object(
-          'status', 'versioned',
-          'versions', coalesce((
-            select jsonb_agg(jsonb_build_object(
-              'job_description_version_id', jd.id,
-              'content', jd.content,
-              'content_hash', jd.content_hash,
-              'source_url', jd.source_url,
-              'captured_at', jd.captured_at
-            ) order by jd.captured_at, jd.id)
-            from public.application_job_description_versions jd
+  with snapshot_boundary as materialized (
+    select statement_timestamp() as as_of
+  ), source_rows as materialized (
+    select
+      row_number() over (order by application.applied_at desc, application.id)::integer as ordinal,
+      application.id as application_id,
+      jsonb_build_object(
+        'application', jsonb_build_object(
+          'application_id', application.id,
+          'company', application.company,
+          'role', application.role,
+          'stage', application.stage,
+          'applied_at', application.applied_at,
+          'created_at', application.created_at,
+          'updated_at', application.updated_at,
+          'source', application.source,
+          'url', application.url,
+          'follow_up_date', application.follow_up_date,
+          'fit_score', application.fit_score,
+          'match_verdict', application.match_verdict,
+          'match_scoring', application.match_scoring,
+          'recommended_action', application.recommended_action
+        ),
+        'job_description', case
+          when exists (
+            select 1 from public.application_job_description_versions jd
             where jd.application_id = application.id
-          ), '[]'::jsonb)
-        )
-        when application.job_description is not null then jsonb_build_object(
-          'status', 'legacy_unversioned',
-          'versions', '[]'::jsonb,
-          'unversioned_content', application.job_description,
-          'source_url', application.url
-        )
-        else jsonb_build_object('status', 'absent', 'versions', '[]'::jsonb)
-      end,
-      'resume_versions', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'resume_id', resume.id,
-          'resume_content', resume.resume_content,
-          'docx_url', resume.docx_url,
-          'docx_hash', resume.docx_hash,
-          'pdf_url', resume.pdf_url,
-          'pdf_hash', resume.pdf_hash,
-          'is_submitted', resume.is_submitted,
-          'generated_at', resume.generated_at
-        ) order by resume.generated_at, resume.id)
-        from public.application_resumes resume
-        where resume.application_id = application.id
-      ), '[]'::jsonb),
-      'score_versions', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'score_id', score.id,
-          'resume_id', score.resume_id,
-          'job_description_version_id', score.job_description_version_id,
-          'score_type', score.score_type,
-          'score', score.score,
-          'rationale', score.rationale,
-          'requirement_evidence', score.requirement_evidence,
-          'model', score.model,
-          'rubric_version', score.rubric_version,
-          'rubric_hash', score.rubric_hash,
-          'profile_hash', score.profile_hash,
-          'scored_at', score.scored_at
-        ) order by score.scored_at, score.id)
-        from public.application_scores score
-        where score.application_id = application.id
-      ), '[]'::jsonb),
-      'submission_confirmation', case
-        when exists (
-          select 1 from public.application_submission_confirmations confirmation
-          where confirmation.application_id = application.id
-        ) then jsonb_build_object(
-          'status', 'recorded',
-          'confirmations', coalesce((
-            select jsonb_agg(jsonb_build_object(
-              'submission_confirmation_id', confirmation.id,
-              'resume_id', confirmation.resume_id,
-              'submitted_job_description_version_id', confirmation.submitted_job_description_version_id,
-              'submitted_artifact_format', confirmation.submitted_artifact_format,
-              'submitted_artifact_hash', confirmation.submitted_artifact_hash,
-              'actual_submission_occurred_at', confirmation.actual_submission_occurred_at,
-              'confirmation_recorded_at', confirmation.confirmation_recorded_at,
-              'confirmation_source', confirmation.confirmation_source,
-              'source_ref', confirmation.source_ref
-            ) order by confirmation.confirmation_recorded_at, confirmation.id)
-            from public.application_submission_confirmations confirmation
+          ) then jsonb_build_object(
+            'status', 'versioned',
+            'versions', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'job_description_version_id', jd.id,
+                'content', jd.content,
+                'content_hash', jd.content_hash,
+                'source_url', jd.source_url,
+                'captured_at', jd.captured_at
+              ) order by jd.captured_at, jd.id)
+              from public.application_job_description_versions jd
+              where jd.application_id = application.id
+            ), '[]'::jsonb)
+          )
+          when application.job_description is not null then jsonb_build_object(
+            'status', 'legacy_unversioned',
+            'versions', '[]'::jsonb,
+            'unversioned_content', application.job_description,
+            'source_url', application.url
+          )
+          else jsonb_build_object('status', 'absent', 'versions', '[]'::jsonb)
+        end,
+        'resume_versions', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'resume_id', resume.id,
+            'resume_content', resume.resume_content,
+            'docx_url', resume.docx_url,
+            'docx_hash', resume.docx_hash,
+            'pdf_url', resume.pdf_url,
+            'pdf_hash', resume.pdf_hash,
+            'is_submitted', resume.is_submitted,
+            'generated_at', resume.generated_at
+          ) order by resume.generated_at, resume.id)
+          from public.application_resumes resume
+          where resume.application_id = application.id
+        ), '[]'::jsonb),
+        'score_versions', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'score_id', score.id,
+            'resume_id', score.resume_id,
+            'job_description_version_id', score.job_description_version_id,
+            'score_type', score.score_type,
+            'score', score.score,
+            'rationale', score.rationale,
+            'requirement_evidence', score.requirement_evidence,
+            'model', score.model,
+            'rubric_version', score.rubric_version,
+            'rubric_hash', score.rubric_hash,
+            'profile_hash', score.profile_hash,
+            'scored_at', score.scored_at
+          ) order by score.scored_at, score.id)
+          from public.application_scores score
+          where score.application_id = application.id
+        ), '[]'::jsonb),
+        'submission_confirmation', case
+          when exists (
+            select 1 from public.application_submission_confirmations confirmation
             where confirmation.application_id = application.id
-          ), '[]'::jsonb)
-        )
-        else jsonb_build_object('status', 'unverified', 'confirmations', '[]'::jsonb)
-      end,
-      'observed_outcomes', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'event_id', outcome.id,
-          'source_identity', outcome.source_identity,
-          'source_event_id', outcome.source_event_id,
-          'revision', outcome.revision,
-          'event_type', outcome.event_type,
-          'occurred_at', outcome.occurred_at,
-          'recorded_at', outcome.recorded_at,
-          'source_ref', outcome.source_ref,
-          'evidence_hash', outcome.evidence_hash,
-          'classification_code', outcome.classification_code,
-          'action_required', outcome.action_required,
-          'payload_hash', outcome.payload_hash,
-          'supersedes_event_id', outcome.supersedes_event_id
-        ) order by outcome.recorded_at, outcome.id)
-        from public.application_observed_outcomes outcome where outcome.application_id = application.id
-      ), '[]'::jsonb),
-      'outcome_checks', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'check_id', outcome_check.id,
-          'reader_channel', outcome_check.reader_channel,
-          'client_check_identity', outcome_check.client_check_identity,
-          'period_start', outcome_check.period_start,
-          'period_end', outcome_check.period_end,
-          'query_scope', outcome_check.query_scope,
-          'application_time_start', outcome_check.application_time_start,
-          'complete', outcome_check.complete,
-          'status', outcome_check.status,
-          'matched_uid_count', outcome_check.matched_uid_count,
-          'drained_uid_count', outcome_check.drained_uid_count,
-          'source_ref', outcome_check.source_ref,
-          'recorded_at', outcome_check.recorded_at
-        ) order by outcome_check.recorded_at, outcome_check.id)
-        from public.application_outcome_check_observations outcome_check where outcome_check.application_id = application.id
-      ), '[]'::jsonb),
-      'stage_history', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'stage_history_id', history.id,
-          'stage', history.stage,
-          'occurred_at', history.occurred_at
-        ) order by history.occurred_at, history.id)
-        from public.application_stages history
-        where history.application_id = application.id
-      ), '[]'::jsonb)
-    )
-  from public.job_applications application;
-
-  -- Derive the declared total from the exact relation just materialized. A
-  -- separate pre-insert count would be a different READ COMMITTED statement
-  -- and could disagree with concurrent application writes.
-  get diagnostics v_total = row_count;
-  update public.application_evidence_snapshots
-  set total_applications = v_total
-  where id = v_snapshot_id;
+          ) then jsonb_build_object(
+            'status', 'recorded',
+            'confirmations', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'submission_confirmation_id', confirmation.id,
+                'resume_id', confirmation.resume_id,
+                'submitted_job_description_version_id', confirmation.submitted_job_description_version_id,
+                'submitted_artifact_format', confirmation.submitted_artifact_format,
+                'submitted_artifact_hash', confirmation.submitted_artifact_hash,
+                'actual_submission_occurred_at', confirmation.actual_submission_occurred_at,
+                'confirmation_recorded_at', confirmation.confirmation_recorded_at,
+                'confirmation_source', confirmation.confirmation_source,
+                'source_ref', confirmation.source_ref
+              ) order by confirmation.confirmation_recorded_at, confirmation.id)
+              from public.application_submission_confirmations confirmation
+              where confirmation.application_id = application.id
+            ), '[]'::jsonb)
+          )
+          else jsonb_build_object('status', 'unverified', 'confirmations', '[]'::jsonb)
+        end,
+        'observed_outcomes', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'event_id', outcome.id,
+            'source_identity', outcome.source_identity,
+            'source_event_id', outcome.source_event_id,
+            'revision', outcome.revision,
+            'event_type', outcome.event_type,
+            'occurred_at', outcome.occurred_at,
+            'recorded_at', outcome.recorded_at,
+            'source_ref', outcome.source_ref,
+            'evidence_hash', outcome.evidence_hash,
+            'classification_code', outcome.classification_code,
+            'action_required', outcome.action_required,
+            'payload_hash', outcome.payload_hash,
+            'supersedes_event_id', outcome.supersedes_event_id
+          ) order by outcome.recorded_at, outcome.id)
+          from public.application_observed_outcomes outcome where outcome.application_id = application.id
+        ), '[]'::jsonb),
+        'outcome_checks', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'check_id', outcome_check.id,
+            'reader_channel', outcome_check.reader_channel,
+            'client_check_identity', outcome_check.client_check_identity,
+            'period_start', outcome_check.period_start,
+            'period_end', outcome_check.period_end,
+            'query_scope', outcome_check.query_scope,
+            'application_time_start', outcome_check.application_time_start,
+            'complete', outcome_check.complete,
+            'status', outcome_check.status,
+            'matched_uid_count', outcome_check.matched_uid_count,
+            'drained_uid_count', outcome_check.drained_uid_count,
+            'source_ref', outcome_check.source_ref,
+            'recorded_at', outcome_check.recorded_at
+          ) order by outcome_check.recorded_at, outcome_check.id)
+          from public.application_outcome_check_observations outcome_check where outcome_check.application_id = application.id
+        ), '[]'::jsonb),
+        'stage_history', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'stage_history_id', history.id,
+            'stage', history.stage,
+            'occurred_at', history.occurred_at
+          ) order by history.occurred_at, history.id)
+          from public.application_stages history
+          where history.application_id = application.id
+        ), '[]'::jsonb)
+      ) as evidence
+    from public.job_applications application
+    cross join snapshot_boundary
+  ), inserted_entries as (
+    insert into public.application_evidence_snapshot_entries (snapshot_id, ordinal, application_id, evidence)
+    select v_snapshot_id, ordinal, application_id, evidence
+    from source_rows
+    returning 1
+  ), updated_snapshot as (
+    update public.application_evidence_snapshots
+    set as_of = (select as_of from snapshot_boundary),
+        total_applications = (select count(*)::integer from inserted_entries)
+    where id = v_snapshot_id
+    returning as_of, total_applications
+  )
+  select as_of, total_applications into v_as_of, v_total
+  from updated_snapshot;
 
   return jsonb_build_object(
     'snapshot_id', v_snapshot_id,
@@ -537,20 +553,20 @@ begin
     'action_required', p_action_required,
     'supersedes_event_id', p_supersedes_event_id
   );
-  v_payload_hash := repeat(md5(v_payload::text), 2);
-  select * into v_existing from public.application_observed_outcomes where application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision;
-  if found then
-    if v_existing.canonical_payload = v_payload then return jsonb_build_object('event_id', v_existing.id, 'recorded_at', v_existing.recorded_at, 'idempotent', true); end if;
-    raise exception 'Outcome replay conflicts with existing source identity and revision' using errcode = '22023';
-  end if;
+  v_payload_hash := encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex');
   if p_revision = 1 and p_supersedes_event_id is not null then raise exception 'Initial outcome revision cannot supersede an event' using errcode = '22023'; end if;
   if p_revision > 1 then
     select * into v_prior from public.application_observed_outcomes where id=p_supersedes_event_id and application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision-1;
     if not found then raise exception 'Outcome correction predecessor is invalid' using errcode = '22023'; end if;
   end if;
   insert into public.application_observed_outcomes (id, application_id, source_identity, source_event_id, revision, event_type, occurred_at, recorded_at, source_ref, evidence_hash, classification_code, action_required, supersedes_event_id, canonical_payload, payload_hash)
-  values (v_id,p_application_id,p_source_identity,p_source_event_id,p_revision,p_event_type,p_occurred_at,v_recorded_at,p_source_ref,p_evidence_hash,p_classification_code,p_action_required,p_supersedes_event_id,v_payload,v_payload_hash);
-  return jsonb_build_object('event_id',v_id,'recorded_at',v_recorded_at,'idempotent',false);
+  values (v_id,p_application_id,p_source_identity,p_source_event_id,p_revision,p_event_type,p_occurred_at,v_recorded_at,p_source_ref,p_evidence_hash,p_classification_code,p_action_required,p_supersedes_event_id,v_payload,v_payload_hash)
+  on conflict (application_id, source_identity, source_event_id, revision) do nothing
+  returning id, recorded_at into v_id, v_recorded_at;
+  if found then return jsonb_build_object('event_id',v_id,'recorded_at',v_recorded_at,'idempotent',false); end if;
+  select * into v_existing from public.application_observed_outcomes where application_id=p_application_id and source_identity=p_source_identity and source_event_id=p_source_event_id and revision=p_revision;
+  if v_existing.canonical_payload = v_payload then return jsonb_build_object('event_id', v_existing.id, 'recorded_at', v_existing.recorded_at, 'idempotent', true); end if;
+  raise exception 'Outcome replay conflicts with existing source identity and revision' using errcode = '22023';
 end;
 $$;
 
@@ -575,16 +591,16 @@ begin
     'status', p_status, 'matched_uid_count', p_matched_uid_count,
     'drained_uid_count', p_drained_uid_count, 'source_ref', p_source_ref
   );
-  v_payload_hash := repeat(md5(v_payload::text), 2);
-  select * into v_existing from public.application_outcome_check_observations where application_id=p_application_id and reader_channel=p_reader_channel and client_check_identity=p_client_check_identity;
-  if found then
-    if v_existing.canonical_payload=v_payload then return jsonb_build_object('check_id',v_existing.id,'recorded_at',v_existing.recorded_at,'idempotent',true); end if;
-    raise exception 'Outcome coverage replay conflicts with existing identity' using errcode = '22023';
-  end if;
+  v_payload_hash := encode(digest(convert_to(v_payload::text, 'UTF8'), 'sha256'), 'hex');
   if p_status='no_response' and (not p_complete or p_matched_uid_count <> p_drained_uid_count or p_application_time_start is null or p_period_start > p_application_time_start or p_period_end < p_application_time_start or not exists (select 1 from public.application_submission_confirmations confirmation where confirmation.application_id=p_application_id and confirmation.confirmation_source='client_attested' and confirmation.actual_submission_occurred_at=p_application_time_start)) then raise exception 'No-response coverage lacks complete attributed submission evidence' using errcode = '22023'; end if;
   insert into public.application_outcome_check_observations (id,application_id,reader_channel,client_check_identity,period_start,period_end,query_scope,application_time_start,complete,status,matched_uid_count,drained_uid_count,source_ref,canonical_payload,payload_hash,recorded_at)
-  values (v_id,p_application_id,p_reader_channel,p_client_check_identity,p_period_start,p_period_end,p_query_scope,p_application_time_start,p_complete,p_status,p_matched_uid_count,p_drained_uid_count,p_source_ref,v_payload,v_payload_hash,v_recorded_at);
-  return jsonb_build_object('check_id',v_id,'recorded_at',v_recorded_at,'idempotent',false);
+  values (v_id,p_application_id,p_reader_channel,p_client_check_identity,p_period_start,p_period_end,p_query_scope,p_application_time_start,p_complete,p_status,p_matched_uid_count,p_drained_uid_count,p_source_ref,v_payload,v_payload_hash,v_recorded_at)
+  on conflict (application_id, reader_channel, client_check_identity) do nothing
+  returning id, recorded_at into v_id, v_recorded_at;
+  if found then return jsonb_build_object('check_id',v_id,'recorded_at',v_recorded_at,'idempotent',false); end if;
+  select * into v_existing from public.application_outcome_check_observations where application_id=p_application_id and reader_channel=p_reader_channel and client_check_identity=p_client_check_identity;
+  if v_existing.canonical_payload=v_payload then return jsonb_build_object('check_id',v_existing.id,'recorded_at',v_existing.recorded_at,'idempotent',true); end if;
+  raise exception 'Outcome coverage replay conflicts with existing identity' using errcode = '22023';
 end;
 $$;
 

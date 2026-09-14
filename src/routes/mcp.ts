@@ -926,20 +926,27 @@ function buildServer(): McpServer {
               jobDescriptionVersionId = descriptionVersions[0].id
             }
           }
-          const { error: scoreErr } = await supabase.from('application_scores').insert({
-            application_id: data.id,
-            resume_id: resumeId ?? null,
-            job_description_version_id: jobDescriptionVersionId,
-            score_type: 'jd_fit',
-            score: scoreResult.fit_score,
-            rationale: scoreResult.verdict,
-            requirement_evidence: scoreResult.scoring,
-            model: scoreProvenance?.model ?? null,
-            rubric_version: scoreProvenance?.rubric_version ?? null,
-            rubric_hash: scoreProvenance?.rubric_hash ?? null,
-            profile_hash: scoreProvenance?.profile_hash ?? null,
-          })
-          if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
+          // A score version without the exact operation-bound JD version is
+          // not reviewable provenance. Keep the application result, but do
+          // not create a score-history row that would be mistaken for one.
+          if (!jobDescriptionVersionId) {
+            evidenceNote += '\n(score history not saved: operation-bound job description version unavailable)'
+          } else {
+            const { error: scoreErr } = await supabase.from('application_scores').insert({
+              application_id: data.id,
+              resume_id: resumeId ?? null,
+              job_description_version_id: jobDescriptionVersionId,
+              score_type: 'jd_fit',
+              score: scoreResult.fit_score,
+              rationale: scoreResult.verdict,
+              requirement_evidence: scoreResult.scoring,
+              model: scoreProvenance?.model ?? null,
+              rubric_version: scoreProvenance?.rubric_version ?? null,
+              rubric_hash: scoreProvenance?.rubric_hash ?? null,
+              profile_hash: scoreProvenance?.profile_hash ?? null,
+            })
+            if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
+          }
         }
 
         const fitLine = scoreResult

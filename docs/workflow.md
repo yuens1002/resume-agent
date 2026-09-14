@@ -173,7 +173,7 @@ What it does per repo (artisan-roast, artisan-roast-platform, resume-agent):
 
 To run this automatically on Windows, configure a Task Scheduler job to run `scripts/sync-nightly.bat` on a nightly schedule. Run it manually after shipping a significant feature to keep `/info` current without waiting for the next scheduled run.
 
-Once connected, 17 tools are available across two groups:
+Once connected, 19 tools are available across two groups:
 
 **Open Brain — personal knowledge capture**
 
@@ -201,6 +201,8 @@ Once connected, 17 tools are available across two groups:
 | `create_application_evidence_snapshot` | Create a protected, immutable source snapshot for bounded evidence review (requires the evidence-snapshot migration) |
 | `get_application_evidence_snapshot_page` | Read one bounded page from an evidence snapshot; the terminal marker applies only to that response |
 | `get_application_resume_artifact` | Read one source-owned DOCX/PDF artifact by application and resume IDs after bounded hash verification |
+| `record_application_observed_outcome` | Append one attributed inbox outcome event or correction with immutable source provenance |
+| `record_application_outcome_check` | Record one bounded inbox-coverage observation; it never asserts absence across other channels |
 
 **Common workflows:**
 
