@@ -3,9 +3,9 @@
 Branch: `codex/application-evidence-snapshot`
 Tracking: [#263](https://github.com/yuens1002/resume-agent/issues/263)
 
-Status: implementation plan. This source-only change establishes the bounded
-private evidence contract requested by cot-memory's job-conversion program; it
-does not deploy, start that program, create Runtime work, or assert a real
+Status: implementation plan. This source-only change establishes a bounded
+private evidence contract for a separate evidence-review workflow; it does not
+deploy, start that workflow, create downstream work, or assert a real
 submission.
 
 ## Problem
