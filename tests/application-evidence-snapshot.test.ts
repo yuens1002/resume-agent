@@ -25,6 +25,9 @@ const confirmationMigration = readFileSync('supabase/migrations/20260913000002_a
 const snapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
   .replace("encode(pg_catalog.sha256(pg_catalog.convert_to(new.job_description, 'UTF8')), 'hex')", "repeat(md5(new.job_description), 2)")
   .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
+const recoveryMigration = readFileSync('supabase/migrations/20260915000000_application_evidence_recovery.sql', 'utf8')
+  .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(p_resume_content::text, 'UTF8')), 'hex')", "repeat(md5(p_resume_content::text), 2)")
+  .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
 const db = new PGlite()
 
 type SnapshotMetadata = { snapshot_id: string; as_of: string; total_applications: number; snapshot_materialized: true }
@@ -40,6 +43,10 @@ type SnapshotPage = {
       recommended_action: string | null
     }
     job_description: { status: string; versions: unknown[] }
+    resume_versions: Array<{ resume_id: string; is_submitted: boolean; provenance?: {
+      status: string; recovery_id?: string; source_ref?: string; recorded_at: string;
+      original_generated_at?: null; original_generation_time_status?: string
+    } }>
     score_versions: unknown[]
     submission_confirmation: { status: string; confirmations: Array<{ resume_id: string; confirmation_source: string; confirmation_recorded_at: string; actual_submission_occurred_at: string | null; source_ref: string | null; submitted_artifact_format: string | null; submitted_artifact_hash: string | null; submitted_job_description_version_id: string | null }> }
   }>
@@ -67,10 +74,86 @@ before(async () => {
   await db.exec(evidenceBundleMigration)
   await db.exec(confirmationMigration)
   await db.exec(snapshotMigration)
+  await db.exec(recoveryMigration)
 })
 after(() => db.close())
 
 describe('application evidence snapshot SQL', () => {
+  it('recovers one immutable non-submitted version without changing application lifecycle evidence', async () => {
+    const application = await db.query<{ id: string }>(
+      "insert into job_applications(company, role, stage, job_description) values ('recovery company', 'recovery role', 'rejected', 'legacy JD') returning id",
+    )
+    const applicationId = application.rows[0].id
+    await db.query('delete from application_job_description_versions where application_id = $1', [applicationId])
+    await db.query("insert into application_scores(application_id, score_type, score) values ($1, 'jd_fit', 0.71)", [applicationId])
+    await db.query("insert into application_stages(application_id, stage, note) values ($1, 'rejected', 'existing history')", [applicationId])
+    const before = await db.query<{ stage: string; scores: number; stages: number; confirmations: number; outcomes: number }>(`
+      select application.stage,
+        (select count(*)::integer from application_scores where application_id=application.id) scores,
+        (select count(*)::integer from application_stages where application_id=application.id) stages,
+        (select count(*)::integer from application_submission_confirmations where application_id=application.id) confirmations,
+        (select count(*)::integer from application_observed_outcomes where application_id=application.id) outcomes
+      from job_applications application where application.id=$1`, [applicationId])
+    const recoveryId = '00000000-0000-4000-8000-000000000101'
+    const resumeId = '00000000-0000-4000-8000-000000000102'
+    const docxHash = 'a'.repeat(64)
+    const args = [recoveryId, applicationId, 'recovery company', 'recovery role', resumeId,
+      { summary: 'recovered content' }, `${applicationId}/${resumeId}/resume.docx`, docxHash,
+      null, null, 'job-hunt-agent:output:fixture-101'] as const
+    const recorded = await db.query<{ result: { recovery_id: string; application_id: string; resume_id: string; recorded_at: string; idempotent: boolean } }>(
+      'select recover_application_resume_version($1::uuid,$2::uuid,$3,$4,$5::uuid,$6::jsonb,$7,$8,$9,$10,$11) result', args,
+    )
+    assert.equal(recorded.rows[0].result.recovery_id, recoveryId)
+    assert.equal(recorded.rows[0].result.application_id, applicationId)
+    assert.equal(recorded.rows[0].result.resume_id, resumeId)
+    assert.match(recorded.rows[0].result.recorded_at, /T/)
+    assert.equal(recorded.rows[0].result.idempotent, false)
+
+    const replayed = await db.query<{ result: { resume_id: string; idempotent: boolean } }>(
+      'select recover_application_resume_version($1::uuid,$2::uuid,$3,$4,$5::uuid,$6::jsonb,$7,$8,$9,$10,$11) result', args,
+    )
+    assert.equal(replayed.rows[0].result.resume_id, resumeId)
+    assert.equal(replayed.rows[0].result.idempotent, true)
+    await assert.rejects(
+      db.query('select recover_application_resume_version($1::uuid,$2::uuid,$3,$4,$5::uuid,$6::jsonb,$7,$8,$9,$10,$11)',
+        [recoveryId, applicationId, 'recovery company', 'recovery role', resumeId, { summary: 'changed' }, `${applicationId}/${resumeId}/resume.docx`, docxHash, null, null, 'job-hunt-agent:output:fixture-101']),
+      /conflicts/,
+    )
+
+    const after = await db.query<{ stage: string; scores: number; stages: number; confirmations: number; outcomes: number }>(`
+      select application.stage,
+        (select count(*)::integer from application_scores where application_id=application.id) scores,
+        (select count(*)::integer from application_stages where application_id=application.id) stages,
+        (select count(*)::integer from application_submission_confirmations where application_id=application.id) confirmations,
+        (select count(*)::integer from application_observed_outcomes where application_id=application.id) outcomes
+      from job_applications application where application.id=$1`, [applicationId])
+    assert.deepEqual(after.rows[0], before.rows[0])
+    const resume = await db.query<{ is_submitted: boolean }>('select is_submitted from application_resumes where id=$1', [resumeId])
+    assert.equal(resume.rows[0].is_submitted, false)
+
+    const snapshot = await createSnapshot()
+    const page = await getPage(snapshot.snapshot_id, null, 100)
+    const entry = page.applications.find(candidate => candidate.application.application_id === applicationId)!
+    assert.equal(entry.job_description.status, 'legacy_unversioned')
+    const provenance = entry.resume_versions[0].provenance!
+    assert.deepEqual(entry.resume_versions[0].provenance, {
+      status: 'recovered', recovery_id: recoveryId, source_ref: 'job-hunt-agent:output:fixture-101',
+      recorded_at: provenance.recorded_at,
+      original_generated_at: null, original_generation_time_status: 'unknown',
+    })
+    for (const role of ['anon', 'authenticated']) {
+      const privilege = await db.query<{ allowed: boolean }>(
+        "select has_function_privilege($1, 'public.recover_application_resume_version(uuid,uuid,text,text,uuid,jsonb,text,text,text,text,text)', 'execute') allowed", [role],
+      )
+      assert.equal(privilege.rows[0].allowed, false)
+    }
+    await db.exec(recoveryMigration)
+    const retained = await db.query<{ count: number }>(
+      'select count(*)::integer count from application_resume_recovery_imports where recovery_id=$1', [recoveryId],
+    )
+    assert.equal(retained.rows[0].count, 1)
+  })
+
   it('preserves legacy JD ambiguity and captures immutable JD and score provenance for new rows', async () => {
     const legacy = await db.query<{ id: string }>(
       "insert into job_applications(company, role, job_description) values ('legacy company', 'role', 'legacy JD') returning id",
@@ -294,8 +377,14 @@ describe('application evidence snapshot SQL', () => {
     )
     assert.equal(covering.rows[0].outcome.idempotent, false)
     const snapshot = await createSnapshot()
-    const page = await getPage(snapshot.snapshot_id, null, 100)
-    const entry = page.applications.find(item => item.application.application_id === appId) as unknown as { observed_outcomes: Array<{ revision: number; event_type: string }> }
+    const applications: SnapshotPage['applications'] = []
+    let outcomeCursor: number | null = null
+    do {
+      const page = await getPage(snapshot.snapshot_id, outcomeCursor, 100)
+      applications.push(...page.applications)
+      outcomeCursor = page.next_cursor?.ordinal ?? null
+    } while (outcomeCursor !== null)
+    const entry = applications.find(item => item.application.application_id === appId)!
     assert.deepEqual(entry.observed_outcomes.map(event => [event.revision, event.event_type]), [[1, 'other_response'], [2, 'recruiter_contact']])
     await assert.rejects(
       db.query("select public.record_application_observed_outcome($1::uuid, 'granted_inbox', $2, 3, 'offer_accepted', null, $2, $3, 'unclassified', false, $4::uuid)", [appId, sourceEventId, evidenceHash, first.rows[0].outcome.event_id]),

@@ -35,6 +35,36 @@ function refusal(code: ArtifactRefusalCode) {
   return { status: 'refused' as const, code }
 }
 
+export async function readBoundedSha256Artifact(
+  stream: ReadableStream<Uint8Array>,
+  expectedHash: string,
+) {
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let sizeBytes = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      sizeBytes += value.byteLength
+      if (sizeBytes > MAX_ARTIFACT_BYTES) {
+        await reader.cancel('artifact size cap exceeded')
+        return refusal('artifact_too_large')
+      }
+      chunks.push(value)
+    }
+  } catch {
+    try { await reader.cancel('artifact stream failed') } catch { /* best-effort */ }
+    return refusal('artifact_unavailable')
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)))
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  if (sha256 !== expectedHash) return refusal('artifact_hash_mismatch')
+  return { status: 'ok' as const, bytes, size_bytes: sizeBytes, sha256 }
+}
+
 export async function getApplicationResumeArtifact(input: unknown, source: ApplicationResumeArtifactSource) {
   const parsed = GetApplicationResumeArtifactInputSchema.safeParse(input)
   if (!parsed.success) return refusal('invalid_input')
@@ -64,29 +94,8 @@ export async function getApplicationResumeArtifact(input: unknown, source: Appli
     return refusal('artifact_unavailable')
   }
   if (!stream) return refusal('artifact_unavailable')
-  const reader = stream.getReader()
-  const chunks: Uint8Array[] = []
-  let sizeBytes = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      sizeBytes += value.byteLength
-      if (sizeBytes > MAX_ARTIFACT_BYTES) {
-        await reader.cancel('artifact size cap exceeded')
-        return refusal('artifact_too_large')
-      }
-      chunks.push(value)
-    }
-  } catch {
-    try { await reader.cancel('artifact stream failed') } catch { /* best-effort */ }
-    return refusal('artifact_unavailable')
-  } finally {
-    reader.releaseLock()
-  }
-  const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk)))
-  const sha256 = createHash('sha256').update(bytes).digest('hex')
-  if (sha256 !== expectedHash) return refusal('artifact_hash_mismatch')
+  const verified = await readBoundedSha256Artifact(stream, expectedHash)
+  if (verified.status === 'refused') return verified
 
   return {
     status: 'ok' as const,
@@ -95,9 +104,9 @@ export async function getApplicationResumeArtifact(input: unknown, source: Appli
       resume_id,
       format,
       mime_type,
-      size_bytes: sizeBytes,
-      sha256,
-      bytes_base64: bytes.toString('base64'),
+      size_bytes: verified.size_bytes,
+      sha256: verified.sha256,
+      bytes_base64: verified.bytes.toString('base64'),
     },
   }
 }

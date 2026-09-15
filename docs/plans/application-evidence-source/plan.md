@@ -98,6 +98,7 @@ retain all event revisions and all coverage observations immutably.
 | D4 | Isolated SQL, adapter, and transport tests using synthetic rows | verification |
 | D5 | Source-contract documentation | documentation |
 | D6 | Append-only observed-outcome and reader-coverage migration, bounded private MCP writes, and snapshot history | database/endpoint |
+| D7 | Source-owner-only recovery import for hash-verified, explicitly non-submitted historical resume artifacts | database/administration |
 
 ## Boundaries
 
@@ -108,4 +109,12 @@ retain all event revisions and all coverage observations immutably.
   external ATS accepted a submission.
 - No raw email body is stored in source outcome history; no mail reader,
   outbound mail, or access grant is added here.
-- No production migration, deployment, or live test data is part of this work.
+- D1-D6 were implemented and verified separately from production activation.
+  D7 likewise keeps implementation evidence distinct from release receipts and
+  source-owner recovery receipts; deployment and live imports are explicit
+  follow-on operations, not facts inferred from tests.
+- D7 adds no MCP capability. Its local manifest is private, the service-role RPC
+  accepts only an exact existing application identity and deterministic stored
+  artifact paths, and every recovered version retains unknown original
+  generation time. It leaves legacy JD capture time unknown and does not change
+  application stage, scores, confirmations, outcomes, or existing versions.
