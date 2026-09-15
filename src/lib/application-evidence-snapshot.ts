@@ -37,6 +37,21 @@ const JobDescriptionSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('absent'), versions: z.array(z.never()).max(0) }).strict(),
 ])
 
+const ResumeEvidenceProvenanceSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('recorded_at_write'),
+    recorded_at: TimestampSchema,
+  }).strict(),
+  z.object({
+    status: z.literal('recovered'),
+    recovery_id: z.string().uuid(),
+    source_ref: z.string().regex(/^job-hunt-agent:output:[A-Za-z0-9._-]{1,200}$/),
+    recorded_at: TimestampSchema,
+    original_generated_at: z.null(),
+    original_generation_time_status: z.literal('unknown'),
+  }).strict(),
+])
+
 const ApplicationEvidenceSchema = z.object({
   application: z.object({
     application_id: z.string().uuid(),
@@ -64,6 +79,9 @@ const ApplicationEvidenceSchema = z.object({
     pdf_hash: z.string().nullable(),
     is_submitted: z.boolean(),
     generated_at: TimestampSchema,
+    // Snapshots materialized before the recovery migration remain readable
+    // with their original immutable shape; new snapshots always include this.
+    provenance: ResumeEvidenceProvenanceSchema.optional(),
   }).strict()),
   score_versions: z.array(z.object({
     score_id: z.string().uuid(),

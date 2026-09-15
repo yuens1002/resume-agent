@@ -13,6 +13,7 @@ const evidenceBundleMigration = readFileSync('supabase/migrations/20260913000000
 const draftDueWorkMigration = readFileSync('supabase/migrations/20260913000001_job_pipeline_feed_drafts.sql', 'utf8')
 const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
 const applicationEvidenceSnapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
+const applicationEvidenceRecoveryMigration = readFileSync('supabase/migrations/20260915000000_application_evidence_recovery.sql', 'utf8')
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
   .replace(/^create extension if not exists pg_trgm;$/m, '')
   .replace(/^create index .*gin_trgm_ops.*;$/gm, '')
@@ -52,6 +53,7 @@ try {
   await sql(draftDueWorkMigration)
   await sql(confirmationMigration)
   await sql(applicationEvidenceSnapshotMigration)
+  await sql(applicationEvidenceRecoveryMigration)
   assert.equal(await sql("select to_regprocedure('pg_catalog.sha256(bytea)') is not null and to_regprocedure('public.digest(bytea,text)') is null and to_regprocedure('extensions.digest(bytea,text)') is not null;"), 't')
 
   const beforeDraft = await readFeed()
@@ -96,6 +98,40 @@ try {
   assert.equal(await sql("select has_function_privilege('anon', 'public.create_application_evidence_snapshot()', 'execute');"), 'f')
   assert.equal(await sql("select has_function_privilege('service_role', 'public.get_application_evidence_snapshot_page(uuid,integer,integer)', 'execute');"), 't')
   console.log('PASS evidence snapshot: PostgreSQL materializes immutable JD evidence and restricts snapshot RPCs')
+
+  const recoveryApplicationId = await sql("insert into job_applications(company,role,stage,job_description) values ('recovery_postgres','test','rejected','legacy recovery JD') returning id;")
+  await sql(`delete from application_job_description_versions where application_id='${recoveryApplicationId}';`)
+  const recoveryId = randomUUID()
+  const recoveryResumeId = randomUUID()
+  const recoveryPath = `${recoveryApplicationId}/${recoveryResumeId}/resume.docx`
+  const recoveryCall = `select recover_application_resume_version('${recoveryId}','${recoveryApplicationId}','recovery_postgres','test','${recoveryResumeId}','{"summary":"recovered"}'::jsonb,'${recoveryPath}',repeat('a',64),null,null,'job-hunt-agent:output:postgres-fixture');`
+  await sql(`create function slow_recovery_insert() returns trigger language plpgsql as $$ begin perform pg_sleep(0.5); return new; end; $$;
+    create trigger slow_recovery_insert before insert on application_resume_recovery_imports for each row execute function slow_recovery_insert();`)
+  const firstRecovery = sql(`set application_name='recovery_first'; ${recoveryCall}`)
+  await waitFor(countIsOne("select count(*) from pg_stat_activity where application_name='recovery_first' and wait_event='PgSleep';"))
+  const secondRecovery = sql(`set application_name='recovery_second'; ${recoveryCall}`)
+  const recoveryResults = (await Promise.all([firstRecovery, secondRecovery])).map(JSON.parse)
+  assert.deepEqual(recoveryResults.map(result => result.idempotent).sort(), [false, true])
+  assert.equal(new Set(recoveryResults.map(result => result.resume_id)).size, 1)
+  assert.equal(await sql(`select stage from job_applications where id='${recoveryApplicationId}';`), 'rejected')
+  assert.equal(await sql(`select is_submitted from application_resumes where id='${recoveryResumeId}';`), 'f')
+  assert.equal(await sql(`select payload_hash = encode(pg_catalog.sha256(pg_catalog.convert_to(jsonb_build_object(
+    'recovery_id', recovery_id, 'application_id', application_id,
+    'expected_company', 'recovery_postgres', 'expected_role', 'test',
+    'resume_id', resume_id, 'resume_content_hash', resume_content_hash,
+    'docx_url', docx_url, 'docx_hash', docx_hash, 'pdf_url', pdf_url,
+    'pdf_hash', pdf_hash, 'source_ref', source_ref, 'original_generated_at', null)::text, 'UTF8')), 'hex')
+    from application_resume_recovery_imports where recovery_id='${recoveryId}';`), 't')
+  await assert.rejects(sql(recoveryCall.replace('"recovered"', '"changed"')), /conflicts/)
+  assert.equal(await sql("select has_function_privilege('anon', 'public.recover_application_resume_version(uuid,uuid,text,text,uuid,jsonb,text,text,text,text,text)', 'execute');"), 'f')
+  const recoverySnapshot = JSON.parse(await sql('select create_application_evidence_snapshot();'))
+  const recoveryPage = JSON.parse(await sql(`select get_application_evidence_snapshot_page('${recoverySnapshot.snapshot_id}',null,100);`))
+  const recoveredEntry = recoveryPage.applications.find(entry => entry.application.application_id === recoveryApplicationId)
+  assert.equal(recoveredEntry.job_description.status, 'legacy_unversioned')
+  assert.equal(recoveredEntry.resume_versions[0].provenance.status, 'recovered')
+  assert.equal(recoveredEntry.resume_versions[0].provenance.original_generated_at, null)
+  await sql('drop trigger slow_recovery_insert on application_resume_recovery_imports; drop function slow_recovery_insert();')
+  console.log('PASS evidence recovery: concurrent retries converge, conflicts refuse, and lifecycle/JD provenance remain unchanged')
 
   // A VOLATILE function takes a fresh MVCC snapshot for its materialization
   // query, but statement_timestamp() remains the outer client command time.
@@ -223,7 +259,7 @@ try {
   await Promise.all([replay, writer])
   assert.deepEqual((await readFeed(beforeReplay.next_cursor)).changes.map(change => change.application.company), ['during_migration'])
   console.log('PASS migration replay: concurrent writer waits and is journaled after commit')
-  console.log('outcome=passed: nine PostgreSQL scenarios')
+  console.log('outcome=passed: ten PostgreSQL scenarios')
 } finally {
   if (started) await run('docker', ['stop', container], options)
   console.log(`Isolated container retained: ${container}; started=${started}, stopped=${started}`)

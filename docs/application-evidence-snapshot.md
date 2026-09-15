@@ -90,3 +90,31 @@ all response channels were searched.
 Malformed tool inputs return `invalid_input`. The page reader maps a missing
 snapshot to `snapshot_not_found`, an invalid cursor or page limit to
 `invalid_cursor_or_limit`, and source/RPC failures to a non-diagnostic refusal.
+
+## Source-owner recovery
+
+`npm run admin:recover-evidence -- --manifest .scratch/recovery.json` is the
+only historical resume-recovery entrypoint. It is an administrative process,
+not an MCP tool. The private manifest pins an existing application ID plus its
+exact company and role, stable recovery/resume UUIDs, a non-empty structured
+resume-content file, one or both local DOCX/PDF files, and an opaque source
+reference shaped like `job-hunt-agent:output:<identity>`. It accepts no source
+endpoint, storage URL, submitted flag, score, stage, JD timestamp, or outcome.
+
+The process hashes each local artifact, uploads it to the deterministic private
+`<application-id>/<resume-id>/resume.<format>` path, downloads that exact path,
+and applies the same 5 MiB/SHA-256 verifier as the private artifact reader.
+Only then does the service-role-only `recover_application_resume_version` RPC
+atomically append the non-submitted resume and its immutable recovery record.
+Equal retries verify the existing bytes and return the same identities;
+changed bytes, structured content, source reference, company, role, recovery
+ID, or resume ID refuse. An upload completed before a failed RPC remains at its
+deterministic path for the same safe retry rather than being silently deleted.
+
+New snapshots label the version `provenance.status: recovered`, preserve its
+server `recorded_at`, and set `original_generated_at: null` with
+`original_generation_time_status: unknown`. Existing materialized snapshots
+remain readable with their original immutable shape. The legacy JD remains
+`legacy_unversioned`; recovery never invents its historical capture time.
+Application stage, scores, submission confirmations, outcomes, and prior resume
+versions are outside the function's write set.
