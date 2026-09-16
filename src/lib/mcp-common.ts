@@ -24,6 +24,10 @@ export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, x-brain-key, accept, mcp-session-id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  // Both /mcp and /public-mcp strip mcp-session-id from their own responses today (stateless
+  // transport), so this has no live effect yet — it's spec conformance/forward-compat in case
+  // either route becomes stateful later.
+  'Access-Control-Expose-Headers': 'mcp-session-id',
 } as const
 
 export function checkOrigin(c: Context): Response | null {
