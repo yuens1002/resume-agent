@@ -98,7 +98,7 @@ review comments.
 
 Docs must not contain client data, private credentials, production tokens,
 handoff passwords, or private operational URLs. Put local-only values in
-ignored files such as `.env.local` or generated `*.local.md` handoff files.
+ignored files such as `.env.local`.
 
 Public docs should describe resume-agent as a workflow-neutral, forkable
 baseline. Business workflows, downstream automations, and any specific
@@ -119,12 +119,16 @@ If a specific private name is genuinely necessary to explain something (rare
 — usually a generic description works), stop and ask whether it belongs in
 this repo at all before writing it down.
 
-A `PreToolUse` hook (`~/.claude/skills/oss-doc-review`) mechanically blocks
-known private repo/org names on `git push` and `gh issue`/`gh pr` create or
-edit, via this repo's own `.claude/oss-hygiene-rules.json` (gitignored,
-local-only — the denylist itself would leak the names it protects if
-committed to this public repo). That hook only catches strings it already
-knows about; this section is what prevents the ones it doesn't.
+**This rule is the actual enforcement mechanism — read and follow it, don't
+rely on tooling to catch a violation.** The maintainer's own local Claude
+Code setup additionally runs a `PreToolUse` hook (outside this repo, in
+`~/.claude/skills/oss-doc-review`) that mechanically blocks known private
+repo/org names on `git push` and `gh issue`/`gh pr` create or edit, checked
+against a local, gitignored `.claude/oss-hygiene-rules.json` denylist. That
+setup is personal to the maintainer's machine — nothing in this repo
+installs, configures, or ships it, `.claude/` is fully gitignored, and a
+fresh clone or another contributor gets none of it. Treat it as one
+maintainer's private safety net, not a guarantee this repo provides.
 
 ---
 
