@@ -25,6 +25,10 @@
  *         client_id — defense in depth for any future caller that doesn't go through it)
  *   AC-16 refresh_token grant checks client_secret before client_id presence — omitting
  *         both still yields 401 invalid_client, not 400 invalid_request
+ *   AC-17 rotate_refresh_token RPC rejects an anon-key caller outright (permission denied,
+ *         not a status field) — regression coverage for the anon/authenticated EXECUTE
+ *         lockdown; AC-15 alone can't catch a regression here since it uses the service-role
+ *         client, which is deliberately still granted
  *
  * Requirements (in .env.local):
  *   BASE_URL            — defaults to http://localhost:<PORT>
@@ -32,6 +36,10 @@
  *   OAUTH_CLIENT_SECRET — required; the authorization_code (#273) and refresh_token (#277)
  *                         grants both validate it
  *   JWT_SECRET          — used to verify returned JWTs
+ *   OPEN_BRAIN_KEY      — required; bypasses the shared rate limiter for this suite's own
+ *                         request volume (see the constant's own comment below)
+ *   SUPA_PERISHABLE_KEY — required; the anon/publishable Supabase key, used only by AC-17
+ *                         to prove rotate_refresh_token rejects anon-key callers
  *
  * Run (requires local server with Supabase):
  *   npm run test:oauth
@@ -42,6 +50,7 @@ import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { config } from 'dotenv'
 import { jwtVerify } from 'jose'
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../src/lib/supabase.js'
 
 config({ path: '.env.local' })
@@ -69,6 +78,16 @@ if (!OAUTH_CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set in .e
 // for their own auth decisions, so sending it here only prevents self-inflicted 429s.
 const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
 if (!OPEN_BRAIN_KEY) throw new Error('OPEN_BRAIN_KEY must be set in .env.local')
+
+// AC-17 only — proves the anon/authenticated EXECUTE lockdown on rotate_refresh_token
+// actually rejects a real anon-key caller, independent of the service-role client every
+// other test in this file uses (including AC-15, which would stay green even if the
+// migration's revoke statements were accidentally dropped).
+const SUPA_PERISHABLE_KEY = process.env.SUPA_PERISHABLE_KEY
+if (!SUPA_PERISHABLE_KEY) throw new Error('SUPA_PERISHABLE_KEY must be set in .env.local')
+// SUPA_PROJECT_URL is already validated by src/lib/supabase.ts's own startup guard,
+// which the `supabase` import above has already executed by this point.
+const supabaseAnon = createClient(process.env.SUPA_PROJECT_URL as string, SUPA_PERISHABLE_KEY)
 
 function buildPKCE() {
   const verifier = crypto.randomBytes(32).toString('base64url')
@@ -568,5 +587,29 @@ describe('AC-15: rotate_refresh_token RPC rejects a null p_client_id', () => {
       client_secret: OAUTH_CLIENT_SECRET,
     })
     assert.equal(retryRes.status, 200, 'The token should still be redeemable — a null p_client_id attempt must not consume it')
+  })
+})
+
+// ── AC-17: rotate_refresh_token rejects an anon-key caller outright ──
+//
+// AC-15 above proves the ownership-check fix using the service-role client, which the
+// migration deliberately keeps EXECUTE granted to — so it would stay green even if the
+// migration's `revoke ... from public, anon, authenticated` statements were dropped by a
+// future edit. This test uses a real anon-key Supabase client (a separate connection from
+// the service-role `supabase` used everywhere else in this file) to prove the RPC-level
+// lockdown itself: before this PR, an anon-key caller could invoke this function directly
+// via PostgREST with no client_secret at all.
+
+describe('AC-17: rotate_refresh_token rejects an anon-key caller', () => {
+  it('an anon-key RPC call gets a permission-denied error, not a status field', async () => {
+    const { data, error } = await supabaseAnon.rpc('rotate_refresh_token', {
+      p_token_hash: 'ac-17-anon-permission-check',
+      p_client_id: CLIENT_ID,
+      p_new_hash: 'ac-17-anon-permission-check-new',
+      p_new_expires: new Date(Date.now() + 60_000).toISOString(),
+    })
+    assert.equal(data, null, `Expected no data for a denied call, got ${JSON.stringify(data)}`)
+    assert.ok(error, 'Expected an error for an anon-key caller — the RPC should be unreachable without service-role access')
+    assert.equal(error!.code, '42501', `Expected Postgres permission-denied (42501), got ${JSON.stringify(error)}`)
   })
 })
