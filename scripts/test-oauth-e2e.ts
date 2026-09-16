@@ -3,7 +3,8 @@
  *
  * Required env vars (loaded via --env-file=.env.local):
  *   JWT_SECRET          — to verify the access token locally in step 5
- *   OAUTH_CLIENT_SECRET — required for step 1's authorization_code exchange (#273's fix)
+ *   OAUTH_CLIENT_SECRET — required for the authorization_code exchange (#273) and the
+ *                         refresh_token grant (#277)
  *
  * Requires the server to be running with ACCESS_TOKEN_TTL ≤ 300 (e.g. 60s):
  *   ACCESS_TOKEN_TTL=60 npm run dev
@@ -140,6 +141,7 @@ const { status: s6, body: t6 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalRefresh,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 if (s6 !== 200 || !t6.access_token || !t6.refresh_token) {
   fail(`Refresh failed: ${s6} ${JSON.stringify(t6)}`); process.exit(1)
@@ -160,6 +162,7 @@ const { status: s8, body: t8 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalRefresh,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 s8 === 400 && t8.error === 'invalid_grant'
   ? pass(`Old refresh token rejected: ${t8.error}`)

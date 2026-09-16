@@ -2,7 +2,8 @@
  * Manual end-to-end test: refresh token durability across server restarts.
  *
  * Required env vars (loaded via --env-file=.env.local):
- *   OAUTH_CLIENT_SECRET — required for step 1's authorization_code exchange (#273's fix)
+ *   OAUTH_CLIENT_SECRET — required for the authorization_code exchange (#273) and the
+ *                         refresh_token grant (#277)
  *
  * Run:   tsx --env-file=.env.local scripts/test-oauth-restart.ts
  *
@@ -95,6 +96,7 @@ const { status: s2, body: t2 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalToken,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 if (s2 !== 200 || !t2.refresh_token) { fail(`Rotation failed: ${s2} ${JSON.stringify(t2)}`); process.exit(1) }
 const rotatedToken = t2.refresh_token
@@ -106,18 +108,20 @@ const { status: s3, body: t3 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalToken,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 s3 === 400 && t3.error === 'invalid_grant'
   ? pass('Old token correctly rejected with invalid_grant')
   : fail(`Expected 400 invalid_grant, got ${s3}: ${JSON.stringify(t3)}`)
 
 step('6. Replay old token again — triggers reuse detection, rotated token should be revoked too')
-await postToken({ grant_type: 'refresh_token', refresh_token: originalToken, client_id: CLIENT_ID })
+await postToken({ grant_type: 'refresh_token', refresh_token: originalToken, client_id: CLIENT_ID, client_secret: CLIENT_SECRET })
 
 const { status: s4, body: t4 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: rotatedToken,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 s4 === 400 && t4.error === 'invalid_grant'
   ? pass('Rotated token also revoked — reuse detection wiped all tokens for client')

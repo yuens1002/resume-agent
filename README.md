@@ -451,7 +451,7 @@ Add a custom connector at `claude.ai → Settings → Connectors → Add custom 
 | OAuth Client ID | your `OAUTH_CLIENT_ID` env var value |
 | OAuth Client Secret | your `OAUTH_CLIENT_SECRET` env var value |
 
-Claude authenticates as a confidential client via the `authorization_code` + PKCE flow (per [Anthropic's connector docs](https://claude.com/docs/connectors/building/authentication) — a pure `client_credentials` grant isn't supported for connectors, since every connection requires user consent) and keeps the session alive via `refresh_token`. Works on web, phone, and Claude Desktop automatically — one connector, all surfaces.
+Claude authenticates as a confidential client via the `authorization_code` + PKCE flow (per [Anthropic's connector docs](https://claude.com/docs/connectors/building/authentication) — a pure `client_credentials` grant isn't supported for connectors, since every connection requires user consent) and keeps the session alive via `refresh_token`, presenting `client_secret` on both the initial exchange and every rotation. Works on web, phone, and Claude Desktop automatically — one connector, all surfaces.
 
 ### Claude Desktop (direct API access)
 
@@ -540,10 +540,10 @@ Example queries:
 ## Security model
 
 - All secrets in `.env.local`, never committed
-- Every route, except `OPTIONS` preflights and `/health`, is rate-limited to 30 req/min per IP — bypassed site-wide for requests carrying a valid `Authorization: Bearer <API_KEY>` header or a valid `x-brain-key` header; bypassed on `/mcp` only for requests carrying any valid OAuth access token via `Authorization: Bearer <token>` (any grant — since the token's own claims don't distinguish which one issued it, this stays scoped to `/mcp` rather than site-wide even now that #273 is closed)
+- Every route, except `OPTIONS` preflights and `/health`, is rate-limited to 30 req/min per IP — bypassed site-wide for requests carrying a valid `Authorization: Bearer <API_KEY>` header or a valid `x-brain-key` header; bypassed on `/mcp` only for requests carrying any valid OAuth access token via `Authorization: Bearer <token>` (any grant — since the token's own claims don't distinguish which one issued it, this stays scoped to `/mcp` rather than site-wide even now that #273 and #277 are both closed)
 - `public_profile` table: read-only, no auth required beyond the rate limit above
 - `/resume` endpoint: when `AUTH_MODE=key`, requires `Authorization: Bearer <key>` header; when `AUTH_MODE=open` (default in `.env.example`), it is publicly accessible
-- MCP server: an OAuth access token (`Authorization: Bearer <token>`) or `x-brain-key` header (direct API / Claude Desktop). The claude.ai connector authenticates via the `authorization_code` + PKCE flow (confidential client, `client_secret` required as of #273's fix), refreshed via `refresh_token` — not the `client_credentials` grant, despite what the connector setup below might suggest; `client_credentials` exists for direct API/script access using the same Client ID and Secret
+- MCP server: an OAuth access token (`Authorization: Bearer <token>`) or `x-brain-key` header (direct API / Claude Desktop). The claude.ai connector authenticates via the `authorization_code` + PKCE flow (confidential client, `client_secret` required as of #273's fix), refreshed via `refresh_token` (`client_secret` required there too, as of #277's fix) — not the `client_credentials` grant, despite what the connector setup below might suggest; `client_credentials` exists for direct API/script access using the same Client ID and Secret. All three grants (`authorization_code`, `client_credentials`, `refresh_token`) now require `client_secret_post` — there is no unauthenticated path to a `/mcp` token
 - OAuth endpoints: `/authorize`, `/token`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (RFC 8414 + RFC 9728)
 - Origin header validation on MCP endpoint (DNS rebinding protection per MCP Streamable HTTP spec)
 - Supabase service role key: server-side only, never returned to clients

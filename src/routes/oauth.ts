@@ -95,11 +95,10 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
-    // 'none' stays here — authorization_code and client_credentials both now require
-    // client_secret_post (#273's fix), but a refresh_token grant REQUEST still needs no
-    // client authentication of its own (tracked separately as #277); removing 'none'
-    // would misdescribe that grant's actual, still-unauthenticated request shape.
-    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+    // 'none' removed — as of #277's fix, all three grants (authorization_code and
+    // client_credentials via #273, refresh_token via #277) require client_secret_post,
+    // so it's the only real entry point to this token endpoint.
+    token_endpoint_auth_methods_supported: ['client_secret_post'],
   })
 })
 
@@ -210,8 +209,16 @@ oauth.post('/token', async (c) => {
   }
 
   if (grant_type === 'refresh_token') {
-    if (!refresh_token) {
-      return c.json({ error: 'invalid_request', error_description: 'refresh_token required' }, 400, noCacheHeaders)
+    // Closes #277 — this grant used to accept a refresh_token with no client
+    // authentication at all, and an omitted client_id skipped even the RPC's
+    // own ownership check (fixed at that layer too, see this migration's
+    // sibling SQL change). Same secret-then-presence ordering as the
+    // authorization_code check above.
+    if (!client_secret || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
+      return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
+    }
+    if (!refresh_token || !client_id) {
+      return c.json({ error: 'invalid_request', error_description: 'refresh_token and client_id required' }, 400, noCacheHeaders)
     }
 
     const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex')
@@ -222,7 +229,7 @@ oauth.post('/token', async (c) => {
     // Returns a status so the application can distinguish replay (definite) from unknown (ambiguous).
     const { data: result, error: rpcError } = await supabase.rpc('rotate_refresh_token', {
       p_token_hash: tokenHash,
-      p_client_id: client_id ?? null,
+      p_client_id: client_id,
       p_new_hash: newTokenHash,
       p_new_expires: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
     })
