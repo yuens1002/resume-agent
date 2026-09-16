@@ -250,6 +250,21 @@ oauth.post('/token', async (c) => {
   if (grant_type !== 'authorization_code') {
     return c.json({ error: 'unsupported_grant_type' }, 400)
   }
+
+  // TEMPORARY observability for issue #273 — the authorization_code grant
+  // has never required client_secret (unlike client_credentials, which does
+  // check it), so any caller who supplies the public default client_id can
+  // self-mint a token with no secret at all. Before enforcing a client_secret
+  // requirement here (which would break real traffic if the live claude.ai
+  // connector doesn't actually send one), log presence/match — never the
+  // secret's own value — on every real attempt to confirm it's safe first.
+  // Remove this block once #273's real fix lands.
+  console.log('[oauth] authz-code client_secret observability', {
+    client_id,
+    client_secret_present: Boolean(client_secret),
+    client_secret_matches: Boolean(client_secret && OAUTH_CLIENT_SECRET && timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)),
+  })
+
   if (!code || !code_verifier || !client_id) {
     return c.json({ error: 'invalid_request', error_description: 'code, code_verifier, and client_id required' }, 400)
   }
