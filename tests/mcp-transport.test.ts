@@ -234,3 +234,36 @@ describe('AC-9: OPTIONS preflight returns 200 with CORS headers', () => {
     )
   })
 })
+
+// ── AC-10: valid x-brain-key bypasses the shared IP rate limit ──
+//
+// Skipped by default, same as public-mcp-transport.test.ts's AC-8 — the
+// shared 30-req/min-per-IP bucket (src/index.ts) makes this order-dependent
+// and destructive to parallel runs. Enable with TEST_RATE_LIMIT=1.
+//
+// Before this fix, index.ts's rate-limiter only recognized the
+// `Authorization: Bearer <API_KEY>` owner bypass — a valid x-brain-key (the
+// credential /mcp actually authenticates with, routes/mcp.ts's
+// authenticate()) got no exemption, so every MCP tool call from an
+// authenticated client counted against the same budget as anonymous
+// traffic. Confirmed live 2026-09-16 against job-hunt-agent: a batch run's
+// handful of log_application calls exhausted the window before a later
+// roster-fetch call in the same run.
+
+describe('AC-10: valid x-brain-key bypasses the shared IP rate limit', () => {
+  const shouldRun = process.env.TEST_RATE_LIMIT === '1'
+  const runner = shouldRun ? it : it.skip
+  runner(
+    '32 authenticated requests all succeed — run with TEST_RATE_LIMIT=1',
+    async () => {
+      for (let i = 0; i < 32; i++) {
+        const res = await mcpPost({ key: MCP_KEY })
+        assert.ok(
+          res.status !== 429,
+          `Request ${i + 1}/32 with a valid x-brain-key should bypass the rate limit, got 429`,
+        )
+      }
+      console.warn('AC-10: x-brain-key bypass verified across 32 requests.')
+    },
+  )
+})
