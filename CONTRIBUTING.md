@@ -90,6 +90,44 @@ Every `docs/plans/*.md` should have these sections, in order:
 
 ---
 
+## Public-Repo Rule
+
+This rule applies to everything written in this public repo: docs, plans,
+ACs, GitHub issues, PR descriptions, issue/PR comments, and pull request
+review comments.
+
+Docs must not contain client data, private credentials, production tokens,
+handoff passwords, or private operational URLs. Put local-only values in
+ignored files such as `.env.local` or generated `*.local.md` handoff files.
+
+Public docs should describe resume-agent as a workflow-neutral, forkable
+baseline. Business workflows, downstream automations, and any specific
+consumer's operational details belong in that consumer's own private repo,
+unless explicitly framed as fake/manual examples.
+
+Do not name a specific private repo, org, agency, or client, even in passing
+— describe the source generically instead (e.g. "a downstream client," "a
+private agency/client profile repo") rather than any one of them by name.
+
+| Instead of | Write |
+| --- | --- |
+| `acme-agency/acme-client-repo` (a real private repo slug) | "a downstream client repo" |
+| "our agency's Railway project" | "the target deployment" |
+| "the ACME client's pipeline" | "a client-specific pipeline (fake/manual example)" |
+
+If a specific private name is genuinely necessary to explain something (rare
+— usually a generic description works), stop and ask whether it belongs in
+this repo at all before writing it down.
+
+A `PreToolUse` hook (`~/.claude/skills/oss-doc-review`) mechanically blocks
+known private repo/org names on `git push` and `gh issue`/`gh pr` create or
+edit, via this repo's own `.claude/oss-hygiene-rules.json` (gitignored,
+local-only — the denylist itself would leak the names it protects if
+committed to this public repo). That hook only catches strings it already
+knows about; this section is what prevents the ones it doesn't.
+
+---
+
 ## Project principles
 
 1. **Canonical data over inferred data.** Every response the public endpoints generate is grounded in the candidate's published profile — never fabricated by the LLM.
