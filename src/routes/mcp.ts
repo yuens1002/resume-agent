@@ -1182,7 +1182,7 @@ function buildServer(): McpServer {
         companies: z.array(z.string().max(200)).min(1).max(100).optional().describe(
           'Existence-check mode: only return applications whose company loosely matches (case-insensitive substring) one of these names. Mutually exclusive with stages.'
         ),
-        stages: z.array(z.enum(STAGES)).min(1).optional().describe(
+        stages: z.array(z.enum(STAGES)).min(1).max(STAGES.length).optional().describe(
           'Roster mode: only return applications currently in one of these stages. Mutually exclusive with companies.'
         ),
         days: z.number().int().min(1).optional().describe('Only applications from the last N days (by applied_at). Applies in either mode.'),
@@ -1193,7 +1193,7 @@ function buildServer(): McpServer {
       try {
         if (!companies?.length && !stages?.length && days == null) {
           return {
-            content: [{ type: 'text' as const, text: 'Error: provide `companies` (existence check), `stages` (roster fetch), and/or `days` — this tool refuses an unfiltered full-table scan.' }],
+            content: [{ type: 'text' as const, text: 'Error: provide `days` alone, or pair it with exactly one of `companies` (existence check) or `stages` (roster fetch) — this tool refuses an unfiltered full-table scan.' }],
             isError: true,
           }
         }
@@ -1245,7 +1245,7 @@ function buildServer(): McpServer {
           q = q.or(patterns.map(p => `company.ilike.%${p}%`).join(','))
         }
         if (stages?.length) {
-          q = q.in('stage', stages)
+          q = q.in('stage', Array.from(new Set(stages)))
         }
         if (days != null) {
           const since = new Date()

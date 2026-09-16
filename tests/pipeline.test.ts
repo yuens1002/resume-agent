@@ -580,7 +580,7 @@ describe("Job Hunt Pipeline", () => {
   it("check_applications — refuses when neither companies, stages, nor days is given (no unfiltered scan)", async () => {
     const result = await callTool("check_applications", {});
     assert.equal(result.isError, true, "must take the refusal path, not just happen to mention the right words");
-    assert.match(getText(result), /provide `companies`.*`stages`.*`days`/);
+    assert.match(getText(result), /provide `days`.*`companies`.*`stages`/);
   });
 
   it("check_applications — days alone is a valid roster fetch, not treated as an unfiltered scan", async () => {
