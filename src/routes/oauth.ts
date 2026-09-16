@@ -259,10 +259,16 @@ oauth.post('/token', async (c) => {
   // connector doesn't actually send one), log presence/match — never the
   // secret's own value — on every real attempt to confirm it's safe first.
   // Remove this block once #273's real fix lands.
+  // A JSON body's client_secret is unvalidated — a non-string truthy value
+  // (a number, object, array) would otherwise reach timingSafeEqual's
+  // crypto.createHash and throw, turning what should still be an ordinary
+  // 400 further down into a 500. Guard with typeof so this log can never
+  // change the response this endpoint returns.
+  const stringSecret = typeof client_secret === 'string' && client_secret.length > 0 ? client_secret : undefined
   console.log('[oauth] authz-code client_secret observability', {
     client_id,
-    client_secret_present: Boolean(client_secret),
-    client_secret_matches: Boolean(client_secret && OAUTH_CLIENT_SECRET && timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)),
+    client_secret_present: Boolean(stringSecret),
+    client_secret_matches: Boolean(stringSecret && OAUTH_CLIENT_SECRET && timingSafeEqual(stringSecret, OAUTH_CLIENT_SECRET)),
   })
 
   if (!code || !code_verifier || !client_id) {
