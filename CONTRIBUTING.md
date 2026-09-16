@@ -111,7 +111,7 @@ private agency/client profile repo") rather than any one of them by name.
 
 | Instead of | Write |
 | --- | --- |
-| `acme-agency/acme-client-repo` (a real private repo slug) | "a downstream client repo" |
+| `acme-agency/acme-client-repo` (fictional example — a genuinely private slug would look like this, never write the real one) | "a downstream client repo" |
 | "our agency's Railway project" | "the target deployment" |
 | "the ACME client's pipeline" | "a client-specific pipeline (fake/manual example)" |
 
