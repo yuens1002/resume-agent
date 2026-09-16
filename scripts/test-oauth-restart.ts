@@ -1,6 +1,9 @@
 /**
  * Manual end-to-end test: refresh token durability across server restarts.
  *
+ * Required env vars (loaded via --env-file=.env.local):
+ *   OAUTH_CLIENT_SECRET — required for step 1's authorization_code exchange (#273's fix)
+ *
  * Run:   tsx --env-file=.env.local scripts/test-oauth-restart.ts
  *
  * What this proves:

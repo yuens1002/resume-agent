@@ -239,7 +239,7 @@ The A2A agent card spec is designed for a world where AI systems auto-discover a
 | Scenario | Status | Notes |
 |---|---|---|
 | Claude Desktop with MCP | ✅ Works | Via claude.ai custom connector (OAuth) or direct x-brain-key config |
-| claude.ai (web + mobile) | ✅ Works | Custom connector with OAuth Client Credentials — one setup, all surfaces |
+| claude.ai (web + mobile) | ✅ Works | Custom connector — authorization_code + PKCE, refreshed via refresh_token — one setup, all surfaces |
 | Cursor / AI coding assistants | ✅ Works | Via MCP or manual HTTP calls |
 | Custom employer AI agent | ✅ Works | If they're given the agent card URL to target |
 | Consumer phone AI apps (Gemini, ChatGPT) | ❌ No HTTP | These apps have no mechanism to make GET/POST requests |

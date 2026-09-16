@@ -2,7 +2,8 @@
  * End-to-end OAuth token expiry + rotation test.
  *
  * Required env vars (loaded via --env-file=.env.local):
- *   JWT_SECRET      — to verify the access token locally in step 5
+ *   JWT_SECRET          — to verify the access token locally in step 5
+ *   OAUTH_CLIENT_SECRET — required for step 1's authorization_code exchange (#273's fix)
  *
  * Requires the server to be running with ACCESS_TOKEN_TTL ≤ 300 (e.g. 60s):
  *   ACCESS_TOKEN_TTL=60 npm run dev

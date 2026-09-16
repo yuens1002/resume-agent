@@ -92,11 +92,11 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
-    // 'none' removed as of #273's fix — authorization_code and client_credentials both
-    // now require client_secret_post, and refresh_token (the only grant that doesn't
-    // check it) can never be reached without first authenticating via one of the other
-    // two, so client_secret_post is the only real entry point to this token endpoint.
-    token_endpoint_auth_methods_supported: ['client_secret_post'],
+    // 'none' stays here — authorization_code and client_credentials both now require
+    // client_secret_post (#273's fix), but a refresh_token grant REQUEST still needs no
+    // client authentication of its own (tracked separately as #277); removing 'none'
+    // would misdescribe that grant's actual, still-unauthenticated request shape.
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   })
 })
 

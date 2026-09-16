@@ -65,12 +65,13 @@ app.use('*', async (c, next) => {
 
   // Owner bypass — an OAuth JWT (routes/mcp.ts's authenticate() has always
   // accepted this as a /mcp credential) is scoped to /mcp only, not every
-  // route: unlike x-brain-key/API_KEY, a JWT from the authorization_code or
-  // refresh_token grant proves less (routes/oauth.ts's /authorize issues a
-  // code to any caller who supplies the public default client_id, no secret
-  // required — tracked separately as #273). Exempting it site-wide would
-  // extend that pre-existing gap's reach beyond /mcp. See src/lib/mcp-auth.ts
-  // and CHANGELOG.md's 2026-09-16 entries.
+  // route: unlike x-brain-key/API_KEY, a JWT's own claims don't record which
+  // grant produced it, and routes/oauth.ts's refresh_token grant still
+  // performs no client authentication at all (#273's fix closed the
+  // authorization_code gap; refresh_token is tracked separately as #277).
+  // Exempting the JWT site-wide would extend that remaining gap's reach
+  // beyond /mcp. See src/lib/mcp-auth.ts and CHANGELOG.md's 2026-09-16
+  // entries.
   if (isMcpPath(c.req.path) && (await isMcpJwtRequest(c))) return next()
 
   const ip = getClientIp(c)

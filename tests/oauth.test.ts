@@ -3,6 +3,7 @@
  *
  * Validates the full OAuth lifecycle that the Claude connector depends on:
  *   AC-1  Metadata advertises refresh_token in grant_types_supported
+ *   AC-1b Metadata advertises client_secret_post in token_endpoint_auth_methods_supported
  *   AC-2  authorization_code exchange returns a refresh_token
  *   AC-3  refresh_token grant returns a new access_token + rotated refresh_token
  *   AC-4  old refresh_token is rejected after rotation (one-time use)
@@ -111,14 +112,18 @@ describe('OAuth metadata', () => {
     )
   })
 
-  it('AC-1b: token_endpoint_auth_methods_supported no longer advertises none (closes #273)', async () => {
+  it('AC-1b: token_endpoint_auth_methods_supported advertises client_secret_post', async () => {
+    // Does NOT assert 'none' is absent — a refresh_token grant REQUEST still needs no
+    // client authentication of its own (tracked separately as #277), so 'none' staying
+    // in this list is still accurate, not stale. This only locks in that
+    // client_secret_post — required by authorization_code (#273) and client_credentials
+    // — is advertised.
     const res = await fetch(`${BASE_URL}/.well-known/oauth-authorization-server`)
     const body = await res.json() as { token_endpoint_auth_methods_supported: string[] }
     assert.ok(
-      !body.token_endpoint_auth_methods_supported.includes('none'),
-      `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} still advertises none, but every grant now requires client_secret_post`
+      body.token_endpoint_auth_methods_supported.includes('client_secret_post'),
+      `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} missing client_secret_post`
     )
-    assert.ok(body.token_endpoint_auth_methods_supported.includes('client_secret_post'))
   })
 })
 
