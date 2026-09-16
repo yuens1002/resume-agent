@@ -58,15 +58,9 @@ app.use('*', async (c, next) => {
   const apiKey = process.env.API_KEY
   if (match && apiKey && timingSafeEqual(match[1], apiKey)) return next()
 
-  // Owner bypass — /mcp's own credential (routes/mcp.ts's authenticate()) is a
-  // separate header from the Bearer check above, so it needs its own check
-  // here too. Without this, every MCP tool call (log_application,
-  // list_applications, etc. — job-hunt-agent's src/mcp-client.ts) counted
-  // against the same budget as anonymous traffic despite carrying a valid
-  // owner credential, unlike /match and /resume which send Authorization and
-  // were already exempt. Confirmed live 2026-09-16: apply:prepass's roster
-  // fetch tripped this after apply:batch's own log_application calls used up
-  // most of the window.
+  // Owner bypass — /mcp authenticates with this header, not Authorization
+  // (see authenticate() in routes/mcp.ts), so it needs its own check here
+  // too — see CHANGELOG.md's 2026-09-16 entry for the incident this fixed.
   const brainKey = c.req.header('x-brain-key')
   const brainKeyEnv = process.env.OPEN_BRAIN_KEY
   if (brainKey && brainKeyEnv && timingSafeEqual(brainKey, brainKeyEnv)) return next()

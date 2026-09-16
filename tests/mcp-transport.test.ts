@@ -16,6 +16,7 @@
  *   AC-7  CORS headers present on authenticated responses
  *   AC-8  Disallowed browser Origin → 403
  *   AC-9  OPTIONS preflight → 200 with CORS headers (no auth required)
+ *   AC-10 Valid x-brain-key bypasses the shared IP rate limit (opt-in, see below)
  *
  * Requirements:
  *   MCP_URL        — defaults to http://localhost:3000/mcp
@@ -23,6 +24,8 @@
  *
  * Run (requires local server):
  *   npm run test:transport
+ *
+ * AC-10 also requires TEST_RATE_LIMIT=1 to run — see that test for why.
  */
 
 import { describe, it } from 'node:test'
@@ -237,9 +240,15 @@ describe('AC-9: OPTIONS preflight returns 200 with CORS headers', () => {
 
 // ── AC-10: valid x-brain-key bypasses the shared IP rate limit ──
 //
-// Skipped by default, same as public-mcp-transport.test.ts's AC-8 — the
-// shared 30-req/min-per-IP bucket (src/index.ts) makes this order-dependent
-// and destructive to parallel runs. Enable with TEST_RATE_LIMIT=1.
+// Skipped by default — unlike public-mcp-transport.test.ts's AC-8 (which
+// deliberately exhausts the shared bucket), a WORKING bypass here never
+// touches rateLimitMap at all, so the passing case is neither
+// order-dependent nor destructive. It's gated instead because a REGRESSED
+// bypass burns the shared 30-req/min-per-IP bucket (src/index.ts) for the
+// rest of the process — cheap insurance against a routine `npm run
+// test:transport` run silently poisoning every other test in this file (it
+// runs last, so nothing downstream in this file is affected, but other
+// processes hitting the same server would be). Enable with TEST_RATE_LIMIT=1.
 //
 // Before this fix, index.ts's rate-limiter only recognized the
 // `Authorization: Bearer <API_KEY>` owner bypass — a valid x-brain-key (the
@@ -258,6 +267,11 @@ describe('AC-10: valid x-brain-key bypasses the shared IP rate limit', () => {
     async () => {
       for (let i = 0; i < 32; i++) {
         const res = await mcpPost({ key: MCP_KEY })
+        // Assert 2xx first, not just "not 429" — a 5xx would otherwise read
+        // as "bypassed" (it isn't 429), and a bad/stale OPEN_BRAIN_KEY would
+        // fail every request with 401 well before request 31 trips the
+        // limit, misreporting as a rate-limit failure instead of an auth one.
+        assert.ok(res.ok, `Request ${i + 1}/32 with a valid x-brain-key should succeed, got ${res.status}`)
         assert.ok(
           res.status !== 429,
           `Request ${i + 1}/32 with a valid x-brain-key should bypass the rate limit, got 429`,
