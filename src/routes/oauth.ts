@@ -41,8 +41,9 @@ const ALLOWED_CLIENT_IDS = new Set(
   (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
 )
 
-// Load-bearing for both client_credentials and, as of #273's fix, authorization_code —
-// fail fast at startup (matching JWT_SECRET above) rather than silently 401ing every
+// Load-bearing for all three grants below — client_credentials always required it,
+// authorization_code as of #273's fix, refresh_token as of #277's — so this fails
+// fast at startup (matching JWT_SECRET above) rather than silently 401ing every
 // claude.ai reconnect with no server-side signal if this is ever unset or blank. Only
 // the blank-value guard trims — the stored/compared value stays opaque, since trimming
 // it would reject a real secret that happens to contain intentional leading/trailing
@@ -55,6 +56,16 @@ function timingSafeEqual(a: string, b: string): boolean {
   const aDigest = crypto.createHash('sha256').update(a).digest()
   const bDigest = crypto.createHash('sha256').update(b).digest()
   return crypto.timingSafeEqual(aDigest, bDigest)
+}
+
+// Shared by all three grants below (client_credentials, refresh_token,
+// authorization_code) — a single check so the comparison logic can't drift
+// between branches the way three independent copies risked. OAUTH_CLIENT_SECRET
+// is always set by this point (the startup guard above throws otherwise); the
+// redundant-looking check here is what lets TypeScript narrow client_secret to
+// `string` for the caller without a separate assertion.
+function isValidClientSecret(client_secret: string | undefined): client_secret is string {
+  return Boolean(client_secret && OAUTH_CLIENT_SECRET && timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET))
 }
 
 const ALLOWED_REDIRECT_URIS = new Set([
@@ -95,11 +106,11 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
-    // 'none' stays here — authorization_code and client_credentials both now require
-    // client_secret_post (#273's fix), but a refresh_token grant REQUEST still needs no
-    // client authentication of its own (tracked separately as #277); removing 'none'
-    // would misdescribe that grant's actual, still-unauthenticated request shape.
-    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+    // 'none' removed — client_credentials always required client_secret_post,
+    // authorization_code as of #273's fix, and refresh_token as of #277's, so
+    // all three grants now require it and it's the only real entry point to
+    // this token endpoint.
+    token_endpoint_auth_methods_supported: ['client_secret_post'],
   })
 })
 
@@ -178,11 +189,15 @@ oauth.post('/token', async (c) => {
   }
 
   // A JSON body's fields are unvalidated `any`, unlike the form-urlencoded
-  // path's `.toString()` calls above — client_secret is the one field both
-  // grant branches below pass into timingSafeEqual's crypto.createHash,
-  // which throws on a non-string. Normalize once here so neither branch
-  // needs its own guard.
+  // path's `.toString()` calls above. client_secret, client_id, and
+  // refresh_token are all eventually passed into crypto.createHash (via
+  // timingSafeEqual or the refresh_token branch's own hashing), which throws
+  // on a non-string — a truthy object/array would otherwise turn a 400/401
+  // into an unhandled 500 on this unauthenticated endpoint. Normalize once
+  // here so no branch below needs its own guard.
   if (typeof client_secret !== 'string' || client_secret.length === 0) client_secret = undefined
+  if (typeof client_id !== 'string' || client_id.length === 0) client_id = undefined
+  if (typeof refresh_token !== 'string' || refresh_token.length === 0) refresh_token = undefined
 
   const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
 
@@ -190,7 +205,7 @@ oauth.post('/token', async (c) => {
     if (!client_id || !client_secret) {
       return c.json({ error: 'invalid_request', error_description: 'client_id and client_secret required' }, 400, noCacheHeaders)
     }
-    if (!ALLOWED_CLIENT_IDS.has(client_id) || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
+    if (!ALLOWED_CLIENT_IDS.has(client_id) || !isValidClientSecret(client_secret)) {
       return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
     }
 
@@ -210,8 +225,17 @@ oauth.post('/token', async (c) => {
   }
 
   if (grant_type === 'refresh_token') {
-    if (!refresh_token) {
-      return c.json({ error: 'invalid_request', error_description: 'refresh_token required' }, 400, noCacheHeaders)
+    // Closes #277 — this grant used to accept a refresh_token with no client
+    // authentication at all, and an omitted client_id skipped even the RPC's
+    // own ownership check (fixed at that layer too — see
+    // supabase/migrations/20260916000000_refresh_token_client_auth.sql).
+    // Same secret-then-presence ordering as the authorization_code check
+    // below.
+    if (!isValidClientSecret(client_secret)) {
+      return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
+    }
+    if (!refresh_token || !client_id) {
+      return c.json({ error: 'invalid_request', error_description: 'refresh_token and client_id required' }, 400, noCacheHeaders)
     }
 
     const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex')
@@ -222,7 +246,7 @@ oauth.post('/token', async (c) => {
     // Returns a status so the application can distinguish replay (definite) from unknown (ambiguous).
     const { data: result, error: rpcError } = await supabase.rpc('rotate_refresh_token', {
       p_token_hash: tokenHash,
-      p_client_id: client_id ?? null,
+      p_client_id: client_id,
       p_new_hash: newTokenHash,
       p_new_expires: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
     })
@@ -278,7 +302,7 @@ oauth.post('/token', async (c) => {
   // live connector. /authorize itself is intentionally left open (PKCE
   // still protects the code in transit) — a code without the secret to
   // redeem it is inert, which is what actually closes the hole.
-  if (!client_secret || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
+  if (!isValidClientSecret(client_secret)) {
     return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
   }
 

@@ -3,7 +3,8 @@
  *
  * Required env vars (loaded via --env-file=.env.local):
  *   JWT_SECRET          — to verify the access token locally in step 5
- *   OAUTH_CLIENT_SECRET — required for step 1's authorization_code exchange (#273's fix)
+ *   OAUTH_CLIENT_SECRET — required for the authorization_code exchange (#273) and the
+ *                         refresh_token grant (#277)
  *
  * Requires the server to be running with ACCESS_TOKEN_TTL ≤ 300 (e.g. 60s):
  *   ACCESS_TOKEN_TTL=60 npm run dev
@@ -28,7 +29,7 @@ const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be set')
-// authorization_code now requires this (#273's fix) — without it step 1 fails with 401
+// authorization_code (#273) and refresh_token (#277) both require this — without it, step 1 and step 6 fail with 401
 const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
 if (!CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set')
 const jwtKey = new TextEncoder().encode(JWT_SECRET)
@@ -140,6 +141,7 @@ const { status: s6, body: t6 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalRefresh,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 if (s6 !== 200 || !t6.access_token || !t6.refresh_token) {
   fail(`Refresh failed: ${s6} ${JSON.stringify(t6)}`); process.exit(1)
@@ -160,6 +162,7 @@ const { status: s8, body: t8 } = await postToken({
   grant_type: 'refresh_token',
   refresh_token: originalRefresh,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
 })
 s8 === 400 && t8.error === 'invalid_grant'
   ? pass(`Old refresh token rejected: ${t8.error}`)

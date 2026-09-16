@@ -3,7 +3,10 @@
  *
  * Validates the full OAuth lifecycle that the Claude connector depends on:
  *   AC-1  Metadata advertises refresh_token in grant_types_supported
- *   AC-1b Metadata advertises client_secret_post in token_endpoint_auth_methods_supported
+ *   AC-1b Metadata no longer advertises 'none' in token_endpoint_auth_methods_supported
+ *         (only client_secret_post — accurate as of #277, now that all three grants
+ *         require it; earlier in this feature's history this assertion pointed the
+ *         other way while refresh_token was still unauthenticated)
  *   AC-2  authorization_code exchange returns a refresh_token
  *   AC-3  refresh_token grant returns a new access_token + rotated refresh_token
  *   AC-4  old refresh_token is rejected after rotation (one-time use)
@@ -11,25 +14,46 @@
  *   AC-6  client_id mismatch on refresh → 400 invalid_grant
  *   AC-7  access_token from refresh is valid JWT with correct sub
  *   AC-8  replaying a used refresh_token revokes all tokens for that client (reuse detection)
- *   AC-9  a non-string client_secret in a JSON body never crashes /token (400/401, not 500) — client_credentials and authorization_code
+ *   AC-9  a non-string client_secret, refresh_token, or client_id in a JSON body never
+ *         crashes /token (400/401, not 500) — client_credentials, authorization_code, and
+ *         refresh_token
  *   AC-10 authorization_code grant with no client_secret → 401 invalid_client (closes #273)
  *   AC-11 authorization_code grant with the wrong client_secret → 401 invalid_client
+ *   AC-12 refresh_token grant with no client_secret → 401 invalid_client (closes #277)
+ *   AC-13 refresh_token grant with the wrong client_secret → 401 invalid_client
+ *   AC-14 refresh_token grant with no client_id → 400 invalid_request
+ *   AC-15 rotate_refresh_token RPC: a null p_client_id no longer bypasses the ownership
+ *         check (direct RPC call, bypassing the /token handler's own now-mandatory
+ *         client_id — defense in depth for any future caller that doesn't go through it)
+ *   AC-16 refresh_token grant checks client_secret before client_id presence — omitting
+ *         both still yields 401 invalid_client, not 400 invalid_request
+ *   AC-17 rotate_refresh_token RPC rejects an anon-key caller outright (permission denied,
+ *         not a status field) — regression coverage for the anon/authenticated EXECUTE
+ *         lockdown; AC-15 alone can't catch a regression here since it uses the service-role
+ *         client, which is deliberately still granted
  *
  * Requirements (in .env.local):
  *   BASE_URL            — defaults to http://localhost:<PORT>
  *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector
- *   OAUTH_CLIENT_SECRET — required; the authorization_code grant now validates it (closes #273)
+ *   OAUTH_CLIENT_SECRET — required; the authorization_code (#273) and refresh_token (#277)
+ *                         grants both validate it
  *   JWT_SECRET          — used to verify returned JWTs
+ *   OPEN_BRAIN_KEY      — required; bypasses the shared rate limiter for this suite's own
+ *                         request volume (see the constant's own comment below)
+ *   SUPA_PERISHABLE_KEY — required; the anon/publishable Supabase key, used only by AC-17
+ *                         to prove rotate_refresh_token rejects anon-key callers
  *
  * Run (requires local server with Supabase):
  *   npm run test:oauth
  */
 
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { config } from 'dotenv'
 import { jwtVerify } from 'jose'
+import { createClient } from '@supabase/supabase-js'
+import { supabase } from '../src/lib/supabase.js'
 
 config({ path: '.env.local' })
 
@@ -50,6 +74,23 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET must be set in .env.local')
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
 if (!OAUTH_CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set in .env.local')
 
+// This suite's own request volume (authorize + token + differential-pair retries, several
+// times over) can exceed the shared 30-req/min-per-IP rate limit on its own — x-brain-key
+// bypasses that limiter globally (index.ts), and neither /authorize nor /token look at it
+// for their own auth decisions, so sending it here only prevents self-inflicted 429s.
+const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
+if (!OPEN_BRAIN_KEY) throw new Error('OPEN_BRAIN_KEY must be set in .env.local')
+
+// AC-17 only — proves the anon/authenticated EXECUTE lockdown on rotate_refresh_token
+// actually rejects a real anon-key caller, independent of the service-role client every
+// other test in this file uses (including AC-15, which would stay green even if the
+// migration's revoke statements were accidentally dropped).
+const SUPA_PERISHABLE_KEY = process.env.SUPA_PERISHABLE_KEY
+if (!SUPA_PERISHABLE_KEY) throw new Error('SUPA_PERISHABLE_KEY must be set in .env.local')
+// SUPA_PROJECT_URL is already validated by src/lib/supabase.ts's own startup guard,
+// which the `supabase` import above has already executed by this point.
+const supabaseAnon = createClient(process.env.SUPA_PROJECT_URL as string, SUPA_PERISHABLE_KEY)
+
 function buildPKCE() {
   const verifier = crypto.randomBytes(32).toString('base64url')
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url')
@@ -67,7 +108,7 @@ async function authorize(clientId = CLIENT_ID): Promise<{ code: string; verifier
   url.searchParams.set('code_challenge_method', 'S256')
   url.searchParams.set('state', 'test-state')
 
-  const res = await fetch(url.toString(), { redirect: 'manual' })
+  const res = await fetch(url.toString(), { redirect: 'manual', headers: { 'x-brain-key': OPEN_BRAIN_KEY } })
   assert.equal(res.status, 302, `Expected 302, got ${res.status}`)
 
   const location = res.headers.get('location')
@@ -80,24 +121,54 @@ async function authorize(clientId = CLIENT_ID): Promise<{ code: string; verifier
   return { code, verifier }
 }
 
+// Every refresh_token this suite mints or rotates, tracked by hash (never the raw value)
+// so the after() hook below can delete exactly these rows from the live table — precise
+// cleanup instead of relying on the separate, unreferenced .scratch/cleanup-proof-artifact.mjs
+// script's 5-minute-window heuristic.
+const mintedTokenHashes = new Set<string>()
+
+async function trackIssuedRefreshToken(res: Response): Promise<void> {
+  try {
+    const body = await res.clone().json() as { refresh_token?: unknown }
+    if (typeof body.refresh_token === 'string') {
+      mintedTokenHashes.add(crypto.createHash('sha256').update(body.refresh_token).digest('hex'))
+    }
+  } catch {
+    // Non-JSON or non-2xx response — nothing to track.
+  }
+}
+
 /** POST /token as application/x-www-form-urlencoded */
 async function postToken(params: Record<string, string>): Promise<Response> {
-  return fetch(`${BASE_URL}/token`, {
+  const res = await fetch(`${BASE_URL}/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'x-brain-key': OPEN_BRAIN_KEY },
     body: new URLSearchParams(params).toString(),
   })
+  await trackIssuedRefreshToken(res)
+  return res
 }
 
 /** POST /token as application/json — the form-urlencoded path's .toString() calls make it
  *  impossible to send a non-string field, so AC-9 needs this to reach the JSON-body branch. */
 async function postTokenJSON(body: Record<string, unknown>): Promise<Response> {
-  return fetch(`${BASE_URL}/token`, {
+  const res = await fetch(`${BASE_URL}/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-brain-key': OPEN_BRAIN_KEY },
     body: JSON.stringify(body),
   })
+  await trackIssuedRefreshToken(res)
+  return res
 }
+
+after(async () => {
+  if (mintedTokenHashes.size === 0) return
+  const { error } = await supabase
+    .from('oauth_refresh_tokens')
+    .delete()
+    .in('token_hash', [...mintedTokenHashes])
+  if (error) console.error('[oauth.test.ts] cleanup: failed to delete minted tokens', error.message)
+})
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -112,14 +183,18 @@ describe('OAuth metadata', () => {
     )
   })
 
-  it('AC-1b: token_endpoint_auth_methods_supported advertises client_secret_post', async () => {
-    // Does NOT assert 'none' is absent — a refresh_token grant REQUEST still needs no
-    // client authentication of its own (tracked separately as #277), so 'none' staying
-    // in this list is still accurate, not stale. This only locks in that
-    // client_secret_post — required by authorization_code (#273) and client_credentials
-    // — is advertised.
+  it('AC-1b: token_endpoint_auth_methods_supported no longer advertises none (closes #277)', async () => {
+    // As of #277, all three grants (authorization_code and client_credentials via #273,
+    // refresh_token via #277) require client_secret_post — 'none' is no longer accurate
+    // for any of them, so this now asserts its absence (not just client_secret_post's
+    // presence, which #273's own round of review caught was the wrong assertion while
+    // refresh_token was still unauthenticated).
     const res = await fetch(`${BASE_URL}/.well-known/oauth-authorization-server`)
     const body = await res.json() as { token_endpoint_auth_methods_supported: string[] }
+    assert.ok(
+      !body.token_endpoint_auth_methods_supported.includes('none'),
+      `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} still advertises none`
+    )
     assert.ok(
       body.token_endpoint_auth_methods_supported.includes('client_secret_post'),
       `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} missing client_secret_post`
@@ -167,6 +242,7 @@ describe('authorization_code grant', () => {
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
         client_id: CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
       })
       const body = await res.json() as Record<string, unknown>
       assert.equal(res.status, 200, `Expected 200, got ${res.status}: ${JSON.stringify(body)}`)
@@ -183,6 +259,7 @@ describe('authorization_code grant', () => {
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
         client_id: CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
       })
       assert.equal(res.status, 400, 'Old token should be invalid after rotation')
       const body = await res.json() as { error: string }
@@ -197,6 +274,7 @@ describe('authorization_code grant', () => {
         grant_type: 'refresh_token',
         refresh_token: rotatedRefreshToken,
         client_id: CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
       })
       assert.equal(res.status, 400, 'Rotated token should have been revoked by reuse detection')
       const body = await res.json() as { error: string }
@@ -207,6 +285,8 @@ describe('authorization_code grant', () => {
       const res = await postToken({
         grant_type: 'refresh_token',
         refresh_token: 'totally-fake-token-that-does-not-exist',
+        client_id: CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
       })
       assert.equal(res.status, 400)
       const body = await res.json() as { error: string }
@@ -231,6 +311,7 @@ describe('authorization_code grant', () => {
         grant_type: 'refresh_token',
         refresh_token: freshToken,
         client_id: 'wrong-client-id',
+        client_secret: OAUTH_CLIENT_SECRET,
       })
       assert.equal(res.status, 400)
       const body = await res.json() as { error: string }
@@ -239,16 +320,19 @@ describe('authorization_code grant', () => {
   })
 })
 
-// ── AC-9: a non-string client_secret in a JSON body never crashes /token ──
+// ── AC-9: a non-string client_secret, refresh_token, or client_id in a JSON body never
+//         crashes /token ──
 //
 // The form-urlencoded path's `.toString()` calls make every field a string
 // by construction, so only a JSON body can carry a non-string value like a
-// number. Before client_secret was normalized once at parse time, either
-// grant branch below passed it straight into timingSafeEqual's
-// crypto.createHash, which throws on a non-string and turns the request
-// into a 500 instead of the ordinary 400/401 a malformed request should get.
+// number or object. Before these fields were normalized once at parse time,
+// any of them could reach crypto.createHash unguarded (via timingSafeEqual
+// for client_secret, or the refresh_token branch's own hashing for
+// refresh_token/client_id), which throws on a non-string and turns the
+// request into a 500 instead of the ordinary 400/401 a malformed request
+// should get.
 
-describe('AC-9: non-string client_secret does not crash /token', () => {
+describe('AC-9: non-string client_secret/refresh_token/client_id does not crash /token', () => {
   it('client_credentials grant returns 400, not 500', async () => {
     const res = await postTokenJSON({
       grant_type: 'client_credentials',
@@ -276,6 +360,40 @@ describe('AC-9: non-string client_secret does not crash /token', () => {
     assert.equal(res.status, 401)
     const body = await res.json() as { error: string }
     assert.equal(body.error, 'invalid_client')
+  })
+
+  it('refresh_token grant returns 401, not 500', async () => {
+    const res = await postTokenJSON({
+      grant_type: 'refresh_token',
+      refresh_token: 'nonexistent-refresh-token',
+      client_id: CLIENT_ID,
+      client_secret: 123,
+    })
+    assert.notEqual(res.status, 500, 'client_secret: 123 should not crash the request')
+    // 401 invalid_client, not 400 invalid_request — the client_secret check (#277's fix)
+    // runs before the client_id/refresh_token presence check, same ordering as the
+    // authorization_code case above.
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+  })
+
+  it('refresh_token grant with a non-string refresh_token/client_id returns 400, not 500', async () => {
+    // With a valid client_secret, the request reaches the refresh_token/client_id presence
+    // check — a Copilot review comment on PR #279 caught that a truthy non-string value here
+    // (an object or array survives `!refresh_token`/`!client_id`) reached
+    // crypto.createHash(...).update(refresh_token) unguarded and threw a 500, the same bug
+    // class client_secret already had before this describe block's other cases were added.
+    const res = await postTokenJSON({
+      grant_type: 'refresh_token',
+      refresh_token: { not: 'a string' },
+      client_id: ['not', 'a', 'string'],
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.notEqual(res.status, 500, 'a non-string refresh_token/client_id should not crash the request')
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_request')
   })
 })
 
@@ -340,5 +458,181 @@ describe('AC-10/AC-11: authorization_code requires the real client_secret', () =
       redirect_uri: REDIRECT_URI,
     })
     assert.equal(retryRes.status, 200, 'The same code should still be redeemable once the real secret is supplied')
+  })
+})
+
+/** Obtain a fresh, unused refresh_token via a real authorization_code exchange. */
+async function getFreshRefreshToken(): Promise<string> {
+  const { code, verifier } = await authorize()
+  const res = await postToken({
+    grant_type: 'authorization_code',
+    code,
+    code_verifier: verifier,
+    client_id: CLIENT_ID,
+    client_secret: OAUTH_CLIENT_SECRET,
+    redirect_uri: REDIRECT_URI,
+  })
+  const body = await res.json() as { refresh_token?: string }
+  assert.ok(body.refresh_token, `Could not obtain a fresh refresh_token: ${res.status} ${JSON.stringify(body)}`)
+  return body.refresh_token
+}
+
+// ── AC-12/AC-13/AC-14: refresh_token requires client_secret and client_id (closes #277) ──
+//
+// Before this fix, the refresh_token grant accepted any possessed refresh token with no
+// client authentication at all, and an omitted client_id skipped even the RPC's own
+// ownership check (see AC-15 below for that half). Each case here uses a fresh token
+// (via getFreshRefreshToken) rather than reusing one from an earlier describe block, so a
+// rejected attempt's effect on the token can be verified in isolation.
+
+describe('AC-12/AC-13/AC-14/AC-16: refresh_token requires client_secret and client_id', () => {
+  it('AC-12: no client_secret → 401 invalid_client, and the token is still usable with it', async () => {
+    const refreshToken = await getFreshRefreshToken()
+    const res = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+    })
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+
+    // Differential tripwire, same reasoning as AC-10/AC-11: proves the 401 was caused
+    // solely by the missing secret, and that a rejected attempt doesn't consume the token.
+    const retryRes = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(retryRes.status, 200, 'The same refresh_token should still work once the real secret is supplied')
+  })
+
+  it('AC-13: wrong client_secret → 401 invalid_client, and the token is still usable with the real one', async () => {
+    const refreshToken = await getFreshRefreshToken()
+    const res = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: `not-${OAUTH_CLIENT_SECRET}`,
+    })
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+
+    const retryRes = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(retryRes.status, 200, 'The same refresh_token should still work once the real secret is supplied')
+  })
+
+  it('AC-14: no client_id → 400 invalid_request, and the token is still usable with it', async () => {
+    const refreshToken = await getFreshRefreshToken()
+    const res = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_request')
+
+    const retryRes = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(retryRes.status, 200, 'The same refresh_token should still work once client_id is supplied')
+  })
+
+  it('AC-16: secret is checked before client_id presence — omitting both still gets 401, not 400', async () => {
+    const refreshToken = await getFreshRefreshToken()
+    const res = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    })
+    // Pins the ordering the production comment claims ("same secret-then-presence
+    // ordering as the authorization_code check"): with both client_secret and client_id
+    // missing, AC-12's 401 and AC-14's 400 would both individually be "correct" in
+    // isolation, so this is the only case that actually distinguishes which guard runs
+    // first. If the checks were ever swapped, this would silently start asserting 400.
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+
+    const retryRes = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(retryRes.status, 200, 'The same refresh_token should still work once both are supplied')
+  })
+})
+
+// ── AC-15: rotate_refresh_token's null-p_client_id bypass is closed at the RPC layer ──
+//
+// The /token handler now always passes a real client_id (AC-14 proves it's mandatory),
+// so this path is unreachable through normal HTTP requests — this test calls the RPC
+// directly to prove the defense-in-depth fix itself, independent of the application
+// layer that happens to make it unreachable today. Before this fix, `p_client_id is not
+// null and p_client_id <> v_row.client_id` meant a null p_client_id skipped the ownership
+// check entirely and rotated the token for anyone.
+
+describe('AC-15: rotate_refresh_token RPC rejects a null p_client_id', () => {
+  it('a direct RPC call with p_client_id: null gets client_mismatch, and the token is untouched', async () => {
+    const refreshToken = await getFreshRefreshToken()
+    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex')
+
+    const { data, error } = await supabase.rpc('rotate_refresh_token', {
+      p_token_hash: tokenHash,
+      p_client_id: null,
+      p_new_hash: crypto.randomBytes(32).toString('hex'),
+      p_new_expires: new Date(Date.now() + 60_000).toISOString(),
+    })
+    assert.ok(!error, `RPC call failed: ${error?.message}`)
+    assert.equal(
+      (data as { status: string }).status,
+      'client_mismatch',
+      `Expected client_mismatch for a null p_client_id, got ${JSON.stringify(data)}`
+    )
+
+    // The RPC's own doc comment promises a client_mismatch leaves the token intact
+    // ("token NOT consumed") — confirm that holds by redeeming it normally afterward.
+    const retryRes = await postToken({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.equal(retryRes.status, 200, 'The token should still be redeemable — a null p_client_id attempt must not consume it')
+  })
+})
+
+// ── AC-17: rotate_refresh_token rejects an anon-key caller outright ──
+//
+// AC-15 above proves the ownership-check fix using the service-role client, which the
+// migration deliberately keeps EXECUTE granted to — so it would stay green even if the
+// migration's `revoke ... from public, anon, authenticated` statements were dropped by a
+// future edit. This test uses a real anon-key Supabase client (a separate connection from
+// the service-role `supabase` used everywhere else in this file) to prove the RPC-level
+// lockdown itself: before this PR, an anon-key caller could invoke this function directly
+// via PostgREST with no client_secret at all.
+
+describe('AC-17: rotate_refresh_token rejects an anon-key caller', () => {
+  it('an anon-key RPC call gets a permission-denied error, not a status field', async () => {
+    const { data, error } = await supabaseAnon.rpc('rotate_refresh_token', {
+      p_token_hash: 'ac-17-anon-permission-check',
+      p_client_id: CLIENT_ID,
+      p_new_hash: 'ac-17-anon-permission-check-new',
+      p_new_expires: new Date(Date.now() + 60_000).toISOString(),
+    })
+    assert.equal(data, null, `Expected no data for a denied call, got ${JSON.stringify(data)}`)
+    assert.ok(error, 'Expected an error for an anon-key caller — the RPC should be unreachable without service-role access')
+    assert.equal(error!.code, '42501', `Expected Postgres permission-denied (42501), got ${JSON.stringify(error)}`)
   })
 })
