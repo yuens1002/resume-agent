@@ -119,10 +119,13 @@ If a specific private name is genuinely necessary to explain something (rare
 — usually a generic description works), stop and ask whether it belongs in
 this repo at all before writing it down.
 
-A CHANGELOG entry, GitHub issue, PR description, or code comment documenting
-a real, currently-unpatched security vulnerability in this repo must
-describe the vulnerability's mechanism and impact, never its reproduction
-steps. Exact request shapes, literal parameter values that only matter for
+This applies to any public artifact in this repo — the same list as the
+rule's opening paragraph above (docs, plans, ACs, GitHub issues, PR
+descriptions, issue/PR comments, and pull request review comments), not
+only a CHANGELOG entry or code comment. Documenting a real, currently-
+unpatched security vulnerability in any of these must describe the
+vulnerability's mechanism and impact, never its reproduction steps. Exact
+request shapes, literal parameter values that only matter for
 reproducing it, and step-by-step "how to do it right now" instructions are
 exactly what responsible disclosure practice withholds until a fix ships —
 publishing them turns an engineering record into a public exploit guide for
