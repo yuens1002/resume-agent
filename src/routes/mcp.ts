@@ -1,11 +1,9 @@
 import '../lib/env.js'
 import { createHash, randomUUID } from 'node:crypto'
-import { timingSafeEqual } from '../lib/crypto.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { jwtVerify } from 'jose'
 import { generateText, embed } from 'ai'
 import { openrouter } from '../lib/ai.js'
 import { supabase } from '../lib/supabase.js'
@@ -15,18 +13,13 @@ import { scoreMatch, scoreMatchWithProvenance, type MatchScoreProvenance } from 
 import { summarizeObservedQueries } from '../lib/summarize-observed-queries.js'
 import { buildThoughtMetadata, resolveThoughtUpdateOpts } from '../lib/thought-metadata.js'
 import { corsHeaders, checkOrigin } from '../lib/mcp-common.js'
+import { isOwnerRequest } from '../lib/mcp-auth.js'
 import { mergePublication } from '../lib/publications.js'
 import { registerJobPipelineFeed } from '../lib/job-pipeline-feed-tool.js'
 import { registerApplicationEvidenceSnapshotTools } from '../lib/application-evidence-snapshot-tool.js'
 import { APPLICATION_STAGES } from '../lib/application-evidence-snapshot.js'
 import { registerApplicationResumeArtifactTool } from '../lib/application-resume-artifact-tool.js'
 import type { Project, Publication } from '../types.js'
-
-const OPEN_BRAIN_KEY = process.env.OPEN_BRAIN_KEY
-const JWT_SECRET = process.env.JWT_SECRET
-const jwtSecretBytes = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null
-
-if (!OPEN_BRAIN_KEY) throw new Error('Missing OPEN_BRAIN_KEY')
 
 // upsert_publication input schema — hoisted to module scope (unlike
 // upsert_project's inline object literal) so it's a stable reference for
@@ -1323,26 +1316,12 @@ function buildServer(): McpServer {
 
 // ── Hono App ──────────────────────────────────────────────
 // CORS helpers (ALLOWED_ORIGINS, corsHeaders, checkOrigin) live in src/lib/mcp-common.ts
-// so the public-mcp route can reuse them without duplication.
+// so the public-mcp route can reuse them without duplication. Owner-credential
+// verification (x-brain-key / OAuth JWT) lives in src/lib/mcp-auth.ts so
+// index.ts's rate-limiter bypass can share the exact same check.
 
 async function authenticate(c: Context): Promise<boolean> {
-  const brainKey = c.req.header('x-brain-key')
-  if (brainKey && timingSafeEqual(brainKey, OPEN_BRAIN_KEY!)) return true
-
-  const authHeader = c.req.header('authorization') ?? ''
-  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (bearerToken && jwtSecretBytes) {
-    try {
-      const result = await jwtVerify(bearerToken, jwtSecretBytes, { algorithms: ['HS256'] })
-      if (process.env.DEBUG === 'true') {
-        console.log('[mcp] authenticate success', { sub: result.payload.sub, exp: result.payload.exp })
-      }
-      return true
-    } catch (err) {
-      console.log('[mcp] authenticate failure', { error: (err as Error).message })
-    }
-  }
-  return false
+  return isOwnerRequest(c)
 }
 
 function unauthorized(c: Context): Response {
