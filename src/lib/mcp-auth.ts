@@ -1,10 +1,10 @@
 /**
  * Owner-credential check for /mcp — shared by routes/mcp.ts's authenticate()
  * and index.ts's global rate-limiter bypass, so the two can't drift apart
- * the way they did before: index.ts recognized only the x-brain-key header
- * (fixed 2026-09-16) and, until this module, still missed the OAuth Client
- * Credentials JWT Bearer token that authenticate() has always accepted (the
- * claude.ai connector path) — see CHANGELOG.md's 2026-09-16 entries.
+ * the way they did before: index.ts originally recognized neither of
+ * authenticate()'s two credentials; #269 (2026-09-16) added x-brain-key, and
+ * until this module it still missed the OAuth JWT Bearer token — see
+ * CHANGELOG.md's 2026-09-16 entries for both.
  */
 import './env.js'
 import { jwtVerify } from 'jose'
@@ -19,9 +19,10 @@ if (!OPEN_BRAIN_KEY) throw new Error('Missing OPEN_BRAIN_KEY')
 
 /**
  * True when the request carries either of /mcp's two owner credentials: a
- * valid x-brain-key header, or a valid OAuth 2.0 Client Credentials HS256
- * JWT via `Authorization: Bearer <token>` (issued by /token's
- * client_credentials grant, routes/oauth.ts).
+ * valid x-brain-key header, or any HS256 JWT `Authorization: Bearer <token>`
+ * signed with JWT_SECRET — i.e. any access token /token (routes/oauth.ts)
+ * issues, regardless of which grant (client_credentials, refresh_token, or
+ * authorization_code) produced it.
  */
 export async function isOwnerRequest(c: Context): Promise<boolean> {
   const brainKey = c.req.header('x-brain-key')
@@ -37,7 +38,13 @@ export async function isOwnerRequest(c: Context): Promise<boolean> {
       }
       return true
     } catch (err) {
-      console.log('[mcp] authenticate failure', { error: (err as Error).message })
+      // This now runs on every route's rate-limiter check, not just /mcp
+      // (see index.ts), so an unconditional log here would fire for any
+      // request anywhere that happens to carry a bad Bearer value — gate it
+      // like the success log above instead of spamming production logs.
+      if (process.env.DEBUG === 'true') {
+        console.log('[mcp] authenticate failure', { error: (err as Error).message })
+      }
     }
   }
   return false

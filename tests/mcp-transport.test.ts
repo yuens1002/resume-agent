@@ -23,7 +23,9 @@
  *   MCP_URL             — defaults to http://localhost:3000/mcp
  *   OPEN_BRAIN_KEY      — the x-brain-key value (from .env.local)
  *   BASE_URL            — defaults to http://localhost:<PORT> (AC-11's /token call)
- *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector (AC-11)
+ *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector (AC-11); routes/oauth.ts
+ *                         treats this as a comma-separated allowlist, so AC-11 uses
+ *                         only the first entry as the actual client_id to authenticate as
  *   OAUTH_CLIENT_SECRET — required for AC-11's client_credentials grant
  *
  * Run (requires local server):
@@ -41,7 +43,10 @@ config({ path: '.env.local' })
 const MCP_URL = process.env.MCP_URL ?? `http://localhost:${process.env.PORT ?? 3000}/mcp`
 const MCP_KEY = process.env.OPEN_BRAIN_KEY
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
-const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
+// routes/oauth.ts's ALLOWED_CLIENT_IDS splits this on commas — use only the first
+// entry as the actual client_id, or a multi-client .env.local value fails with
+// invalid_client (the raw comma-joined string is never itself a member of that set).
+const OAUTH_CLIENT_ID = (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',')[0].trim()
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
 
 if (!MCP_KEY) throw new Error('OPEN_BRAIN_KEY must be set in .env.local')
@@ -292,18 +297,24 @@ describe('AC-10: valid x-brain-key bypasses the shared IP rate limit', () => {
 
 // ── AC-11: valid OAuth Client Credentials JWT bypasses the shared IP rate limit ──
 //
-// Same opt-in rationale as AC-10 (see above) — a WORKING bypass never touches
-// rateLimitMap, so it's gated only as insurance against a REGRESSED bypass
-// burning the shared 30-req/min-per-IP bucket for the rest of the process.
-// Enable with TEST_RATE_LIMIT=1.
+// Gated the same way as AC-10 (see above), but for a different reason: this
+// test's own /token client_credentials call carries no owner credential, so —
+// unlike AC-10, which is neither order-dependent nor destructive — it DOES
+// count one request against the shared 30-req/min-per-IP bucket every time it
+// runs. That makes AC-11 order-dependent on prior anonymous traffic in this
+// same process (including AC-5/AC-6's unauthenticated requests earlier in
+// this file, and a REGRESSED AC-10 immediately before it): a 429 from the
+// /token call below means the bucket was already near its limit, not that
+// this fix has a problem. Enable with TEST_RATE_LIMIT=1.
 //
 // This is the credential AC-10 didn't cover: authenticate() (routes/mcp.ts)
-// has always accepted an OAuth 2.0 Client Credentials HS256 JWT via
-// `Authorization: Bearer <token>` (the claude.ai connector path) as well as
-// x-brain-key, but until src/lib/mcp-auth.ts's isOwnerRequest() was shared
-// with index.ts's rate-limiter, only x-brain-key got the bypass — a client
-// authenticating via the JWT path still counted against the same anonymous
-// budget as unauthenticated traffic.
+// has always accepted any access token /token (routes/oauth.ts) issues —
+// including, but not limited to, the client_credentials grant used here — via
+// `Authorization: Bearer <token>`, as well as x-brain-key, but until
+// src/lib/mcp-auth.ts's isOwnerRequest() was shared with index.ts's
+// rate-limiter, only x-brain-key got the bypass — a client authenticating via
+// the JWT path still counted against the same anonymous budget as
+// unauthenticated traffic.
 
 describe('AC-11: valid OAuth Client Credentials JWT bypasses the shared IP rate limit', () => {
   const shouldRun = process.env.TEST_RATE_LIMIT === '1'
@@ -322,7 +333,13 @@ describe('AC-11: valid OAuth Client Credentials JWT bypasses the shared IP rate 
           client_secret: OAUTH_CLIENT_SECRET,
         }).toString(),
       })
-      const tokenBody = await tokenRes.json() as { access_token?: string }
+      const tokenText = await tokenRes.text()
+      let tokenBody: { access_token?: string }
+      try {
+        tokenBody = JSON.parse(tokenText) as { access_token?: string }
+      } catch {
+        assert.fail(`client_credentials grant returned non-JSON, got ${tokenRes.status}: ${tokenText.slice(0, 200)}`)
+      }
       assert.equal(tokenRes.status, 200, `client_credentials grant should succeed, got ${tokenRes.status}: ${JSON.stringify(tokenBody)}`)
       assert.ok(tokenBody.access_token, 'No access_token in client_credentials response')
 
