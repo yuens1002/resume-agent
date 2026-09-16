@@ -37,13 +37,30 @@ export function isBrainKeyRequest(c: Context): boolean {
   return Boolean(brainKey && timingSafeEqual(brainKey, OPEN_BRAIN_KEY!))
 }
 
+const MCP_JWT_CACHE_KEY = 'mcpJwtVerified'
+
 /**
  * True when the request carries any HS256 JWT `Authorization: Bearer
  * <token>` signed with JWT_SECRET — i.e. any access token /token
  * (routes/oauth.ts) issues, regardless of which grant (client_credentials,
  * refresh_token, or authorization_code) produced it.
+ *
+ * On /mcp, this runs twice per request — once in index.ts's rate-limiter
+ * middleware, once in authenticate() — so the result is cached on the
+ * request context (c.set/c.get) to avoid a second jwtVerify call and a
+ * duplicated DEBUG log for the same token within the same request. The
+ * cache never crosses requests; each gets its own Context.
  */
 export async function isMcpJwtRequest(c: Context): Promise<boolean> {
+  const cached = c.get(MCP_JWT_CACHE_KEY) as boolean | undefined
+  if (cached !== undefined) return cached
+
+  const result = await verifyMcpJwt(c)
+  c.set(MCP_JWT_CACHE_KEY, result)
+  return result
+}
+
+async function verifyMcpJwt(c: Context): Promise<boolean> {
   const authHeader = c.req.header('authorization') ?? ''
   const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!bearerToken || !jwtSecretBytes) return false
@@ -55,10 +72,6 @@ export async function isMcpJwtRequest(c: Context): Promise<boolean> {
     }
     return true
   } catch (err) {
-    // This runs on every /mcp request's rate-limiter check as well as
-    // authenticate() itself, so an unconditional log here would fire twice
-    // per rejected request — gate it like the success log above instead of
-    // spamming production logs.
     if (process.env.DEBUG === 'true') {
       console.log('[mcp] authenticate failure', { error: (err as Error).message })
     }
