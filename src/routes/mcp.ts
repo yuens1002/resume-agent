@@ -1179,7 +1179,7 @@ function buildServer(): McpServer {
       description:
         "Machine-consumption lookup over job_applications, minimal fields only (no notes/JD text/scores) — for a caller that needs to check or scan applications programmatically, not a human reading the result. Two modes, pick one: `companies` narrows to applications whose company loosely matches one of a known candidate list (a bounded existence check — 'do any of these already exist?'); `stages`/`days` fetches a roster to test an unknown signal against locally (a broad fetch — 'what's currently open, so I can match something else against it?'). list_applications is for a human/LLM browsing a few results and returns full records, capped at 100 for that reason; this tool exists because a machine caller doing either lookup at real volume needs more rows than that cap allows, and doesn't need the fields that made the cap necessary in the first place.",
       inputSchema: {
-        companies: z.array(z.string()).min(1).optional().describe(
+        companies: z.array(z.string()).min(1).max(100).optional().describe(
           'Existence-check mode: only return applications whose company loosely matches (case-insensitive substring) one of these names. Mutually exclusive with stages.'
         ),
         stages: z.array(z.enum(STAGES)).min(1).optional().describe(
@@ -1204,18 +1204,35 @@ function buildServer(): McpServer {
           }
         }
 
+        const effectiveLimit = limit ?? 200
         let q = supabase
           .from('job_applications')
           .select('id, company, role, stage, applied_at')
           .order('applied_at', { ascending: false })
-          .limit(limit ?? 200)
+          .limit(effectiveLimit + 1) // +1 so an exact-limit result set is distinguishable from a truncated one
 
         if (companies?.length) {
-          // Same sanitization as search_applications' own .or() filter below —
-          // PostgREST's or-filter grammar uses ",()" as structural characters
-          // and "%" as the ilike wildcard, so an unsanitized company name
-          // could inject an extra condition or manipulate the match pattern.
-          q = q.or(companies.map(c => `company.ilike.%${c.replace(/[%'"(),]/g, ' ').trim()}%`).join(','))
+          // PostgREST's or-filter grammar treats "," and ")" as structural and
+          // "%" as the ilike wildcard; "*" is also translated to "%" server-side
+          // (PostgREST's own URL-friendly wildcard alias) even though it isn't
+          // structural to the or-filter grammar itself. All five are neutralized
+          // — replaced with "_" (ILIKE's own single-char wildcard) rather than a
+          // space, so a real punctuated company name (e.g. "Yoh, A Day & Zimmermann
+          // Company") still matches its own stored form instead of silently
+          // failing to, which would be exactly the fail-open bug this tool exists
+          // to close. Candidates that sanitize to nothing (all-structural input,
+          // or whitespace) are dropped entirely rather than left to become an
+          // unintended "%%"-style match-everything pattern.
+          const patterns = companies
+            .map(c => c.replace(/[%'"(),*]/g, '_').trim())
+            .filter(c => c.replace(/_/g, '').trim().length > 0)
+          if (!patterns.length) {
+            return {
+              content: [{ type: 'text' as const, text: 'Error: every `companies` entry was empty after sanitizing structural characters — nothing left to search for.' }],
+              isError: true,
+            }
+          }
+          q = q.or(patterns.map(p => `company.ilike.%${p}%`).join(','))
         }
         if (stages?.length) {
           q = q.in('stage', stages)
@@ -1229,11 +1246,11 @@ function buildServer(): McpServer {
         const { data, error } = await q
         if (error) return { content: [{ type: 'text' as const, text: `Error: ${error.message}` }], isError: true }
         if (!data || !data.length) return { content: [{ type: 'text' as const, text: 'No applications found.' }] }
-        if (data.length >= (limit ?? 200)) {
+        if (data.length > effectiveLimit) {
           return {
             content: [{
               type: 'text' as const,
-              text: `Error: returned ${data.length} records, at or over the ${limit ?? 200}-record limit — the result may be truncated and this tool has no pagination cursor to fetch the rest. Narrow the query (a tighter \`days\` bound, or fewer \`stages\`/\`companies\`).`,
+              text: `Error: more than ${effectiveLimit} records match — the result is truncated and this tool has no pagination cursor to fetch the rest. Narrow the query (a tighter \`days\` bound, or fewer \`stages\`/\`companies\`).`,
             }],
             isError: true,
           }

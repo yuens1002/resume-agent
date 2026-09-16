@@ -504,17 +504,23 @@ describe("Job Hunt Pipeline", () => {
     const result = await callTool("check_applications", {
       companies: [TEST_COMPANY],
     });
+    assert.ok(!result.isError, getText(result));
     const text = getText(result);
     assert.match(text, new RegExp(TEST_COMPANY));
     assert.match(text, new RegExp(applicationId));
   });
 
-  it("check_applications — companies mode with an unrelated candidate list does not match", async () => {
+  it("check_applications — companies mode with an unrelated candidate list finds nothing", async () => {
     const result = await callTool("check_applications", {
       companies: [`${TEST_COMPANY}_definitely_not_a_real_suffix_xyz`],
     });
-    const text = getText(result);
-    assert.doesNotMatch(text, new RegExp(applicationId), "An unrelated candidate must not match this application");
+    // The deterministic-unmatch candidate embeds Date.now() and a suffix no
+    // stored company can contain, so this can assert the exact "no results"
+    // text and a clean (non-error) response — not just "the ID is absent",
+    // which would also pass on an unrelated error path (e.g. the truncation
+    // guard) for the wrong reason.
+    assert.ok(!result.isError, getText(result));
+    assert.equal(getText(result), "No applications found.");
   });
 
   it("check_applications — stages mode (roster fetch) finds the application by its current stage", async () => {
@@ -523,6 +529,7 @@ describe("Job Hunt Pipeline", () => {
       stages: ["phone_screen"],
       days: 1,
     });
+    assert.ok(!result.isError, getText(result));
     const text = getText(result);
     assert.match(text, new RegExp(TEST_COMPANY));
     assert.match(text, new RegExp(applicationId));
@@ -533,14 +540,41 @@ describe("Job Hunt Pipeline", () => {
       stages: ["offer"],
       days: 1,
     });
-    const text = getText(result);
-    assert.doesNotMatch(text, new RegExp(applicationId), "phone_screen application must not appear in an offer-stage-only fetch");
+    // Same reasoning as the companies-mode negative test above: assert the
+    // response is a clean non-error result, not just "no ID match" (which a
+    // truncation error on a large offer-stage backlog would also satisfy).
+    assert.ok(!result.isError, getText(result));
+    assert.doesNotMatch(getText(result), new RegExp(applicationId), "phone_screen application must not appear in an offer-stage-only fetch");
+  });
+
+  it("check_applications — days bound excludes an application outside the window", async () => {
+    // Directly backdate applied_at so this exercises the actual gte() filter
+    // rather than relying on "the test ran fast enough" — days:1 alone (the
+    // positive stages-mode test above) can't distinguish a working day-bound
+    // from one that was silently dropped, since everything in this file runs
+    // well inside a single day.
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+    await supabase.from("job_applications").update({ applied_at: tenDaysAgo }).eq("id", applicationId);
+
+    try {
+      const result = await callTool("check_applications", { stages: ["phone_screen"], days: 1 });
+      assert.ok(!result.isError, getText(result));
+      assert.equal(getText(result), "No applications found.", "a 10-day-old application must not appear in a days:1 window");
+
+      const widerResult = await callTool("check_applications", { stages: ["phone_screen"], days: 30 });
+      assert.ok(!widerResult.isError, getText(widerResult));
+      assert.match(getText(widerResult), new RegExp(applicationId), "the same application must reappear once the window is wide enough");
+    } finally {
+      await supabase.from("job_applications").update({ applied_at: new Date().toISOString() }).eq("id", applicationId);
+    }
   });
 
   it("check_applications — refuses when neither companies nor stages is given (no unfiltered scan)", async () => {
     const result = await callTool("check_applications", {});
-    const text = getText(result);
-    assert.match(text, /provide either `companies`.*or `stages`/);
+    assert.equal(result.isError, true, "must take the refusal path, not just happen to mention the right words");
+    assert.match(getText(result), /provide either `companies`.*or `stages`/);
   });
 
   it("check_applications — refuses when both companies and stages are given (modes are mutually exclusive)", async () => {
@@ -548,20 +582,35 @@ describe("Job Hunt Pipeline", () => {
       companies: [TEST_COMPANY],
       stages: ["phone_screen"],
     });
-    const text = getText(result);
-    assert.match(text, /mutually exclusive/);
+    assert.equal(result.isError, true, "must take the refusal path, not just happen to mention the right words");
+    assert.match(getText(result), /mutually exclusive/);
   });
 
   it("check_applications — returns minimal fields only, not notes/JD text (the actual point of this tool)", async () => {
-    const result = await callTool("check_applications", {
-      companies: [TEST_COMPANY],
-    });
+    // log_application originally stored notes "Automated test run" for this
+    // application, but the set_follow_up test above overwrote it to "Check in
+    // on next steps" — assert against that CURRENT value, read live, rather
+    // than a stale literal that would make this assertion pass regardless of
+    // whether the tool actually excludes notes.
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const { data: row } = await supabase.from("job_applications").select("notes").eq("id", applicationId).single();
+    assert.ok(row?.notes, "test fixture must have a non-empty notes value for this assertion to mean anything");
+    const notesPattern = new RegExp(row!.notes.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+    // Positive control: list_applications (the browsing-shaped tool) DOES
+    // surface notes for the same row — proves the contrast this test claims,
+    // rather than asserting an absence that might hold for an unrelated reason.
+    const listResult = await callTool("list_applications", { company: TEST_COMPANY, limit: 5 });
+    assert.match(getText(listResult), notesPattern, "list_applications should include notes — sanity check for the contrast below");
+
+    const result = await callTool("check_applications", { companies: [TEST_COMPANY] });
+    assert.ok(!result.isError, getText(result));
     const text = getText(result);
-    // "Automated test run" is the notes string log_application stored for
-    // this application (see the first it() in this file) — list_applications
-    // and get_application both surface it; this tool must not, since a
-    // minimal per-record payload is the whole reason it can safely return
-    // more rows than list_applications' 100-record cap allows.
-    assert.doesNotMatch(text, /Automated test run/, "check_applications must not include notes — that's the payload bloat this tool exists to avoid");
+    assert.doesNotMatch(text, notesPattern, "check_applications must not include notes — that's the payload bloat this tool exists to avoid");
+    // Pin the minimal line shape itself, so a field added to the SELECT/format
+    // later would fail this test even if it didn't happen to collide with the
+    // specific notes value above.
+    assert.match(text, /^1 application\(s\):\n\n• \[\d{1,2}\/\d{1,2}\/\d{4}\] .+ — .+ \| \w+\n {2}ID: [0-9a-f-]{36}$/);
   });
 });
