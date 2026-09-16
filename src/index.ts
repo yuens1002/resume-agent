@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { timingSafeEqual } from './lib/crypto.js'
-import { isOwnerRequest } from './lib/mcp-auth.js'
+import { isBrainKeyRequest, isMcpJwtRequest, isMcpPath } from './lib/mcp-auth.js'
 
 import infoRoute from './routes/info.js'
 import availabilityRoute from './routes/availability.js'
@@ -59,12 +59,19 @@ app.use('*', async (c, next) => {
   const apiKey = process.env.API_KEY
   if (match && apiKey && timingSafeEqual(match[1], apiKey)) return next()
 
-  // Owner bypass — /mcp's own owner credentials (x-brain-key or an OAuth
-  // Client Credentials JWT Bearer token) get the same exemption as the
-  // API_KEY check above, via the same check routes/mcp.ts's authenticate()
-  // uses — see src/lib/mcp-auth.ts and CHANGELOG.md's 2026-09-16 entries
-  // for the incidents this fixed.
-  if (await isOwnerRequest(c)) return next()
+  // Owner bypass — x-brain-key is a real secret (like API_KEY above), so it
+  // exempts every route, matching #269's existing scope.
+  if (isBrainKeyRequest(c)) return next()
+
+  // Owner bypass — an OAuth JWT (routes/mcp.ts's authenticate() has always
+  // accepted this as a /mcp credential) is scoped to /mcp only, not every
+  // route: unlike x-brain-key/API_KEY, a JWT from the authorization_code or
+  // refresh_token grant proves less (routes/oauth.ts's /authorize issues a
+  // code to any caller who supplies the public default client_id, no secret
+  // required — tracked separately as #273). Exempting it site-wide would
+  // extend that pre-existing gap's reach beyond /mcp. See src/lib/mcp-auth.ts
+  // and CHANGELOG.md's 2026-09-16 entries.
+  if (isMcpPath(c.req.path) && (await isMcpJwtRequest(c))) return next()
 
   const ip = getClientIp(c)
   const now = Date.now()

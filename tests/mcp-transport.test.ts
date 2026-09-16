@@ -17,21 +17,22 @@
  *   AC-8  Disallowed browser Origin → 403
  *   AC-9  OPTIONS preflight → 200 with CORS headers (no auth required)
  *   AC-10 Valid x-brain-key bypasses the shared IP rate limit (opt-in, see below)
- *   AC-11 Valid OAuth Client Credentials JWT bypasses the shared IP rate limit (opt-in, see below)
+ *   AC-11 Valid OAuth Client Credentials JWT bypasses the shared IP rate limit on /mcp (opt-in, see below)
+ *   AC-12 That same JWT does NOT bypass the rate limit outside /mcp (opt-in, see below)
  *
  * Requirements:
  *   MCP_URL             — defaults to http://localhost:3000/mcp
  *   OPEN_BRAIN_KEY      — the x-brain-key value (from .env.local)
- *   BASE_URL            — defaults to http://localhost:<PORT> (AC-11's /token call)
- *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector (AC-11); routes/oauth.ts
- *                         treats this as a comma-separated allowlist, so AC-11 uses
+ *   BASE_URL            — defaults to http://localhost:<PORT> (AC-11/AC-12's /token call)
+ *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector (AC-11/AC-12); routes/oauth.ts
+ *                         treats this as a comma-separated allowlist, so these tests use
  *                         only the first entry as the actual client_id to authenticate as
- *   OAUTH_CLIENT_SECRET — required for AC-11's client_credentials grant
+ *   OAUTH_CLIENT_SECRET — required for AC-11/AC-12's client_credentials grant
  *
  * Run (requires local server):
  *   npm run test:transport
  *
- * AC-10 and AC-11 also require TEST_RATE_LIMIT=1 to run — see those tests for why.
+ * AC-10, AC-11, and AC-12 also require TEST_RATE_LIMIT=1 to run — see those tests for why.
  */
 
 import { describe, it } from 'node:test'
@@ -91,6 +92,31 @@ function parseMcpBody(text: string): unknown {
     throw new Error(`No parseable data in SSE: ${text.slice(0, 200)}`)
   }
   return JSON.parse(text)
+}
+
+/** POST /token's client_credentials grant — shared by AC-11 and AC-12, which both need a real access token. */
+async function fetchClientCredentialsToken(acLabel: string): Promise<string> {
+  if (!OAUTH_CLIENT_SECRET) throw new Error(`OAUTH_CLIENT_SECRET must be set in .env.local to run ${acLabel}`)
+
+  const tokenRes = await fetch(`${BASE_URL}/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: OAUTH_CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+    }).toString(),
+  })
+  const tokenText = await tokenRes.text()
+  let tokenBody: { access_token?: string }
+  try {
+    tokenBody = JSON.parse(tokenText) as { access_token?: string }
+  } catch {
+    assert.fail(`client_credentials grant returned non-JSON, got ${tokenRes.status}: ${tokenText.slice(0, 200)}`)
+  }
+  assert.equal(tokenRes.status, 200, `client_credentials grant should succeed, got ${tokenRes.status}: ${JSON.stringify(tokenBody)}`)
+  assert.ok(tokenBody.access_token, 'No access_token in client_credentials response')
+  return tokenBody.access_token
 }
 
 // ── AC-1: No session ID issued ────────────────────────────
@@ -322,29 +348,10 @@ describe('AC-11: valid OAuth Client Credentials JWT bypasses the shared IP rate 
   runner(
     '32 authenticated requests all succeed — run with TEST_RATE_LIMIT=1',
     async () => {
-      if (!OAUTH_CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set in .env.local to run AC-11')
-
-      const tokenRes = await fetch(`${BASE_URL}/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: OAUTH_CLIENT_ID,
-          client_secret: OAUTH_CLIENT_SECRET,
-        }).toString(),
-      })
-      const tokenText = await tokenRes.text()
-      let tokenBody: { access_token?: string }
-      try {
-        tokenBody = JSON.parse(tokenText) as { access_token?: string }
-      } catch {
-        assert.fail(`client_credentials grant returned non-JSON, got ${tokenRes.status}: ${tokenText.slice(0, 200)}`)
-      }
-      assert.equal(tokenRes.status, 200, `client_credentials grant should succeed, got ${tokenRes.status}: ${JSON.stringify(tokenBody)}`)
-      assert.ok(tokenBody.access_token, 'No access_token in client_credentials response')
+      const accessToken = await fetchClientCredentialsToken('AC-11')
 
       for (let i = 0; i < 32; i++) {
-        const res = await mcpPost({ token: tokenBody.access_token })
+        const res = await mcpPost({ token: accessToken })
         // Assert 2xx first, not just "not 429" — same reasoning as AC-10: a
         // 5xx would otherwise read as "bypassed" since it isn't 429 either.
         assert.ok(res.ok, `Request ${i + 1}/32 with a valid OAuth JWT should succeed, got ${res.status}`)
@@ -354,6 +361,67 @@ describe('AC-11: valid OAuth Client Credentials JWT bypasses the shared IP rate 
         )
       }
       console.warn('AC-11: OAuth Client Credentials JWT bypass verified across 32 requests.')
+    },
+  )
+})
+
+// ── AC-12: a valid OAuth JWT does NOT bypass the rate limit outside /mcp ──
+//
+// The JWT bypass (index.ts) is deliberately scoped to /mcp only, unlike
+// x-brain-key's site-wide bypass — an authorization_code/refresh_token JWT
+// proves less than x-brain-key does, since /authorize issues a code to any
+// caller who supplies the public default client_id, no secret required
+// (tracked separately as #273). This test proves the scoping actually
+// holds: a client_credentials JWT of the same kind AC-11 proves is honored
+// on /mcp must NOT also bypass the limit on an unrelated route. Deliberately
+// exhausts the shared bucket like public-mcp-transport.test.ts's AC-8 —
+// gated behind TEST_RATE_LIMIT=1 and order-dependent/destructive for the
+// same reason. A miss here can also mean the 60s window rolled over
+// mid-loop (its own request count resets the count to 1, pushing 429
+// out of reach within 32 requests) rather than that the scoping fix
+// leaked — same false-positive mode AC-11's own comment calls out for its
+// own bucket dependency.
+
+describe('AC-12: valid OAuth JWT does not bypass the rate limit outside /mcp', () => {
+  const shouldRun = process.env.TEST_RATE_LIMIT === '1'
+  const runner = shouldRun ? it : it.skip
+  runner(
+    'returns 429 within 32 requests to a non-/mcp route — run with TEST_RATE_LIMIT=1',
+    async () => {
+      const accessToken = await fetchClientCredentialsToken('AC-12')
+
+      // Prove this token IS a live owner credential — bypassed on /mcp,
+      // consumes nothing from the bucket — before proving the limiter
+      // declines to honor it on /info. Without this, a broken JWT check
+      // (recognized nowhere, not just leaked everywhere) would also read
+      // as "scoping verified" below: both failure modes produce the same
+      // 429-on-/info outcome, and only this call tells them apart.
+      const mcpRes = await mcpPost({ token: accessToken })
+      assert.ok(mcpRes.ok, `Same token should bypass the limit on /mcp per AC-11, got ${mcpRes.status}`)
+
+      let lastStatus = 0
+      let lastBody: { error?: string } = {}
+      for (let i = 0; i < 32; i++) {
+        const res = await fetch(`${BASE_URL}/info`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+        lastStatus = res.status
+        if (lastStatus === 429) {
+          lastBody = await res.json().catch(() => ({}))
+          break
+        }
+      }
+      assert.equal(
+        lastStatus,
+        429,
+        `Expected 429 within 32 requests to /info with a valid-but-scoped-to-/mcp JWT, got ${lastStatus} (JWT bypass leaked outside /mcp, or the 60s window rolled over mid-loop — see comment above)`,
+      )
+      assert.equal(
+        lastBody.error,
+        'Rate limit exceeded. Try again in a minute.',
+        `429 body should match index.ts's own rate-limit error, got ${JSON.stringify(lastBody)} (confirms this 429 is the IP limiter's, not some other route-level 429)`,
+      )
+      console.warn('AC-12: JWT scoping to /mcp verified. Shared bucket is now exhausted for ~60s.')
     },
   )
 })
