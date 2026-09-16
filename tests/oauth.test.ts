@@ -14,7 +14,9 @@
  *   AC-6  client_id mismatch on refresh → 400 invalid_grant
  *   AC-7  access_token from refresh is valid JWT with correct sub
  *   AC-8  replaying a used refresh_token revokes all tokens for that client (reuse detection)
- *   AC-9  a non-string client_secret in a JSON body never crashes /token (400/401, not 500) — client_credentials, authorization_code, and refresh_token
+ *   AC-9  a non-string client_secret, refresh_token, or client_id in a JSON body never
+ *         crashes /token (400/401, not 500) — client_credentials, authorization_code, and
+ *         refresh_token
  *   AC-10 authorization_code grant with no client_secret → 401 invalid_client (closes #273)
  *   AC-11 authorization_code grant with the wrong client_secret → 401 invalid_client
  *   AC-12 refresh_token grant with no client_secret → 401 invalid_client (closes #277)
@@ -318,16 +320,19 @@ describe('authorization_code grant', () => {
   })
 })
 
-// ── AC-9: a non-string client_secret in a JSON body never crashes /token ──
+// ── AC-9: a non-string client_secret, refresh_token, or client_id in a JSON body never
+//         crashes /token ──
 //
 // The form-urlencoded path's `.toString()` calls make every field a string
 // by construction, so only a JSON body can carry a non-string value like a
-// number. Before client_secret was normalized once at parse time, any of the
-// three grant branches below passed it straight into timingSafeEqual's
-// crypto.createHash, which throws on a non-string and turns the request
-// into a 500 instead of the ordinary 400/401 a malformed request should get.
+// number or object. Before these fields were normalized once at parse time,
+// any of them could reach crypto.createHash unguarded (via timingSafeEqual
+// for client_secret, or the refresh_token branch's own hashing for
+// refresh_token/client_id), which throws on a non-string and turns the
+// request into a 500 instead of the ordinary 400/401 a malformed request
+// should get.
 
-describe('AC-9: non-string client_secret does not crash /token', () => {
+describe('AC-9: non-string client_secret/refresh_token/client_id does not crash /token', () => {
   it('client_credentials grant returns 400, not 500', async () => {
     const res = await postTokenJSON({
       grant_type: 'client_credentials',
@@ -371,6 +376,24 @@ describe('AC-9: non-string client_secret does not crash /token', () => {
     assert.equal(res.status, 401)
     const body = await res.json() as { error: string }
     assert.equal(body.error, 'invalid_client')
+  })
+
+  it('refresh_token grant with a non-string refresh_token/client_id returns 400, not 500', async () => {
+    // With a valid client_secret, the request reaches the refresh_token/client_id presence
+    // check — a Copilot review comment on PR #279 caught that a truthy non-string value here
+    // (an object or array survives `!refresh_token`/`!client_id`) reached
+    // crypto.createHash(...).update(refresh_token) unguarded and threw a 500, the same bug
+    // class client_secret already had before this describe block's other cases were added.
+    const res = await postTokenJSON({
+      grant_type: 'refresh_token',
+      refresh_token: { not: 'a string' },
+      client_id: ['not', 'a', 'string'],
+      client_secret: OAUTH_CLIENT_SECRET,
+    })
+    assert.notEqual(res.status, 500, 'a non-string refresh_token/client_id should not crash the request')
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_request')
   })
 })
 

@@ -189,11 +189,15 @@ oauth.post('/token', async (c) => {
   }
 
   // A JSON body's fields are unvalidated `any`, unlike the form-urlencoded
-  // path's `.toString()` calls above — client_secret is the one field both
-  // grant branches below pass into timingSafeEqual's crypto.createHash,
-  // which throws on a non-string. Normalize once here so neither branch
-  // needs its own guard.
+  // path's `.toString()` calls above. client_secret, client_id, and
+  // refresh_token are all eventually passed into crypto.createHash (via
+  // timingSafeEqual or the refresh_token branch's own hashing), which throws
+  // on a non-string — a truthy object/array would otherwise turn a 400/401
+  // into an unhandled 500 on this unauthenticated endpoint. Normalize once
+  // here so no branch below needs its own guard.
   if (typeof client_secret !== 'string' || client_secret.length === 0) client_secret = undefined
+  if (typeof client_id !== 'string' || client_id.length === 0) client_id = undefined
+  if (typeof refresh_token !== 'string' || refresh_token.length === 0) refresh_token = undefined
 
   const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
 
