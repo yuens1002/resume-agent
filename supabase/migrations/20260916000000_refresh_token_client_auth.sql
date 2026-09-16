@@ -5,6 +5,28 @@
 -- application layer, client_secret) unconditionally, but this closes the
 -- same gap at the RPC layer too, as defense in depth against any future
 -- caller that doesn't go through the /token handler.
+--
+-- Internal review on this migration surfaced a second, unrelated gap in the
+-- same function, pre-dating #277 entirely: unlike every other security
+-- definer RPC in this repo (see confirm_application_submission,
+-- get_job_pipeline_feed, create_application_evidence_snapshot, etc., each of
+-- which explicitly revokes execute from public/anon/authenticated), this
+-- function never had that lockdown applied since its own creation. Postgres
+-- grants EXECUTE on a new function to PUBLIC by default, and `create or
+-- replace function` preserves whatever ACL a function already has — so it
+-- stayed callable via PostgREST's anon-key RPC endpoint the entire time,
+-- letting anyone holding a stolen raw refresh_token rotate it with no
+-- client_secret at all, bypassing this same PR's application-layer fix
+-- entirely for that attack path. Confirmed live: an anon-key POST to
+-- rotate_refresh_token with a non-existent token hash returned 200
+-- {"status":"not_found"} rather than a permission error, proving the
+-- function was reachable pre-fix. Closed below by matching this repo's own
+-- established convention. Also added the same `for update` row lock every
+-- other rotate/consume-style RPC in this repo already takes (see
+-- confirm_application_submission, record_application_outcome_check) — its
+-- absence here meant two concurrent redemptions of the same not-yet-consumed
+-- token could both pass every check and both write a new row, since a bare
+-- `select` takes no lock under READ COMMITTED.
 
 create or replace function rotate_refresh_token(
   p_token_hash  text,
@@ -15,13 +37,15 @@ create or replace function rotate_refresh_token(
 returns json
 language plpgsql
 security definer
+set search_path = pg_catalog, public
 as $$
 declare
   v_row oauth_refresh_tokens%rowtype;
 begin
   select * into v_row
     from oauth_refresh_tokens
-   where token_hash = p_token_hash;
+   where token_hash = p_token_hash
+     for update;
 
   if not found then
     return json_build_object('status', 'not_found');
@@ -59,3 +83,7 @@ begin
   return json_build_object('status', 'rotated', 'client_id', v_row.client_id);
 end;
 $$;
+
+revoke all on function public.rotate_refresh_token(text, text, text, timestamptz) from public;
+revoke all on function public.rotate_refresh_token(text, text, text, timestamptz) from anon, authenticated;
+grant execute on function public.rotate_refresh_token(text, text, text, timestamptz) to service_role;
