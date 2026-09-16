@@ -7,8 +7,11 @@
  *   - checkOrigin(c)   — returns a 403 Response if the Origin header is
  *                        present and not on the allowlist; null otherwise
  *
- * Auth logic (authenticate/unauthorized) stays in src/routes/mcp.ts because
- * it is specific to the private tool surface.
+ * authenticate()/unauthorized() stay in src/routes/mcp.ts because they are
+ * specific to the private tool surface (the public route has no auth). The
+ * owner-credential check itself (x-brain-key / OAuth JWT) is shared more
+ * broadly — see src/lib/mcp-auth.ts, which authenticate() and index.ts's
+ * rate-limiter bypass both call.
  */
 
 import type { Context } from 'hono'
