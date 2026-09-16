@@ -10,6 +10,7 @@
  *   AC-6  client_id mismatch on refresh → 400 invalid_grant
  *   AC-7  access_token from refresh is valid JWT with correct sub
  *   AC-8  replaying a used refresh_token revokes all tokens for that client (reuse detection)
+ *   AC-9  a non-string client_secret in a JSON body never crashes /token (400, not 500) — client_credentials and authorization_code
  *
  * Requirements (in .env.local):
  *   BASE_URL        — defaults to http://localhost:<PORT>
@@ -72,6 +73,16 @@ async function postToken(params: Record<string, string>): Promise<Response> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params).toString(),
+  })
+}
+
+/** POST /token as application/json — the form-urlencoded path's .toString() calls make it
+ *  impossible to send a non-string field, so AC-9 needs this to reach the JSON-body branch. */
+async function postTokenJSON(body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${BASE_URL}/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 
@@ -196,5 +207,42 @@ describe('authorization_code grant', () => {
       const body = await res.json() as { error: string }
       assert.equal(body.error, 'invalid_grant')
     })
+  })
+})
+
+// ── AC-9: a non-string client_secret in a JSON body never crashes /token ──
+//
+// The form-urlencoded path's `.toString()` calls make every field a string
+// by construction, so only a JSON body can carry a non-string value like a
+// number. Before client_secret was normalized once at parse time, either
+// grant branch below passed it straight into timingSafeEqual's
+// crypto.createHash, which throws on a non-string and turns the request
+// into a 500 instead of the ordinary 400/401 a malformed request should get.
+
+describe('AC-9: non-string client_secret does not crash /token', () => {
+  it('client_credentials grant returns 400, not 500', async () => {
+    const res = await postTokenJSON({
+      grant_type: 'client_credentials',
+      client_id: CLIENT_ID,
+      client_secret: 123,
+    })
+    assert.notEqual(res.status, 500, 'client_secret: 123 should not crash the request')
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_request')
+  })
+
+  it('authorization_code grant returns 400, not 500', async () => {
+    const res = await postTokenJSON({
+      grant_type: 'authorization_code',
+      code: 'nonexistent-code',
+      code_verifier: 'whatever',
+      client_id: CLIENT_ID,
+      client_secret: 123,
+    })
+    assert.notEqual(res.status, 500, 'client_secret: 123 should not crash the request')
+    assert.equal(res.status, 400)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_grant')
   })
 })
