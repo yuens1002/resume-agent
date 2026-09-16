@@ -119,6 +119,29 @@ If a specific private name is genuinely necessary to explain something (rare
 — usually a generic description works), stop and ask whether it belongs in
 this repo at all before writing it down.
 
+This applies to any public artifact in this repo — the same list as the
+rule's opening paragraph above (docs, plans, ACs, GitHub issues, PR
+descriptions, issue/PR comments, and pull request review comments), not
+only a CHANGELOG entry or code comment. Documenting a real, currently-
+unpatched security vulnerability in any of these must describe the
+vulnerability's mechanism and impact, never its reproduction steps. Exact
+request shapes, literal parameter values that only matter for
+reproducing it, and step-by-step "how to do it right now" instructions are
+exactly what responsible disclosure practice withholds until a fix ships —
+publishing them turns an engineering record into a public exploit guide for
+anyone (including automated scanners) who finds this repo before the fix
+lands.
+
+| Instead of | Write |
+| --- | --- |
+| exact literal parameter values needed only to reproduce an open exploit (a specific ID, URL, or header) | a description of the mechanism, with the values omitted |
+| a step-by-step reproduction (curl/fetch commands, exact request sequence) | "confirmed via a private, local reproduction — ask the maintainer for details if triaging" |
+
+Once a fix ships and merges in the same change, that CHANGELOG entry may
+describe the mechanism in more depth — report and fix land together, so
+there is no window left to protect. The risk this rule guards is the gap
+between disclosure and patch, not disclosure itself.
+
 **This rule is the actual enforcement mechanism — read and follow it, don't
 rely on tooling to catch a violation.** The maintainer's own local Claude
 Code setup additionally runs a `PreToolUse` hook (outside this repo, in
