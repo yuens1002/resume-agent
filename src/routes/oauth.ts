@@ -166,6 +166,13 @@ oauth.post('/token', async (c) => {
     refresh_token = body.refresh_token
   }
 
+  // A JSON body's fields are unvalidated `any`, unlike the form-urlencoded
+  // path's `.toString()` calls above — client_secret is the one field both
+  // grant branches below pass into timingSafeEqual's crypto.createHash,
+  // which throws on a non-string. Normalize once here so neither branch
+  // needs its own guard.
+  if (typeof client_secret !== 'string' || client_secret.length === 0) client_secret = undefined
+
   const noCacheHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache' } as const
 
   if (grant_type === 'client_credentials') {
@@ -258,17 +265,13 @@ oauth.post('/token', async (c) => {
   // requirement here (which would break real traffic if the live claude.ai
   // connector doesn't actually send one), log presence/match — never the
   // secret's own value — on every real attempt to confirm it's safe first.
-  // Remove this block once #273's real fix lands.
-  // A JSON body's client_secret is unvalidated — a non-string truthy value
-  // (a number, object, array) would otherwise reach timingSafeEqual's
-  // crypto.createHash and throw, turning what should still be an ordinary
-  // 400 further down into a 500. Guard with typeof so this log can never
-  // change the response this endpoint returns.
-  const stringSecret = typeof client_secret === 'string' && client_secret.length > 0 ? client_secret : undefined
+  // Remove this block once #273's real fix lands. (client_secret is already
+  // normalized to string|undefined above, so this can't throw on a
+  // malformed JSON value the way an unguarded call would.)
   console.log('[oauth] authz-code client_secret observability', {
     client_id,
-    client_secret_present: Boolean(stringSecret),
-    client_secret_matches: Boolean(stringSecret && OAUTH_CLIENT_SECRET && timingSafeEqual(stringSecret, OAUTH_CLIENT_SECRET)),
+    client_secret_present: Boolean(client_secret),
+    client_secret_matches: Boolean(client_secret && OAUTH_CLIENT_SECRET && timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)),
   })
 
   if (!code || !code_verifier || !client_id) {
