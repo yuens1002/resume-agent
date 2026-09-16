@@ -41,29 +41,20 @@ const ALLOWED_CLIENT_IDS = new Set(
   (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
 )
 
+// Load-bearing for both client_credentials and, as of #273's fix, authorization_code —
+// fail fast at startup (matching JWT_SECRET above) rather than silently 401ing every
+// claude.ai reconnect with no server-side signal if this is ever unset or blank. Only
+// the blank-value guard trims — the stored/compared value stays opaque, since trimming
+// it would reject a real secret that happens to contain intentional leading/trailing
+// whitespace (a client sending the untrimmed value would then never match).
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? ''
+if (!OAUTH_CLIENT_SECRET.trim()) throw new Error('Missing OAUTH_CLIENT_SECRET')
 
 function timingSafeEqual(a: string, b: string): boolean {
   // Compare fixed-length digests to avoid length-based timing differences
   const aDigest = crypto.createHash('sha256').update(a).digest()
   const bDigest = crypto.createHash('sha256').update(b).digest()
   return crypto.timingSafeEqual(aDigest, bDigest)
-}
-
-/**
- * TEMPORARY, for issue #273 (see the call site in the authorization_code
- * handler) — pulled out as a pure function so the actual behavior (what
- * counts as present/matching) is unit-testable independent of console.log,
- * which a test can't assert against directly.
- */
-export function computeAuthzCodeSecretObservability(clientSecret: string | undefined): {
-  client_secret_present: boolean
-  client_secret_matches: boolean
-} {
-  return {
-    client_secret_present: Boolean(clientSecret),
-    client_secret_matches: Boolean(clientSecret && OAUTH_CLIENT_SECRET && timingSafeEqual(clientSecret, OAUTH_CLIENT_SECRET)),
-  }
 }
 
 const ALLOWED_REDIRECT_URIS = new Set([
@@ -104,6 +95,10 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
+    // 'none' stays here — authorization_code and client_credentials both now require
+    // client_secret_post (#273's fix), but a refresh_token grant REQUEST still needs no
+    // client authentication of its own (tracked separately as #277); removing 'none'
+    // would misdescribe that grant's actual, still-unauthenticated request shape.
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
   })
 })
@@ -274,15 +269,18 @@ oauth.post('/token', async (c) => {
     return c.json({ error: 'unsupported_grant_type' }, 400)
   }
 
-  // TEMPORARY observability for issue #273 — the authorization_code grant
-  // has never required client_secret (unlike client_credentials, which does
-  // check it). Before enforcing a client_secret requirement here (which
-  // would break real traffic if the live connector doesn't actually send
-  // one), log presence/match — never the secret's own value, and no other
-  // caller-supplied field either (client_id is attacker-controlled at this
-  // point in the handler, before any validation) — on every real attempt to
-  // confirm it's safe first. Remove this block once #273's real fix lands.
-  console.log('[oauth] authz-code client_secret observability', computeAuthzCodeSecretObservability(client_secret))
+  // Closes #273 — this grant used to accept a code from any caller who
+  // supplied the public default client_id, no secret required, and mint a
+  // full-access token. #275 shipped observability-only logging first rather
+  // than assume the live claude.ai connector would tolerate this; a real
+  // reconnect on 2026-09-16 confirmed `client_secret_present: true,
+  // client_secret_matches: true`, so enforcing it here does not break the
+  // live connector. /authorize itself is intentionally left open (PKCE
+  // still protects the code in transit) — a code without the secret to
+  // redeem it is inert, which is what actually closes the hole.
+  if (!client_secret || !OAUTH_CLIENT_SECRET || !timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)) {
+    return c.json({ error: 'invalid_client' }, 401, noCacheHeaders)
+  }
 
   if (!code || !code_verifier || !client_id) {
     return c.json({ error: 'invalid_request', error_description: 'code, code_verifier, and client_id required' }, 400)

@@ -9,16 +9,17 @@
  * — see isMcpJwtRequest's own doc below.
  *
  * The JWT check (isMcpJwtRequest) is deliberately NOT trusted as a
- * site-wide owner credential the way x-brain-key is — routes/oauth.ts's
- * `/authorize` issues an authorization_code (and, via it, refresh tokens)
- * to any caller who supplies the public default client_id and reads the
- * redirect Location header themselves, no secret required; only the
- * client_credentials grant is actually gated by OAUTH_CLIENT_SECRET. A JWT
- * therefore proves less than x-brain-key does. isBrainKeyRequest stays a
- * global rate-limiter bypass (matching #269's existing scope); the JWT
- * bypass is intentionally scoped to /mcp only (see isMcpPath and index.ts)
- * rather than exempting every route — the auth-model gap this scoping
- * exists to contain is filed separately as #273.
+ * site-wide owner credential the way x-brain-key is, even though #273
+ * (routes/oauth.ts's authorization_code grant minting a token with no
+ * client_secret) is now fixed: a verified JWT's own claims don't record
+ * which grant produced it, and routes/oauth.ts's refresh_token grant still
+ * performs no client authentication at all — a possessed (e.g. leaked)
+ * refresh token can mint a fresh access token with no secret check (tracked
+ * separately, filed after #273's fix). isBrainKeyRequest stays a global
+ * rate-limiter bypass (matching #269's existing scope); the JWT bypass
+ * stays scoped to /mcp only (see isMcpPath and index.ts) rather than
+ * exempting every route, so a JWT obtained through the weaker of the two
+ * remaining paths can't also flood the rest of the app unthrottled.
  */
 import './env.js'
 import { jwtVerify } from 'jose'

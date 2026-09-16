@@ -3,6 +3,7 @@
  *
  * Validates the full OAuth lifecycle that the Claude connector depends on:
  *   AC-1  Metadata advertises refresh_token in grant_types_supported
+ *   AC-1b Metadata advertises client_secret_post in token_endpoint_auth_methods_supported
  *   AC-2  authorization_code exchange returns a refresh_token
  *   AC-3  refresh_token grant returns a new access_token + rotated refresh_token
  *   AC-4  old refresh_token is rejected after rotation (one-time use)
@@ -10,12 +11,15 @@
  *   AC-6  client_id mismatch on refresh → 400 invalid_grant
  *   AC-7  access_token from refresh is valid JWT with correct sub
  *   AC-8  replaying a used refresh_token revokes all tokens for that client (reuse detection)
- *   AC-9  a non-string client_secret in a JSON body never crashes /token (400, not 500) — client_credentials and authorization_code
+ *   AC-9  a non-string client_secret in a JSON body never crashes /token (400/401, not 500) — client_credentials and authorization_code
+ *   AC-10 authorization_code grant with no client_secret → 401 invalid_client (closes #273)
+ *   AC-11 authorization_code grant with the wrong client_secret → 401 invalid_client
  *
  * Requirements (in .env.local):
- *   BASE_URL        — defaults to http://localhost:<PORT>
- *   OAUTH_CLIENT_ID — defaults to claude-ai-connector
- *   JWT_SECRET      — used to verify returned JWTs
+ *   BASE_URL            — defaults to http://localhost:<PORT>
+ *   OAUTH_CLIENT_ID     — defaults to claude-ai-connector
+ *   OAUTH_CLIENT_SECRET — required; the authorization_code grant now validates it (closes #273)
+ *   JWT_SECRET          — used to verify returned JWTs
  *
  * Run (requires local server with Supabase):
  *   npm run test:oauth
@@ -30,12 +34,21 @@ import { jwtVerify } from 'jose'
 config({ path: '.env.local' })
 
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
-const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
+// routes/oauth.ts's ALLOWED_CLIENT_IDS splits this on commas — use only the first entry as the
+// actual client_id, or a multi-client .env.local value makes /authorize 400 unauthorized_client
+// before any of this file's tests ever reach the client_secret check (see mcp-transport.test.ts's
+// own OAUTH_CLIENT_ID handling, which this mirrors).
+const CLIENT_ID = (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',')[0].trim()
 // Must match ALLOWED_REDIRECT_URIS in oauth.ts
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
 
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be set in .env.local')
+
+// Unlike OAUTH_CLIENT_ID (a comma-separated allowlist in routes/oauth.ts), the route reads
+// OAUTH_CLIENT_SECRET as a single opaque value with no splitting — so no equivalent handling here.
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
+if (!OAUTH_CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set in .env.local')
 
 function buildPKCE() {
   const verifier = crypto.randomBytes(32).toString('base64url')
@@ -98,6 +111,20 @@ describe('OAuth metadata', () => {
       `grant_types_supported=${JSON.stringify(body.grant_types_supported)} missing refresh_token`
     )
   })
+
+  it('AC-1b: token_endpoint_auth_methods_supported advertises client_secret_post', async () => {
+    // Does NOT assert 'none' is absent — a refresh_token grant REQUEST still needs no
+    // client authentication of its own (tracked separately as #277), so 'none' staying
+    // in this list is still accurate, not stale. This only locks in that
+    // client_secret_post — required by authorization_code (#273) and client_credentials
+    // — is advertised.
+    const res = await fetch(`${BASE_URL}/.well-known/oauth-authorization-server`)
+    const body = await res.json() as { token_endpoint_auth_methods_supported: string[] }
+    assert.ok(
+      body.token_endpoint_auth_methods_supported.includes('client_secret_post'),
+      `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} missing client_secret_post`
+    )
+  })
 })
 
 describe('authorization_code grant', () => {
@@ -111,6 +138,7 @@ describe('authorization_code grant', () => {
       code,
       code_verifier: verifier,
       client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
       redirect_uri: REDIRECT_URI,
     })
     const body = await res.json() as Record<string, unknown>
@@ -193,6 +221,7 @@ describe('authorization_code grant', () => {
         code,
         code_verifier: verifier,
         client_id: CLIENT_ID,
+        client_secret: OAUTH_CLIENT_SECRET,
         redirect_uri: REDIRECT_URI,
       })
       const { refresh_token: freshToken } = await tokenRes.json() as { refresh_token: string }
@@ -232,7 +261,7 @@ describe('AC-9: non-string client_secret does not crash /token', () => {
     assert.equal(body.error, 'invalid_request')
   })
 
-  it('authorization_code grant returns 400, not 500', async () => {
+  it('authorization_code grant returns 401, not 500', async () => {
     const res = await postTokenJSON({
       grant_type: 'authorization_code',
       code: 'nonexistent-code',
@@ -241,8 +270,75 @@ describe('AC-9: non-string client_secret does not crash /token', () => {
       client_secret: 123,
     })
     assert.notEqual(res.status, 500, 'client_secret: 123 should not crash the request')
-    assert.equal(res.status, 400)
+    // 401 invalid_client, not 400 invalid_grant — the now-required client_secret check
+    // (#273's fix) runs before the code lookup ever happens, since client_secret: 123
+    // normalizes to undefined and fails that check first.
+    assert.equal(res.status, 401)
     const body = await res.json() as { error: string }
-    assert.equal(body.error, 'invalid_grant')
+    assert.equal(body.error, 'invalid_client')
+  })
+})
+
+// ── AC-10/AC-11: authorization_code requires the real client_secret (closes #273) ──
+//
+// /authorize itself is still open to any caller (PKCE protects the code in transit,
+// not who can request one) — the fix is that a code is now inert without the secret
+// to redeem it. Confirmed live before this fix shipped: a real claude.ai reconnect on
+// 2026-09-16 sent client_secret_present: true, client_secret_matches: true, so this
+// requirement does not break the live connector — see #275's observability PR.
+
+describe('AC-10/AC-11: authorization_code requires the real client_secret', () => {
+  it('AC-10: no client_secret → 401 invalid_client, and the same code is still redeemable with it', async () => {
+    const { code, verifier } = await authorize()
+    const res = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+
+    // Differential tripwire: re-redeem the SAME code with the real secret. If this
+    // fails, the 401 above proved nothing — either the code was already dead (a
+    // coincidence, not this check) or the rejected attempt itself consumed it.
+    // Succeeding here pins down that the 401 was caused solely by the missing
+    // secret, and that a rejected attempt does not consume the code.
+    const retryRes = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(retryRes.status, 200, 'The same code should still be redeemable once the real secret is supplied')
+  })
+
+  it('AC-11: wrong client_secret → 401 invalid_client, and the same code is still redeemable with the real one', async () => {
+    const { code, verifier } = await authorize()
+    const res = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      client_secret: `not-${OAUTH_CLIENT_SECRET}`,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(res.status, 401)
+    const body = await res.json() as { error: string }
+    assert.equal(body.error, 'invalid_client')
+
+    const retryRes = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(retryRes.status, 200, 'The same code should still be redeemable once the real secret is supplied')
   })
 })
