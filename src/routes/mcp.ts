@@ -1173,6 +1173,85 @@ function buildServer(): McpServer {
   )
 
   server.registerTool(
+    'check_applications',
+    {
+      title: 'Check Applications',
+      description:
+        "Machine-consumption lookup over job_applications, minimal fields only (no notes/JD text/scores) — for a caller that needs to check or scan applications programmatically, not a human reading the result. Two modes, pick one: `companies` narrows to applications whose company loosely matches one of a known candidate list (a bounded existence check — 'do any of these already exist?'); `stages`/`days` fetches a roster to test an unknown signal against locally (a broad fetch — 'what's currently open, so I can match something else against it?'). list_applications is for a human/LLM browsing a few results and returns full records, capped at 100 for that reason; this tool exists because a machine caller doing either lookup at real volume needs more rows than that cap allows, and doesn't need the fields that made the cap necessary in the first place.",
+      inputSchema: {
+        companies: z.array(z.string()).min(1).optional().describe(
+          'Existence-check mode: only return applications whose company loosely matches (case-insensitive substring) one of these names. Mutually exclusive with stages.'
+        ),
+        stages: z.array(z.enum(STAGES)).min(1).optional().describe(
+          'Roster mode: only return applications currently in one of these stages. Mutually exclusive with companies.'
+        ),
+        days: z.number().int().min(1).optional().describe('Only applications from the last N days (by applied_at). Applies in either mode.'),
+        limit: z.number().int().min(1).max(500).optional().default(200),
+      },
+    },
+    async ({ companies, stages, days, limit }) => {
+      try {
+        if (!companies?.length && !stages?.length) {
+          return {
+            content: [{ type: 'text' as const, text: 'Error: provide either `companies` (existence check) or `stages` (roster fetch) — this tool refuses an unfiltered full-table scan.' }],
+            isError: true,
+          }
+        }
+        if (companies?.length && stages?.length) {
+          return {
+            content: [{ type: 'text' as const, text: 'Error: `companies` and `stages` are mutually exclusive — pick one mode.' }],
+            isError: true,
+          }
+        }
+
+        let q = supabase
+          .from('job_applications')
+          .select('id, company, role, stage, applied_at')
+          .order('applied_at', { ascending: false })
+          .limit(limit ?? 200)
+
+        if (companies?.length) {
+          // Same sanitization as search_applications' own .or() filter below —
+          // PostgREST's or-filter grammar uses ",()" as structural characters
+          // and "%" as the ilike wildcard, so an unsanitized company name
+          // could inject an extra condition or manipulate the match pattern.
+          q = q.or(companies.map(c => `company.ilike.%${c.replace(/[%'"(),]/g, ' ').trim()}%`).join(','))
+        }
+        if (stages?.length) {
+          q = q.in('stage', stages)
+        }
+        if (days != null) {
+          const since = new Date()
+          since.setDate(since.getDate() - days)
+          q = q.gte('applied_at', since.toISOString())
+        }
+
+        const { data, error } = await q
+        if (error) return { content: [{ type: 'text' as const, text: `Error: ${error.message}` }], isError: true }
+        if (!data || !data.length) return { content: [{ type: 'text' as const, text: 'No applications found.' }] }
+        if (data.length >= (limit ?? 200)) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Error: returned ${data.length} records, at or over the ${limit ?? 200}-record limit — the result may be truncated and this tool has no pagination cursor to fetch the rest. Narrow the query (a tighter \`days\` bound, or fewer \`stages\`/\`companies\`).`,
+            }],
+            isError: true,
+          }
+        }
+
+        const rows = data.map((a: { id: string; company: string; role: string; stage: string; applied_at: string }) => {
+          const date = new Date(a.applied_at).toLocaleDateString()
+          return `• [${date}] ${a.company} — ${a.role} | ${a.stage}\n  ID: ${a.id}`
+        })
+
+        return { content: [{ type: 'text' as const, text: `${data.length} application(s):\n\n${rows.join('\n\n')}` }] }
+      } catch (err: unknown) {
+        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
     'get_application',
     {
       title: 'Get Application Details',

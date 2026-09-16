@@ -499,4 +499,69 @@ describe("Job Hunt Pipeline", () => {
     assert.match(text, new RegExp(TEST_COMPANY));
     assert.match(text, new RegExp(applicationId));
   });
+
+  it("check_applications — companies mode finds the application by a loose match", async () => {
+    const result = await callTool("check_applications", {
+      companies: [TEST_COMPANY],
+    });
+    const text = getText(result);
+    assert.match(text, new RegExp(TEST_COMPANY));
+    assert.match(text, new RegExp(applicationId));
+  });
+
+  it("check_applications — companies mode with an unrelated candidate list does not match", async () => {
+    const result = await callTool("check_applications", {
+      companies: [`${TEST_COMPANY}_definitely_not_a_real_suffix_xyz`],
+    });
+    const text = getText(result);
+    assert.doesNotMatch(text, new RegExp(applicationId), "An unrelated candidate must not match this application");
+  });
+
+  it("check_applications — stages mode (roster fetch) finds the application by its current stage", async () => {
+    // applicationId was moved to phone_screen by the update_stage test above.
+    const result = await callTool("check_applications", {
+      stages: ["phone_screen"],
+      days: 1,
+    });
+    const text = getText(result);
+    assert.match(text, new RegExp(TEST_COMPANY));
+    assert.match(text, new RegExp(applicationId));
+  });
+
+  it("check_applications — stages mode excludes an application not in the requested stage", async () => {
+    const result = await callTool("check_applications", {
+      stages: ["offer"],
+      days: 1,
+    });
+    const text = getText(result);
+    assert.doesNotMatch(text, new RegExp(applicationId), "phone_screen application must not appear in an offer-stage-only fetch");
+  });
+
+  it("check_applications — refuses when neither companies nor stages is given (no unfiltered scan)", async () => {
+    const result = await callTool("check_applications", {});
+    const text = getText(result);
+    assert.match(text, /provide either `companies`.*or `stages`/);
+  });
+
+  it("check_applications — refuses when both companies and stages are given (modes are mutually exclusive)", async () => {
+    const result = await callTool("check_applications", {
+      companies: [TEST_COMPANY],
+      stages: ["phone_screen"],
+    });
+    const text = getText(result);
+    assert.match(text, /mutually exclusive/);
+  });
+
+  it("check_applications — returns minimal fields only, not notes/JD text (the actual point of this tool)", async () => {
+    const result = await callTool("check_applications", {
+      companies: [TEST_COMPANY],
+    });
+    const text = getText(result);
+    // "Automated test run" is the notes string log_application stored for
+    // this application (see the first it() in this file) — list_applications
+    // and get_application both surface it; this tool must not, since a
+    // minimal per-record payload is the whole reason it can safely return
+    // more rows than list_applications' 100-record cap allows.
+    assert.doesNotMatch(text, /Automated test run/, "check_applications must not include notes — that's the payload bloat this tool exists to avoid");
+  });
 });
