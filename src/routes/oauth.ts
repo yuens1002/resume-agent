@@ -50,6 +50,22 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(aDigest, bDigest)
 }
 
+/**
+ * TEMPORARY, for issue #273 (see the call site in the authorization_code
+ * handler) — pulled out as a pure function so the actual behavior (what
+ * counts as present/matching) is unit-testable independent of console.log,
+ * which a test can't assert against directly.
+ */
+export function computeAuthzCodeSecretObservability(clientSecret: string | undefined): {
+  client_secret_present: boolean
+  client_secret_matches: boolean
+} {
+  return {
+    client_secret_present: Boolean(clientSecret),
+    client_secret_matches: Boolean(clientSecret && OAUTH_CLIENT_SECRET && timingSafeEqual(clientSecret, OAUTH_CLIENT_SECRET)),
+  }
+}
+
 const ALLOWED_REDIRECT_URIS = new Set([
   'https://claude.ai/api/mcp/auth_callback',
 ])
@@ -260,19 +276,13 @@ oauth.post('/token', async (c) => {
 
   // TEMPORARY observability for issue #273 — the authorization_code grant
   // has never required client_secret (unlike client_credentials, which does
-  // check it), so any caller who supplies the public default client_id can
-  // self-mint a token with no secret at all. Before enforcing a client_secret
-  // requirement here (which would break real traffic if the live claude.ai
-  // connector doesn't actually send one), log presence/match — never the
-  // secret's own value — on every real attempt to confirm it's safe first.
-  // Remove this block once #273's real fix lands. (client_secret is already
-  // normalized to string|undefined above, so this can't throw on a
-  // malformed JSON value the way an unguarded call would.)
-  console.log('[oauth] authz-code client_secret observability', {
-    client_id,
-    client_secret_present: Boolean(client_secret),
-    client_secret_matches: Boolean(client_secret && OAUTH_CLIENT_SECRET && timingSafeEqual(client_secret, OAUTH_CLIENT_SECRET)),
-  })
+  // check it). Before enforcing a client_secret requirement here (which
+  // would break real traffic if the live connector doesn't actually send
+  // one), log presence/match — never the secret's own value, and no other
+  // caller-supplied field either (client_id is attacker-controlled at this
+  // point in the handler, before any validation) — on every real attempt to
+  // confirm it's safe first. Remove this block once #273's real fix lands.
+  console.log('[oauth] authz-code client_secret observability', computeAuthzCodeSecretObservability(client_secret))
 
   if (!code || !code_verifier || !client_id) {
     return c.json({ error: 'invalid_request', error_description: 'code, code_verifier, and client_id required' }, 400)
