@@ -43,9 +43,12 @@ const ALLOWED_CLIENT_IDS = new Set(
 
 // Load-bearing for both client_credentials and, as of #273's fix, authorization_code —
 // fail fast at startup (matching JWT_SECRET above) rather than silently 401ing every
-// claude.ai reconnect with no server-side signal if this is ever unset or blank.
-const OAUTH_CLIENT_SECRET = (process.env.OAUTH_CLIENT_SECRET ?? '').trim()
-if (!OAUTH_CLIENT_SECRET) throw new Error('Missing OAUTH_CLIENT_SECRET')
+// claude.ai reconnect with no server-side signal if this is ever unset or blank. Only
+// the blank-value guard trims — the stored/compared value stays opaque, since trimming
+// it would reject a real secret that happens to contain intentional leading/trailing
+// whitespace (a client sending the untrimmed value would then never match).
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? ''
+if (!OAUTH_CLIENT_SECRET.trim()) throw new Error('Missing OAUTH_CLIENT_SECRET')
 
 function timingSafeEqual(a: string, b: string): boolean {
   // Compare fixed-length digests to avoid length-based timing differences
