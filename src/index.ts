@@ -58,9 +58,11 @@ app.use('*', async (c, next) => {
   const apiKey = process.env.API_KEY
   if (match && apiKey && timingSafeEqual(match[1], apiKey)) return next()
 
-  // Owner bypass — /mcp authenticates with this header, not Authorization
-  // (see authenticate() in routes/mcp.ts), so it needs its own check here
-  // too — see CHANGELOG.md's 2026-09-16 entry for the incident this fixed.
+  // Owner bypass — x-brain-key is /mcp's own direct owner credential
+  // (routes/mcp.ts's authenticate() also accepts an OAuth Bearer JWT via
+  // Authorization, which the check above does not cover — that gap is
+  // tracked separately), so it needs its own check here too — see
+  // CHANGELOG.md's 2026-09-16 entry for the incident this fixed.
   const brainKey = c.req.header('x-brain-key')
   const brainKeyEnv = process.env.OPEN_BRAIN_KEY
   if (brainKey && brainKeyEnv && timingSafeEqual(brainKey, brainKeyEnv)) return next()
