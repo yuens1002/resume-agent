@@ -29,7 +29,7 @@ const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be set')
-// authorization_code now requires this (#273's fix) — without it step 1 fails with 401
+// authorization_code (#273) and refresh_token (#277) both require this — without it, step 1 and step 6 fail with 401
 const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
 if (!CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set')
 const jwtKey = new TextEncoder().encode(JWT_SECRET)

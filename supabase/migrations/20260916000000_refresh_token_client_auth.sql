@@ -51,7 +51,16 @@ begin
     return json_build_object('status', 'not_found');
   end if;
 
-  -- Definite replay: token was already consumed during a previous rotation
+  -- Definite replay: token was already consumed during a previous rotation.
+  -- Deliberately unconditional — this runs before the p_client_id ownership
+  -- check below, so a caller with no client authentication (impossible via
+  -- /token as of #277, still relevant if this RPC is ever called directly)
+  -- still triggers a full family revocation on a replayed token. Treated as
+  -- a defensible RFC 6819 reading (replay implies compromise, so revoke the
+  -- whole family regardless of who's asking) rather than a bug — possessing
+  -- a replayed token's hash already requires the same access a legitimate
+  -- caller would need, and revocation only narrows a compromised client's
+  -- blast radius further.
   if v_row.consumed then
     delete from oauth_refresh_tokens
      where client_id = v_row.client_id
