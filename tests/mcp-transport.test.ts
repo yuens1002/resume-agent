@@ -255,9 +255,8 @@ describe('AC-9: OPTIONS preflight returns 200 with CORS headers', () => {
 // credential /mcp actually authenticates with, routes/mcp.ts's
 // authenticate()) got no exemption, so every MCP tool call from an
 // authenticated client counted against the same budget as anonymous
-// traffic. Confirmed live 2026-09-16 against job-hunt-agent: a batch run's
-// handful of log_application calls exhausted the window before a later
-// roster-fetch call in the same run.
+// traffic. Confirmed live 2026-09-16: a client issuing a short burst of MCP
+// tool calls exhausted the window before a later call in the same run.
 
 describe('AC-10: valid x-brain-key bypasses the shared IP rate limit', () => {
   const shouldRun = process.env.TEST_RATE_LIMIT === '1'
