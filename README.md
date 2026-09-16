@@ -502,7 +502,7 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 - `update_stage` — Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it can enter submitted pipeline stages)
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
-- `check_applications` — Minimal-field, machine-consumption lookup (no notes/JD/scores): an existence check against a known company list, or a roster fetch by stage/day-window for a caller doing its own matching locally. Not for browsing — `list_applications` is
+- `check_applications` — Minimal-field, machine-consumption lookup (no notes/JD/scores): an existence check against a known company list, or a roster fetch by stage/day-window for a caller doing its own matching locally. Not for browsing — use `list_applications` for that instead
 - `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)
 - `create_application_evidence_snapshot` — Materialize a protected, immutable source snapshot for bounded evidence review ([contract](docs/application-evidence-snapshot.md); requires evidence-snapshot migration)
 - `get_application_evidence_snapshot_page` — Read one bounded evidence page from a snapshot; its terminal marker applies only to that response ([contract](docs/application-evidence-snapshot.md))

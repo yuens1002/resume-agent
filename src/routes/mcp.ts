@@ -1179,7 +1179,7 @@ function buildServer(): McpServer {
       description:
         "Machine-consumption lookup over job_applications, minimal fields only (no notes/JD text/scores) — for a caller that needs to check or scan applications programmatically, not a human reading the result. Two modes, pick one: `companies` narrows to applications whose company loosely matches one of a known candidate list (a bounded existence check — 'do any of these already exist?'); `stages`/`days` fetches a roster to test an unknown signal against locally (a broad fetch — 'what's currently open, so I can match something else against it?'). list_applications is for a human/LLM browsing a few results and returns full records, capped at 100 for that reason; this tool exists because a machine caller doing either lookup at real volume needs more rows than that cap allows, and doesn't need the fields that made the cap necessary in the first place.",
       inputSchema: {
-        companies: z.array(z.string()).min(1).max(100).optional().describe(
+        companies: z.array(z.string().max(200)).min(1).max(100).optional().describe(
           'Existence-check mode: only return applications whose company loosely matches (case-insensitive substring) one of these names. Mutually exclusive with stages.'
         ),
         stages: z.array(z.enum(STAGES)).min(1).optional().describe(
@@ -1191,9 +1191,9 @@ function buildServer(): McpServer {
     },
     async ({ companies, stages, days, limit }) => {
       try {
-        if (!companies?.length && !stages?.length) {
+        if (!companies?.length && !stages?.length && days == null) {
           return {
-            content: [{ type: 'text' as const, text: 'Error: provide either `companies` (existence check) or `stages` (roster fetch) — this tool refuses an unfiltered full-table scan.' }],
+            content: [{ type: 'text' as const, text: 'Error: provide `companies` (existence check), `stages` (roster fetch), and/or `days` — this tool refuses an unfiltered full-table scan.' }],
             isError: true,
           }
         }
@@ -1215,17 +1215,27 @@ function buildServer(): McpServer {
           // PostgREST's or-filter grammar treats "," and ")" as structural and
           // "%" as the ilike wildcard; "*" is also translated to "%" server-side
           // (PostgREST's own URL-friendly wildcard alias) even though it isn't
-          // structural to the or-filter grammar itself. All five are neutralized
-          // — replaced with "_" (ILIKE's own single-char wildcard) rather than a
-          // space, so a real punctuated company name (e.g. "Yoh, A Day & Zimmermann
-          // Company") still matches its own stored form instead of silently
-          // failing to, which would be exactly the fail-open bug this tool exists
-          // to close. Candidates that sanitize to nothing (all-structural input,
-          // or whitespace) are dropped entirely rather than left to become an
-          // unintended "%%"-style match-everything pattern.
+          // structural to the or-filter grammar itself. Those, plus the quote
+          // characters, are neutralized — replaced with "_" (ILIKE's own
+          // single-char wildcard) rather than a space, so a real punctuated
+          // company name (e.g. "Yoh, A Day & Zimmermann Company") still matches
+          // its own stored form instead of silently failing to, which would be
+          // exactly the fail-open bug this tool exists to close. A literal
+          // backslash or underscore in the input is escaped first so it can't
+          // collide with ILIKE's own escape/wildcard handling once the pattern
+          // is built (an unescaped "\" would reinterpret the following
+          // character, and an unescaped "_" is itself a wildcard). Candidates
+          // that sanitize to nothing (all-structural input, or whitespace) are
+          // dropped entirely rather than left to become an unintended
+          // "%%"-style match-everything pattern.
           const patterns = companies
-            .map(c => c.replace(/[%'"(),*]/g, '_').trim())
-            .filter(c => c.replace(/_/g, '').trim().length > 0)
+            .map(c => c
+              .replace(/\\/g, '\\\\')
+              .replace(/_/g, '\\_')
+              .replace(/[%'"(),*]/g, '_')
+              .trim()
+            )
+            .filter(c => c.replace(/(?<!\\)_/g, '').trim().length > 0)
           if (!patterns.length) {
             return {
               content: [{ type: 'text' as const, text: 'Error: every `companies` entry was empty after sanitizing structural characters — nothing left to search for.' }],

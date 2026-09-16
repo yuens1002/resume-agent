@@ -561,7 +561,13 @@ describe("Job Hunt Pipeline", () => {
     try {
       const result = await callTool("check_applications", { stages: ["phone_screen"], days: 1 });
       assert.ok(!result.isError, getText(result));
-      assert.equal(getText(result), "No applications found.", "a 10-day-old application must not appear in a days:1 window");
+      // Assert the fixture's own ID is absent rather than the whole response
+      // text is the exact "No applications found." literal — the suite runs
+      // against a shared live database, so an unrelated phone_screen
+      // application from another concurrent run or a stray past fixture could
+      // legitimately also fall inside the days:1 window and make an exact-text
+      // assertion flaky even though the day-bound filter is working correctly.
+      assert.doesNotMatch(getText(result), new RegExp(applicationId), "a 10-day-old application must not appear in a days:1 window");
 
       const widerResult = await callTool("check_applications", { stages: ["phone_screen"], days: 30 });
       assert.ok(!widerResult.isError, getText(widerResult));
@@ -571,10 +577,22 @@ describe("Job Hunt Pipeline", () => {
     }
   });
 
-  it("check_applications — refuses when neither companies nor stages is given (no unfiltered scan)", async () => {
+  it("check_applications — refuses when neither companies, stages, nor days is given (no unfiltered scan)", async () => {
     const result = await callTool("check_applications", {});
     assert.equal(result.isError, true, "must take the refusal path, not just happen to mention the right words");
-    assert.match(getText(result), /provide either `companies`.*or `stages`/);
+    assert.match(getText(result), /provide `companies`.*`stages`.*`days`/);
+  });
+
+  it("check_applications — days alone is a valid roster fetch, not treated as an unfiltered scan", async () => {
+    // applicationId was moved to phone_screen and re-dated to "now" by the
+    // days-bound test's own cleanup above — a bare days:1 call with neither
+    // companies nor stages must still find it, since days is a real filter in
+    // its own right (this is the exact shape of the production incident this
+    // tool exists to fix: a caller with no candidate list yet, scanning a
+    // recent window).
+    const result = await callTool("check_applications", { days: 1 });
+    assert.ok(!result.isError, getText(result));
+    assert.match(getText(result), new RegExp(applicationId), "days-only must return the fixture, not refuse as an unfiltered scan");
   });
 
   it("check_applications — refuses when both companies and stages are given (modes are mutually exclusive)", async () => {
@@ -612,5 +630,64 @@ describe("Job Hunt Pipeline", () => {
     // later would fail this test even if it didn't happen to collide with the
     // specific notes value above.
     assert.match(text, /^1 application\(s\):\n\n• \[\d{1,2}\/\d{1,2}\/\d{4}\] .+ — .+ \| \w+\n {2}ID: [0-9a-f-]{36}$/);
+  });
+
+  it("check_applications — companies mode matches a punctuated company name containing PostgREST/ILIKE-special characters", async () => {
+    // TEST_COMPANY itself is a plain `__test_<timestamp>` string with no
+    // punctuation, so the earlier companies-mode tests never exercise the
+    // sanitizer's actual job. Rename the fixture to a company containing every
+    // character class the sanitizer has to handle: a real underscore and
+    // backslash (which must be escaped to literal, not treated as ILIKE's own
+    // wildcard/escape char), plus the PostgREST-or-filter-structural set
+    // (comma, parens, quotes, percent, asterisk). Searching with that exact
+    // string must still find the row — a regression to the old space
+    // substitution, or a dropped backslash/underscore escape, would silently
+    // break this match.
+    const punctuatedCompany = `${TEST_COMPANY}_A\\B, Corp (X) "Y" 50% Z*Q`;
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    await supabase.from("job_applications").update({ company: punctuatedCompany }).eq("id", applicationId);
+
+    try {
+      const result = await callTool("check_applications", { companies: [punctuatedCompany] });
+      assert.ok(!result.isError, getText(result));
+      assert.match(getText(result), new RegExp(applicationId), "a punctuated company name must still match its own stored form");
+    } finally {
+      await supabase.from("job_applications").update({ company: TEST_COMPANY }).eq("id", applicationId);
+    }
+  });
+
+  it("check_applications — truncation boundary: exactly `limit` matches succeeds, `limit + 1` errors", async () => {
+    // The off-by-one truncation fix (fetch limit+1, compare with `>` not `>=`)
+    // is a core safety property of this tool, but no prior test actually
+    // lands on the boundary — creating hundreds of real rows to hit the
+    // default limit isn't practical, so this drives the tool's own `limit`
+    // parameter down to a size a two-row fixture can straddle instead.
+    const boundaryCompany = `${TEST_COMPANY}_boundary`;
+    const second = await callTool("log_application", {
+      company: boundaryCompany,
+      role: TEST_ROLE,
+      source: "test",
+      notes: "Automated test run (boundary fixture)",
+    });
+    const secondMatch = getText(second).match(/ID: ([0-9a-f-]{36})/);
+    assert.ok(secondMatch, "boundary fixture must return a UUID");
+    const secondId = secondMatch![1];
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    await supabase.from("job_applications").update({ company: boundaryCompany }).eq("id", applicationId);
+
+    try {
+      const exact = await callTool("check_applications", { companies: [boundaryCompany], limit: 2 });
+      assert.ok(!exact.isError, getText(exact));
+      assert.match(getText(exact), /^2 application\(s\)/, "exactly `limit` matches must succeed, not be misreported as truncated");
+
+      const over = await callTool("check_applications", { companies: [boundaryCompany], limit: 1 });
+      assert.equal(over.isError, true, "`limit + 1` matches must be reported as truncated, not silently return `limit` rows");
+      assert.match(getText(over), /truncated/);
+    } finally {
+      await supabase.from("job_applications").update({ company: TEST_COMPANY }).eq("id", applicationId);
+      await supabase.from("job_applications").delete().eq("id", secondId);
+    }
   });
 });
