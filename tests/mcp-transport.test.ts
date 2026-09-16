@@ -16,6 +16,7 @@
  *   AC-7  CORS headers present on authenticated responses
  *   AC-8  Disallowed browser Origin → 403
  *   AC-9  OPTIONS preflight → 200 with CORS headers (no auth required)
+ *   AC-10 Valid x-brain-key bypasses the shared IP rate limit (opt-in, see below)
  *
  * Requirements:
  *   MCP_URL        — defaults to http://localhost:3000/mcp
@@ -23,6 +24,8 @@
  *
  * Run (requires local server):
  *   npm run test:transport
+ *
+ * AC-10 also requires TEST_RATE_LIMIT=1 to run — see that test for why.
  */
 
 import { describe, it } from 'node:test'
@@ -233,4 +236,47 @@ describe('AC-9: OPTIONS preflight returns 200 with CORS headers', () => {
       'CORS preflight must include Access-Control-Allow-Methods',
     )
   })
+})
+
+// ── AC-10: valid x-brain-key bypasses the shared IP rate limit ──
+//
+// Skipped by default — unlike public-mcp-transport.test.ts's AC-8 (which
+// deliberately exhausts the shared bucket), a WORKING bypass here never
+// touches rateLimitMap at all, so the passing case is neither
+// order-dependent nor destructive. It's gated instead because a REGRESSED
+// bypass burns the shared 30-req/min-per-IP bucket (src/index.ts) for the
+// rest of the process — cheap insurance against a routine `npm run
+// test:transport` run silently poisoning every other test in this file (it
+// runs last, so nothing downstream in this file is affected, but other
+// processes hitting the same server would be). Enable with TEST_RATE_LIMIT=1.
+//
+// Before this fix, index.ts's rate-limiter only recognized the
+// `Authorization: Bearer <API_KEY>` owner bypass — a valid x-brain-key (the
+// credential /mcp actually authenticates with, routes/mcp.ts's
+// authenticate()) got no exemption, so every MCP tool call from an
+// authenticated client counted against the same budget as anonymous
+// traffic. Confirmed live 2026-09-16: a client issuing a short burst of MCP
+// tool calls exhausted the window before a later call in the same run.
+
+describe('AC-10: valid x-brain-key bypasses the shared IP rate limit', () => {
+  const shouldRun = process.env.TEST_RATE_LIMIT === '1'
+  const runner = shouldRun ? it : it.skip
+  runner(
+    '32 authenticated requests all succeed — run with TEST_RATE_LIMIT=1',
+    async () => {
+      for (let i = 0; i < 32; i++) {
+        const res = await mcpPost({ key: MCP_KEY })
+        // Assert 2xx first, not just "not 429" — a 5xx would otherwise read
+        // as "bypassed" (it isn't 429), and a bad/stale OPEN_BRAIN_KEY would
+        // fail every request with 401 well before request 31 trips the
+        // limit, misreporting as a rate-limit failure instead of an auth one.
+        assert.ok(res.ok, `Request ${i + 1}/32 with a valid x-brain-key should succeed, got ${res.status}`)
+        assert.ok(
+          res.status !== 429,
+          `Request ${i + 1}/32 with a valid x-brain-key should bypass the rate limit, got 429`,
+        )
+      }
+      console.warn('AC-10: x-brain-key bypass verified across 32 requests.')
+    },
+  )
 })

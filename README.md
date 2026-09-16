@@ -539,7 +539,8 @@ Example queries:
 ## Security model
 
 - All secrets in `.env.local`, never committed
-- `public_profile` table: read-only, no auth required, rate-limited to 30 req/min per IP — bypassed for requests carrying a valid `Authorization: Bearer <API_KEY>` header
+- Every route (including `/mcp`), except `OPTIONS` preflights and `/health`, is rate-limited to 30 req/min per IP — bypassed for requests carrying either a valid `Authorization: Bearer <API_KEY>` header or a valid `x-brain-key` header (the MCP server's own owner credential)
+- `public_profile` table: read-only, no auth required beyond the rate limit above
 - `/resume` endpoint: when `AUTH_MODE=key`, requires `Authorization: Bearer <key>` header; when `AUTH_MODE=open` (default in `.env.example`), it is publicly accessible
 - MCP server: OAuth 2.0 Client Credentials (claude.ai connector) or `x-brain-key` header (direct API / Claude Desktop)
 - OAuth endpoints: `/authorize`, `/token`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (RFC 8414 + RFC 9728)
