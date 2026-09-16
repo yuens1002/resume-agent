@@ -16,6 +16,9 @@ import { supabase } from '../src/lib/supabase.js'
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
 const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
+// authorization_code now requires this (#273's fix) — without it step 1 fails with 401
+const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
+if (!CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set')
 
 function pass(msg: string) { console.log(`  ✔  ${msg}`) }
 function fail(msg: string) { console.error(`  ✖  ${msg}`); process.exitCode = 1 }
@@ -68,6 +71,7 @@ const { status: s1, body: t1 } = await postToken({
   code,
   code_verifier: verifier,
   client_id: CLIENT_ID,
+  client_secret: CLIENT_SECRET,
   redirect_uri: REDIRECT_URI,
 })
 if (s1 !== 200 || !t1.refresh_token) { fail(`Expected 200 + refresh_token, got ${s1}: ${JSON.stringify(t1)}`); process.exit(1) }

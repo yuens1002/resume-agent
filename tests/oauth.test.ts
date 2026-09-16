@@ -10,7 +10,7 @@
  *   AC-6  client_id mismatch on refresh → 400 invalid_grant
  *   AC-7  access_token from refresh is valid JWT with correct sub
  *   AC-8  replaying a used refresh_token revokes all tokens for that client (reuse detection)
- *   AC-9  a non-string client_secret in a JSON body never crashes /token (400, not 500) — client_credentials and authorization_code
+ *   AC-9  a non-string client_secret in a JSON body never crashes /token (400/401, not 500) — client_credentials and authorization_code
  *   AC-10 authorization_code grant with no client_secret → 401 invalid_client (closes #273)
  *   AC-11 authorization_code grant with the wrong client_secret → 401 invalid_client
  *
@@ -33,15 +33,19 @@ import { jwtVerify } from 'jose'
 config({ path: '.env.local' })
 
 const BASE_URL = process.env.BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`
-const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
+// routes/oauth.ts's ALLOWED_CLIENT_IDS splits this on commas — use only the first entry as the
+// actual client_id, or a multi-client .env.local value makes /authorize 400 unauthorized_client
+// before any of this file's tests ever reach the client_secret check (see mcp-transport.test.ts's
+// own OAUTH_CLIENT_ID handling, which this mirrors).
+const CLIENT_ID = (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',')[0].trim()
 // Must match ALLOWED_REDIRECT_URIS in oauth.ts
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
 
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be set in .env.local')
 
-// routes/oauth.ts treats this as a comma-separated allowlist (like OAUTH_CLIENT_ID) — but the
-// secret itself is a single value regardless of how many client_ids share it, so no splitting here.
+// Unlike OAUTH_CLIENT_ID (a comma-separated allowlist in routes/oauth.ts), the route reads
+// OAUTH_CLIENT_SECRET as a single opaque value with no splitting — so no equivalent handling here.
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
 if (!OAUTH_CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set in .env.local')
 
@@ -105,6 +109,16 @@ describe('OAuth metadata', () => {
       body.grant_types_supported.includes('refresh_token'),
       `grant_types_supported=${JSON.stringify(body.grant_types_supported)} missing refresh_token`
     )
+  })
+
+  it('AC-1b: token_endpoint_auth_methods_supported no longer advertises none (closes #273)', async () => {
+    const res = await fetch(`${BASE_URL}/.well-known/oauth-authorization-server`)
+    const body = await res.json() as { token_endpoint_auth_methods_supported: string[] }
+    assert.ok(
+      !body.token_endpoint_auth_methods_supported.includes('none'),
+      `token_endpoint_auth_methods_supported=${JSON.stringify(body.token_endpoint_auth_methods_supported)} still advertises none, but every grant now requires client_secret_post`
+    )
+    assert.ok(body.token_endpoint_auth_methods_supported.includes('client_secret_post'))
   })
 })
 
@@ -269,7 +283,7 @@ describe('AC-9: non-string client_secret does not crash /token', () => {
 // requirement does not break the live connector — see #275's observability PR.
 
 describe('AC-10/AC-11: authorization_code requires the real client_secret', () => {
-  it('AC-10: no client_secret → 401 invalid_client', async () => {
+  it('AC-10: no client_secret → 401 invalid_client, and the same code is still redeemable with it', async () => {
     const { code, verifier } = await authorize()
     const res = await postToken({
       grant_type: 'authorization_code',
@@ -281,9 +295,24 @@ describe('AC-10/AC-11: authorization_code requires the real client_secret', () =
     assert.equal(res.status, 401)
     const body = await res.json() as { error: string }
     assert.equal(body.error, 'invalid_client')
+
+    // Differential tripwire: re-redeem the SAME code with the real secret. If this
+    // fails, the 401 above proved nothing — either the code was already dead (a
+    // coincidence, not this check) or the rejected attempt itself consumed it.
+    // Succeeding here pins down that the 401 was caused solely by the missing
+    // secret, and that a rejected attempt does not consume the code.
+    const retryRes = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(retryRes.status, 200, 'The same code should still be redeemable once the real secret is supplied')
   })
 
-  it('AC-11: wrong client_secret → 401 invalid_client', async () => {
+  it('AC-11: wrong client_secret → 401 invalid_client, and the same code is still redeemable with the real one', async () => {
     const { code, verifier } = await authorize()
     const res = await postToken({
       grant_type: 'authorization_code',
@@ -296,5 +325,15 @@ describe('AC-10/AC-11: authorization_code requires the real client_secret', () =
     assert.equal(res.status, 401)
     const body = await res.json() as { error: string }
     assert.equal(body.error, 'invalid_client')
+
+    const retryRes = await postToken({
+      grant_type: 'authorization_code',
+      code,
+      code_verifier: verifier,
+      client_id: CLIENT_ID,
+      client_secret: OAUTH_CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+    })
+    assert.equal(retryRes.status, 200, 'The same code should still be redeemable once the real secret is supplied')
   })
 })

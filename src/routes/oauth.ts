@@ -41,7 +41,11 @@ const ALLOWED_CLIENT_IDS = new Set(
   (process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector').split(',').map((s) => s.trim()).filter(Boolean)
 )
 
-const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? ''
+// Load-bearing for both client_credentials and, as of #273's fix, authorization_code —
+// fail fast at startup (matching JWT_SECRET above) rather than silently 401ing every
+// claude.ai reconnect with no server-side signal if this is ever unset or blank.
+const OAUTH_CLIENT_SECRET = (process.env.OAUTH_CLIENT_SECRET ?? '').trim()
+if (!OAUTH_CLIENT_SECRET) throw new Error('Missing OAUTH_CLIENT_SECRET')
 
 function timingSafeEqual(a: string, b: string): boolean {
   // Compare fixed-length digests to avoid length-based timing differences
@@ -88,7 +92,11 @@ oauth.get('/.well-known/oauth-authorization-server', (c) => {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+    // 'none' removed as of #273's fix — authorization_code and client_credentials both
+    // now require client_secret_post, and refresh_token (the only grant that doesn't
+    // check it) can never be reached without first authenticating via one of the other
+    // two, so client_secret_post is the only real entry point to this token endpoint.
+    token_endpoint_auth_methods_supported: ['client_secret_post'],
   })
 })
 

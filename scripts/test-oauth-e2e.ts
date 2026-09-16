@@ -27,6 +27,9 @@ const CLIENT_ID = process.env.OAUTH_CLIENT_ID ?? 'claude-ai-connector'
 const REDIRECT_URI = 'https://claude.ai/api/mcp/auth_callback'
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be set')
+// authorization_code now requires this (#273's fix) — without it step 1 fails with 401
+const CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET
+if (!CLIENT_SECRET) throw new Error('OAUTH_CLIENT_SECRET must be set')
 const jwtKey = new TextEncoder().encode(JWT_SECRET)
 
 function pass(msg: string) { console.log(`  ✔  ${msg}`) }
@@ -94,7 +97,7 @@ const { code, verifier } = await authorize()
 const { status: s1, body: t1 } = await postToken({
   grant_type: 'authorization_code',
   code, code_verifier: verifier,
-  client_id: CLIENT_ID, redirect_uri: REDIRECT_URI,
+  client_id: CLIENT_ID, client_secret: CLIENT_SECRET, redirect_uri: REDIRECT_URI,
 })
 if (s1 !== 200 || !t1.access_token || !t1.refresh_token) {
   fail(`Auth code exchange failed: ${s1} ${JSON.stringify(t1)}`); process.exit(1)
