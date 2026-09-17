@@ -14,22 +14,23 @@
 // README's security model) is that every such function is service_role-only, so there's
 // currently nothing to allow.
 //
+// SECURITY_DEFINER_GRANTS_QUERY is exported so tests/check-security-definer-grants.test.ts
+// can run the literal same query against a PGlite instance with synthetic vulnerable/safe
+// functions — this script's own psql-based run against the live database only proves "no
+// gap today," not that the query itself would actually catch a real one.
+//
 // Run manually (`npm run check:rpc-grants`) or automatically after every `db:push`
 // (wired as `postdb:push`), since a migration landing is the exact moment a new gap of
 // this shape would be introduced.
 import { spawnSync } from 'child_process'
 
-const url = process.env.SUPA_DIRECT_CONNECTION_STRING
-if (!url) throw new Error('SUPA_DIRECT_CONNECTION_STRING not set in .env.local')
-
-const query = `
+export const SECURITY_DEFINER_GRANTS_QUERY = `
   select p.oid::regprocedure::text as signature
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
-  join pg_type t on t.oid = p.prorettype
   where n.nspname = 'public'
     and p.prosecdef = true
-    and t.typname not in ('trigger', 'event_trigger')
+    and p.prorettype not in ('pg_catalog.trigger'::regtype, 'pg_catalog.event_trigger'::regtype)
     and (
       has_function_privilege('anon', p.oid, 'execute')
       or has_function_privilege('authenticated', p.oid, 'execute')
@@ -37,28 +38,36 @@ const query = `
   order by signature;
 `
 
-// -X ignores ~/.psqlrc — a user's \x (expanded output) or \pset format would otherwise
-// corrupt the "one bare line per row" parse below (e.g. html format emits table tags even
-// for zero rows, a false positive this script would have no way to detect).
-const result = spawnSync('psql', ['-X', '-d', url, '-t', '-A', '-c', query], { encoding: 'utf8' })
-if (result.error) {
-  console.error(`Failed to launch psql: ${result.error.message}`)
-  process.exit(1)
-}
-if (result.status !== 0) {
-  console.error(result.stderr)
-  process.exit(result.status ?? 1)
+function main() {
+  const url = process.env.SUPA_DIRECT_CONNECTION_STRING
+  if (!url) throw new Error('SUPA_DIRECT_CONNECTION_STRING not set in .env.local')
+
+  // -X ignores ~/.psqlrc — a user's \x (expanded output) or \pset format would otherwise
+  // corrupt the "one bare line per row" parse below (e.g. html format emits table tags even
+  // for zero rows, a false positive this script would have no way to detect).
+  const result = spawnSync('psql', ['-X', '-d', url, '-t', '-A', '-c', SECURITY_DEFINER_GRANTS_QUERY], { encoding: 'utf8' })
+  if (result.error) {
+    console.error(`Failed to launch psql: ${result.error.message}`)
+    process.exit(1)
+  }
+  if (result.status !== 0) {
+    console.error(result.stderr)
+    process.exit(result.status ?? 1)
+  }
+
+  const exposed = result.stdout.split('\n').map(line => line.trim()).filter(Boolean)
+
+  if (exposed.length > 0) {
+    console.error('✖ security definer function(s) directly callable by anon/authenticated:')
+    for (const signature of exposed) console.error(`  - ${signature}`)
+    console.error('\nAdd, in the same migration that creates or replaces the function:')
+    console.error('  revoke all on function <signature> from public, anon, authenticated;')
+    console.error('  grant execute on function <signature> to service_role;')
+    process.exit(1)
+  }
+
+  console.log('✔ No security definer function is directly callable by anon/authenticated.')
 }
 
-const exposed = result.stdout.split('\n').map(line => line.trim()).filter(Boolean)
-
-if (exposed.length > 0) {
-  console.error('✖ security definer function(s) directly callable by anon/authenticated:')
-  for (const signature of exposed) console.error(`  - ${signature}`)
-  console.error('\nAdd, in the same migration that creates or replaces the function:')
-  console.error('  revoke all on function <signature> from public, anon, authenticated;')
-  console.error('  grant execute on function <signature> to service_role;')
-  process.exit(1)
-}
-
-console.log('✔ No security definer function is directly callable by anon/authenticated.')
+const isMain = import.meta.url === `file://${process.argv[1]}` || import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))
+if (isMain) main()
