@@ -30,6 +30,15 @@ const addApplication = async (followUp: string | null = null, stage = 'applied')
   return result.rows[0].id
 }
 before(async () => {
+  // PGlite's session timezone defaults to the host machine's local zone, not UTC.
+  // get_job_pipeline_feed's due_work CTE computes "today" against the explicit
+  // p_timezone argument (queryFeed's own default is 'UTC'), so any fixture below
+  // computed via current_date/current_date+1 must agree with that same UTC
+  // reference — otherwise a "future" fixture can already be "today" in UTC once
+  // local time is far enough into the evening (any time after 24 - |UTC offset|
+  // local hours), producing a deterministic, time-of-day-dependent failure that
+  // looks like flakiness but isn't (#280).
+  await db.exec("set timezone = 'UTC'")
   await db.exec("create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create function auth.role() returns text language sql as $$ select current_user::text $$;")
   await db.exec('create schema storage; create table storage.buckets (id text primary key, name text, public boolean); create table storage.objects (bucket_id text);')
   await db.exec(baseline)
