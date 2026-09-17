@@ -78,6 +78,17 @@ describe('security-definer grants audit query', () => {
     assert.ok(!(await exposedSignatures()).includes('vulnerable_shaped_event_trigger()'))
   })
 
+  it('does not flag a security definer procedure granted to anon (invoked via CALL, not a PostgREST RPC)', async () => {
+    // A Copilot review comment on #282 caught this: pg_proc also holds procedures
+    // (prokind = 'p'), which have no trigger/event_trigger return type either, so without an
+    // explicit prokind = 'f' filter a procedure would be misreported as an exposed RPC.
+    await db.exec(`
+      create procedure public.vulnerable_shaped_procedure() language sql security definer as $$ select 1 $$;
+      grant execute on procedure public.vulnerable_shaped_procedure() to anon;
+    `)
+    assert.ok(!(await exposedSignatures()).includes('vulnerable_shaped_procedure()'))
+  })
+
   it('flags a function whose return type is a user-defined type merely NAMED "trigger", distinct from the pg_catalog pseudo-type', async () => {
     // The exact bug a Copilot review caught on #282: comparing by type NAME alone
     // (t.typname not in ('trigger', 'event_trigger')) is ambiguous, since type names are

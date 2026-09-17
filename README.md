@@ -548,7 +548,7 @@ Example queries:
 - Origin header validation on MCP endpoint (DNS rebinding protection per MCP Streamable HTTP spec)
 - Supabase service role key: server-side only, never returned to clients
 - Postgres Row Level Security enforces public/private table boundary
-- Every `security definer` Postgres function must revoke `EXECUTE` from `public`/`anon`/`authenticated` and grant it only to `service_role`, in the same migration that creates or replaces it — `npm run check:rpc-grants` audits every such function directly against `pg_proc` and runs automatically after every `npm run db:push` (see #279's fix, which found and closed one that had been missing this for months)
+- Every callable `security definer` Postgres function (`public` schema, ordinary function not procedure, return type other than `trigger`/`event_trigger` — a trigger function can't be invoked via PostgREST or a plain SQL call regardless of its grants, so it's out of scope for this rule) must revoke `EXECUTE` from `public`/`anon`/`authenticated` and grant it only to `service_role`, in the same migration that creates or replaces it — `npm run check:rpc-grants` audits every function matching that scope directly against `pg_proc` and runs automatically after every `npm run db:push` (see #279's fix, which found and closed one that had been missing this for months)
 - No personal data in this repo — data lives in your Supabase instance
 
 ---
