@@ -25,6 +25,7 @@ const confirmationMigration = readFileSync('supabase/migrations/20260913000002_a
 const snapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
   .replace("encode(pg_catalog.sha256(pg_catalog.convert_to(new.job_description, 'UTF8')), 'hex')", "repeat(md5(new.job_description), 2)")
   .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
+const retentionMigration = readFileSync('supabase/migrations/20260919000000_application_evidence_snapshot_retention.sql', 'utf8')
 const recoveryMigration = readFileSync('supabase/migrations/20260915000000_application_evidence_recovery.sql', 'utf8')
   .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(p_resume_content::text, 'UTF8')), 'hex')", "repeat(md5(p_resume_content::text), 2)")
   .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
@@ -75,6 +76,7 @@ before(async () => {
   await db.exec(confirmationMigration)
   await db.exec(snapshotMigration)
   await db.exec(recoveryMigration)
+  await db.exec(retentionMigration)
 })
 after(() => db.close())
 
@@ -148,6 +150,7 @@ describe('application evidence snapshot SQL', () => {
       assert.equal(privilege.rows[0].allowed, false)
     }
     await db.exec(recoveryMigration)
+    await db.exec(retentionMigration)
     const retained = await db.query<{ count: number }>(
       'select count(*)::integer count from application_resume_recovery_imports where recovery_id=$1', [recoveryId],
     )
