@@ -29,10 +29,11 @@
 export const SUPABASE_FETCH_TIMEOUT_MS_DEFAULT = 30_000
 
 /** The bound in force now: the environment override if set, else the default. */
-export const SUPABASE_FETCH_TIMEOUT_MS = resolveTimeoutMs()
-
 /** `setTimeout`/`AbortSignal.timeout` clamp above this and warn; beyond it the value is meaningless. */
 const MAX_TIMER_MS = 2_147_483_647
+
+/** The bound in force now: the environment override if set, else the default. */
+export const SUPABASE_FETCH_TIMEOUT_MS = resolveTimeoutMs()
 
 /**
  * `SUPABASE_FETCH_TIMEOUT_MS` in the environment overrides the default. Only a
