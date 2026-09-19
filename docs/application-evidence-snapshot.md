@@ -62,7 +62,10 @@ slack.
 A reader must finish paging a snapshot inside the window. Once a later create
 call has pruned it, `get_application_evidence_snapshot_page` refuses that ID
 with `snapshot_not_found`, exactly as for an ID that never existed; it never
-returns a partial or empty page for it. A consumer that sees this mid-page
+returns a partial or empty page for it. That holds even when the prune commits
+while a page call is in flight, because the reader is `stable`: its snapshot
+lookup and its entries lookup share one snapshot of the database, so it cannot
+observe the row and then miss its entries. A consumer that sees this mid-page
 starts again from a new snapshot rather than resuming.
 
 Creating a snapshot re-materializes every application, so callers should

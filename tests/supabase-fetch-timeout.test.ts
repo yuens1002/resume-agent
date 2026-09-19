@@ -405,3 +405,72 @@ test('caller signal via supabase-js .abortSignal(): a tighter caller bound wins 
   assert.match(error.message, /AbortError/)
   assert.equal(calls[0].signal?.aborted, true)
 })
+
+// ---------------------------------------------------------------------------
+// Route level: /token against a database that never answers
+// ---------------------------------------------------------------------------
+
+test('route level: /token fails fast with a 5xx when the database never answers', async (t) => {
+  // The unit cases above prove the wrapper aborts. This one proves the whole
+  // route does: a regression in the handler's error mapping could leave /token
+  // hanging, or answering 200, while every other case here stays green.
+  const shortTimeoutMs = 400
+  const previous = {
+    timeout: process.env.SUPABASE_FETCH_TIMEOUT_MS,
+    url: process.env.SUPA_PROJECT_URL,
+    key: process.env.SUPA_SERVICE_ROLE,
+    jwt: process.env.JWT_SECRET,
+    secret: process.env.OAUTH_CLIENT_SECRET,
+  }
+  process.env.SUPABASE_FETCH_TIMEOUT_MS = String(shortTimeoutMs)
+  process.env.SUPA_PROJECT_URL = 'https://token-timeout-test.invalid'
+  process.env.SUPA_SERVICE_ROLE = 'placeholder-service-role'
+  process.env.JWT_SECRET = 'placeholder-jwt-secret-for-unit-tests-only'
+  process.env.OAUTH_CLIENT_SECRET = 'placeholder-client-secret'
+  t.after(() => {
+    for (const [name, value] of [
+      ['SUPABASE_FETCH_TIMEOUT_MS', previous.timeout], ['SUPA_PROJECT_URL', previous.url],
+      ['SUPA_SERVICE_ROLE', previous.key], ['JWT_SECRET', previous.jwt],
+      ['OAUTH_CLIENT_SECRET', previous.secret],
+    ] as const) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+
+  // Accepts the connection and never responds, like a PostgREST call queued
+  // behind a starved database. It honours abort the way the platform fetch
+  // does — a stub that ignored the signal would hang here no matter how the
+  // wrapper behaved, and prove nothing.
+  t.mock.method(globalThis, 'fetch', (_input: RequestInfo | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal
+      if (!signal) return
+      if (signal.aborted) reject(signal.reason)
+      else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }))
+
+  const { default: oauth } = await import(`../src/routes/oauth.js?token-timeout=${Date.now()}`)
+  const startedAt = performance.now()
+  const response = await settleWithin(
+    oauth.request('/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: 'a'.repeat(64),
+        client_id: 'claude-ai-connector',
+        client_secret: 'placeholder-client-secret',
+      }).toString(),
+    }),
+    shortTimeoutMs * 10,
+    'POST /token against a hung database',
+  )
+  const elapsed = performance.now() - startedAt
+
+  assert.ok(response.status >= 500, `expected a 5xx, got ${response.status}`)
+  assert.ok(
+    elapsed < shortTimeoutMs * 8,
+    `the route took ${Math.round(elapsed)}ms against a ${shortTimeoutMs}ms ceiling`,
+  )
+})

@@ -55,6 +55,13 @@ $$;
 revoke all on function public.application_evidence_snapshot_prune_batch() from public, anon, authenticated;
 grant execute on function public.application_evidence_snapshot_prune_batch() to service_role;
 
+-- The page reader is re-declared STABLE so its snapshot lookup and its entries
+-- lookup share one snapshot of the database. While it was VOLATILE, each
+-- statement took its own, so a prune committing between them could return the
+-- snapshot's metadata with an empty final page instead of the documented
+-- snapshot_not_found refusal. The body is unchanged; only the volatility is.
+alter function public.get_application_evidence_snapshot_page(uuid, integer, integer) stable;
+
 create or replace function public.create_application_evidence_snapshot()
 returns jsonb
 language plpgsql

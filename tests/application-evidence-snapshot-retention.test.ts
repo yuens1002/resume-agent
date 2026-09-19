@@ -175,6 +175,17 @@ describe('application evidence snapshot retention', () => {
     assert.equal(stale.rows[0].stale, 0)
   })
 
+  it('reads a page under one database snapshot, so a concurrent prune cannot yield an empty page', async () => {
+    // A VOLATILE reader takes a new snapshot per statement, so a prune
+    // committing between its two lookups returns metadata with no entries
+    // instead of the documented refusal. STABLE is what rules that out.
+    const volatility = await db.query<{ provolatile: string }>(
+      `select provolatile from pg_proc
+        where oid = 'public.get_application_evidence_snapshot_page(uuid, integer, integer)'::regprocedure`,
+    )
+    assert.equal(volatility.rows[0].provolatile, 's')
+  })
+
   it('prunes at most one batch per create and drains a backlog over the next calls', async () => {
     const batch = (await db.query<{ size: number }>(
       `select public.${PRUNE_BATCH_FUNCTION_NAME}()::integer as size`,

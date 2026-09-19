@@ -26,7 +26,24 @@
  * bound but never extend it. A call that legitimately needs longer must use a
  * client built with its own, larger timeout rather than the shared one.
  */
-export const SUPABASE_FETCH_TIMEOUT_MS = 30_000
+export const SUPABASE_FETCH_TIMEOUT_MS_DEFAULT = 30_000
+
+/** The bound in force now: the environment override if set, else the default. */
+export const SUPABASE_FETCH_TIMEOUT_MS = resolveTimeoutMs()
+
+/**
+ * `SUPABASE_FETCH_TIMEOUT_MS` in the environment overrides the default. Only a
+ * finite positive number is accepted; anything else falls back, because a
+ * malformed value must not silently disable the ceiling. Tests use it to drive
+ * a route end to end against a database that never answers, without waiting
+ * out the production bound.
+ */
+export function resolveTimeoutMs(): number {
+  const raw = process.env.SUPABASE_FETCH_TIMEOUT_MS
+  if (raw === undefined) return SUPABASE_FETCH_TIMEOUT_MS_DEFAULT
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : SUPABASE_FETCH_TIMEOUT_MS_DEFAULT
+}
 
 type FetchFn = typeof fetch
 
@@ -42,13 +59,17 @@ type FetchFn = typeof fetch
  * captured at creation, so a fetch installed later is still the one used.
  */
 export function createBoundedFetch(
-  timeoutMs: number = SUPABASE_FETCH_TIMEOUT_MS,
+  timeoutMs?: number,
   baseFetch?: FetchFn,
 ): FetchFn {
   return (input, init) => {
+    // Resolved per call, not captured at creation, so the shared client picks
+    // up an override set after this module loaded (import order is not ours to
+    // control, and tests drive whole routes this way).
+    const bound = timeoutMs ?? resolveTimeoutMs()
     const callerSignal =
       init?.signal ?? (input instanceof Request ? input.signal : undefined)
-    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    const timeoutSignal = AbortSignal.timeout(bound)
     const signal = callerSignal
       ? AbortSignal.any([callerSignal, timeoutSignal])
       : timeoutSignal

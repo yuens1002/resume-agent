@@ -1,19 +1,19 @@
 # /review report — evidence-snapshot-resilience
 
-**Branch:** `feat/evidence-snapshot-resilience` (reviewed at `33e369d`, base `origin/main` = `d1a7379`, merge-base equal — base confirmed current)
+**Branch:** `feat/evidence-snapshot-resilience` (first reviewed at `33e369d`; updated after the Copilot round, base `origin/main` = `d1a7379`, merge-base equal — base confirmed current)
 **Generated:** 2026-09-19
-**Iterations to reach verified:** 1 orca round + 1 OCR fix round
+**Iterations to reach verified:** 1 orca round + 1 OCR fix round + 1 Copilot round
 
 ## Verdict
 
-**Minor issues.** Every deliverable shipped with tests, and all 17 ACs hold after the fix round. Three doc items need updating before human review: the plan's own post-merge section now describes a prune that no longer behaves that way and an operation that has already been performed, and the repo's CHANGELOG convention has not been satisfied yet. No code changes required.
+**Minor issues, all resolved in this tree.** Every deliverable shipped with tests and all 17 ACs hold. The findings below were raised by this review and fixed in `a3b16ac`; a later round of Copilot review on PR #287 raised four more, fixed in the commit that follows it. Both rounds are recorded here with their resolution, so this report describes the submitted tree rather than a moment during it.
 
 ## Deliverables ↔ Code
 
 | Deliverable | Implementation | Docs touched? | Status |
 |-------------|----------------|----------------|--------|
 | D1 retention migration | `supabase/migrations/20260919000000_application_evidence_snapshot_retention.sql` (`application_evidence_snapshot_retention`, `application_evidence_snapshot_prune_batch`, redefined `create_application_evidence_snapshot`) | Y | ✓ shipped |
-| D2 retention tests | `tests/application-evidence-snapshot-retention.test.ts` (6 cases), registered in `test:application-evidence-source` | Y | ✓ shipped |
+| D2 retention tests | `tests/application-evidence-snapshot-retention.test.ts` (7 cases), registered in `test:application-evidence-source` | Y | ✓ shipped |
 | D3 source-contract doc | `docs/application-evidence-snapshot.md` — new Retention section | Y | ✓ shipped |
 | D4 bounded fetch | `src/lib/bounded-fetch.ts` (`SUPABASE_FETCH_TIMEOUT_MS`, `createBoundedFetch`), wired in `src/lib/supabase.ts`; `src/lib/profile-cache.ts` keeps its own tighter bound, decision recorded in comment | Y | ✓ shipped |
 | D5 single-flight cleanup | `src/lib/oauth-token-cleanup.ts` (`startOAuthTokenCleanup`, `OAUTH_TOKEN_PRUNE_INTERVAL_MS`, `OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS`), wired in `src/routes/oauth.ts` | Y | ✓ shipped |
@@ -36,33 +36,33 @@ All three came from the OCR review round and are justified, but none is named in
 | AC-FN-5 (defined once) | same | ✓ | Asserts the creator carries no interval literal and calls the function by name |
 | AC-FN-9/10 (single-flight) | `oauth-token-cleanup.test.ts` | ✓ | Counts prune calls across many mocked intervals; now raced against a real-time deadline so a regressed guard fails instead of hanging |
 | AC-FN-7/8 (bounded fetch) | `supabase-fetch-timeout.test.ts` | ✓ | Drives the real shared client against a socket that never replies; asserts caller signals are combined, not replaced |
-| AC-TST-1 / AC-TST-2 | `package.json` scripts | ✓ | Both suites run: 43 evidence, 766 unit |
+| AC-TST-1 / AC-TST-2 | `package.json` scripts | ✓ | Both suites run: 44 evidence, 767 unit |
 
 No weak or missing tests found. The external OCR bundle independently mutation-tested these files and every mutation was caught.
 
 ## Docs drift
 
-### Stale claims (contradiction)
+### Stale claims (contradiction) — all fixed in `a3b16ac`
 
-1. **`plan.md`, §2 third decision** — states the one-time `VACUUM FULL` "is a post-merge operation (§5)". It was actually performed on 2026-09-19 at 15:18Z, before merge, as an owner-approved manual cleanup (307 MB → 83 MB; database 406 MB → 182 MB). The plan should record what happened rather than what was intended.
-2. **`plan.md`, §5 row O2** — "One snapshot call triggers the first prune" is no longer true: the prune is bounded per call by `application_evidence_snapshot_prune_batch()`, so a backlog drains over several calls.
-3. **`plan.md`, Deliverables row D1** — describes the prune without the per-call bound that shipped.
+1. **`plan.md`, §2 third decision** (fixed) — states the one-time `VACUUM FULL` "is a post-merge operation (§5)". It was actually performed on 2026-09-19 at 15:18Z, before merge, as an owner-approved manual cleanup (307 MB → 83 MB; database 406 MB → 182 MB). The plan should record what happened rather than what was intended.
+2. **`plan.md`, §5 row O2** (fixed) — "One snapshot call triggers the first prune" is no longer true: the prune is bounded per call by `application_evidence_snapshot_prune_batch()`, so a backlog drains over several calls.
+3. **`plan.md`, Deliverables row D1** (fixed) — describes the prune without the per-call bound that shipped.
 
 No stale claims found outside the plan: `README.md`'s MCP tool list and `docs/application-evidence-snapshot.md` both match the shipped behavior, and no doc claimed anything about the old cleanup cadence or the absence of a fetch timeout.
 
 ### Missing updates (omission)
 
-1. **`CHANGELOG.md`** — `CONTRIBUTING.md` (Repo map, and the pre-PR checklist) requires one line per PR under `## [Unreleased]`, plus a `package.json` version bump. Neither has happened yet. `/commit` performs both, so this is an ordering note rather than a defect, but the convention is not satisfied as the branch stands.
+1. **`CHANGELOG.md`** (fixed) — `CONTRIBUTING.md` requires one line per PR under `## [Unreleased]` plus a `package.json` version bump. The entry was added in `a3b16ac`; the bump to `0.4.130` followed in the Copilot round, which is where its absence was caught.
 2. No other enumeration needs this feature: the retention behavior belongs to the existing source contract (updated), and the new constants are code-level, not environment variables, so the env-var documentation is unaffected.
 
 ### Internal consistency (doc ↔ doc, doc ↔ itself)
 
-Run over every file the branch touched, **after** the last fix commit (`33e369d`).
+Run over every file the branch touched, re-run **after** the Copilot fix round (the pass that matters is the one after the last fix, not before the first).
 
 - **Anchors:** `plan.md`'s `§5`/`§2` references and all `D1`–`D6` IDs resolve; ACs Plan-refs all match deliverable IDs (Gate 1 green).
 - **Deictics:** none of the touched docs use "above/below/following" for a referent this branch moved.
-- **Counts:** the ACs doc's 17 rows match the 17 verdicts recorded; test counts quoted in QC cells (43, 766) match the current run.
-- **Retraction propagation:** the only retraction is the unbounded prune. Grep for "each snapshot whose creation time is older" returns nothing outside the corrected text; `docs/application-evidence-snapshot.md` and AC-FN-1 both state the bound. The plan does not — that is stale claim 2 and 3 above.
+- **Counts:** the ACs doc's 17 rows match the 17 verdicts recorded; the QC cells' test counts were updated to the current run (44 evidence-source, 767 unit) when the Copilot round added two tests.
+- **Retraction propagation:** two retractions. The unbounded prune: grep for "each snapshot whose creation time is older" returns nothing outside the corrected text, and the plan, the source contract and AC-FN-1 all now state the bound. The never-empty-page claim: the source contract now explains why it holds (a `stable` reader) rather than asserting it flatly, and no sibling doc restates it.
 - **Same-document contradiction:** none found.
 
 ## Docs hygiene / public-voice audit
@@ -73,11 +73,18 @@ Run over every file the branch touched, **after** the last fix commit (`33e369d`
 
 The branch diff was grepped for private repo/org/agent names and operational hosts: no hits. One earlier slip (an AC evidence cell that quoted the forbidden-name list itself) was caught and removed before review; the live branch and the published issue comments were re-read from GitHub to confirm. Pre-existing references to the sibling automation repo in `README.md` and `docs/appendix/` predate this branch and are unchanged.
 
-## Recommendations
+## External review round (PR #287, Copilot)
 
-1. Update `plan.md` §2, §5 O2 and row D1 to describe the batched prune and to record the reclaim as already performed, with its measured before/after.
-2. Add the `## [Unreleased]` CHANGELOG line (and let `/commit` do the version bump) before opening the PR.
-3. Optional, deferred lows from the OCR round are listed in the PR description rather than fixed here: the page RPC's empty-page race during a prune, a route-level sweep line covered only by code review, and three test-quality nits.
+Four findings, all fixed:
+
+1. **No route-level proof of the timeout.** The suite proved the wrapper aborts, not that `/token` answers. A regression in the handler's error mapping could have left it hanging while every test stayed green. `tests/supabase-fetch-timeout.test.ts` now drives `POST /token` against a stub that accepts and never answers (and honours abort, as the platform fetch does), asserting a 5xx well inside the bound. `SUPABASE_FETCH_TIMEOUT_MS` is now readable from the environment and resolved per call, so a test can impose a short ceiling without waiting out the production one.
+2. **The empty-page race was documented as impossible.** It was not: `get_application_evidence_snapshot_page` was `volatile`, so its two lookups took separate snapshots and a prune committing between them could return metadata with an empty page. The migration now re-declares the reader `stable` — body unchanged — which closes it, and a test pins the volatility.
+3. **This report was stale** against its own tree. Rewritten as above.
+4. **Version bump missing** beside the CHANGELOG entry, per `CONTRIBUTING.md`. Done.
+
+## Remaining, deliberately open
+
+Low-severity OCR findings, recorded rather than fixed: the route-level auth-code sweep body is covered by code review only (the module-level cadence is tested), and three test-quality nits (a vacuous timing bound, a shared PGlite fixture duplicated across two suites, env values not restored by the route-wiring test).
 
 ## Inputs for /retro
 
