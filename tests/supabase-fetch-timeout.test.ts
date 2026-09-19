@@ -474,3 +474,27 @@ test('route level: /token fails fast with a 5xx when the database never answers'
     `the route took ${Math.round(elapsed)}ms against a ${shortTimeoutMs}ms ceiling`,
   )
 })
+
+test('env override: only a positive safe integer inside the timer range is honoured', async (t) => {
+  const { resolveTimeoutMs, SUPABASE_FETCH_TIMEOUT_MS_DEFAULT } = await import('../src/lib/bounded-fetch.js')
+  const previous = process.env.SUPABASE_FETCH_TIMEOUT_MS
+  t.after(() => {
+    if (previous === undefined) delete process.env.SUPABASE_FETCH_TIMEOUT_MS
+    else process.env.SUPABASE_FETCH_TIMEOUT_MS = previous
+  })
+
+  delete process.env.SUPABASE_FETCH_TIMEOUT_MS
+  assert.equal(resolveTimeoutMs(), SUPABASE_FETCH_TIMEOUT_MS_DEFAULT)
+
+  process.env.SUPABASE_FETCH_TIMEOUT_MS = '750'
+  assert.equal(resolveTimeoutMs(), 750)
+
+  // `1e100` is finite and positive but outside the timer API's range, so
+  // AbortSignal.timeout would throw a RangeError on every call rather than
+  // degrade. A malformed value must fall back, never disable the ceiling.
+  for (const rejected of ['1e100', '2147483648', '1.5', '0', '-1', 'soon', '', 'NaN', 'Infinity']) {
+    process.env.SUPABASE_FETCH_TIMEOUT_MS = rejected
+    assert.equal(resolveTimeoutMs(), SUPABASE_FETCH_TIMEOUT_MS_DEFAULT, `"${rejected}" should have fallen back`)
+    assert.doesNotThrow(() => AbortSignal.timeout(resolveTimeoutMs()))
+  }
+})

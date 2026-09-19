@@ -31,18 +31,24 @@ export const SUPABASE_FETCH_TIMEOUT_MS_DEFAULT = 30_000
 /** The bound in force now: the environment override if set, else the default. */
 export const SUPABASE_FETCH_TIMEOUT_MS = resolveTimeoutMs()
 
+/** `setTimeout`/`AbortSignal.timeout` clamp above this and warn; beyond it the value is meaningless. */
+const MAX_TIMER_MS = 2_147_483_647
+
 /**
  * `SUPABASE_FETCH_TIMEOUT_MS` in the environment overrides the default. Only a
- * finite positive number is accepted; anything else falls back, because a
- * malformed value must not silently disable the ceiling. Tests use it to drive
- * a route end to end against a database that never answers, without waiting
- * out the production bound.
+ * positive safe integer within the timer API's own range is accepted; anything
+ * else falls back, because a malformed value must not silently disable the
+ * ceiling — and a value like `1e100` would make `AbortSignal.timeout` throw a
+ * RangeError on every shared-client call rather than degrade. Tests use the
+ * override to drive a route end to end against a database that never answers,
+ * without waiting out the production bound.
  */
 export function resolveTimeoutMs(): number {
   const raw = process.env.SUPABASE_FETCH_TIMEOUT_MS
   if (raw === undefined) return SUPABASE_FETCH_TIMEOUT_MS_DEFAULT
   const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : SUPABASE_FETCH_TIMEOUT_MS_DEFAULT
+  const usable = Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_TIMER_MS
+  return usable ? parsed : SUPABASE_FETCH_TIMEOUT_MS_DEFAULT
 }
 
 type FetchFn = typeof fetch

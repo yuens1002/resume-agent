@@ -36,7 +36,7 @@ All three came from the OCR review round and are justified, but none is named in
 | AC-FN-5 (defined once) | same | ✓ | Asserts the creator carries no interval literal and calls the function by name |
 | AC-FN-9/10 (single-flight) | `oauth-token-cleanup.test.ts` | ✓ | Counts prune calls across many mocked intervals; now raced against a real-time deadline so a regressed guard fails instead of hanging |
 | AC-FN-7/8 (bounded fetch) | `supabase-fetch-timeout.test.ts` | ✓ | Drives the real shared client against a socket that never replies; asserts caller signals are combined, not replaced |
-| AC-TST-1 / AC-TST-2 | `package.json` scripts | ✓ | Both suites run: 44 evidence, 767 unit |
+| AC-TST-1 / AC-TST-2 | `package.json` scripts | ✓ | Both suites run: 44 evidence, 768 unit |
 
 No weak or missing tests found. The external OCR bundle independently mutation-tested these files and every mutation was caught.
 
@@ -61,7 +61,7 @@ Run over every file the branch touched, re-run **after** the Copilot fix round (
 
 - **Anchors:** `plan.md`'s `§5`/`§2` references and all `D1`–`D6` IDs resolve; ACs Plan-refs all match deliverable IDs (Gate 1 green).
 - **Deictics:** none of the touched docs use "above/below/following" for a referent this branch moved.
-- **Counts:** the ACs doc's 17 rows match the 17 verdicts recorded; the QC cells' test counts were updated to the current run (44 evidence-source, 767 unit) when the Copilot round added two tests.
+- **Counts:** the ACs doc's 17 rows match the 17 verdicts recorded; the QC cells' test counts were updated to the current run (44 evidence-source, 768 unit) when the Copilot round added two tests.
 - **Retraction propagation:** two retractions. The unbounded prune: grep for "each snapshot whose creation time is older" returns nothing outside the corrected text, and the plan, the source contract and AC-FN-1 all now state the bound. The never-empty-page claim: the source contract now explains why it holds (a `stable` reader) rather than asserting it flatly, and no sibling doc restates it.
 - **Same-document contradiction:** none found.
 
