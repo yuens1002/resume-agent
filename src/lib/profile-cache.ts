@@ -26,6 +26,12 @@ const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000
 // Bounds worst-case request latency when Supabase's edge is unresponsive
 // (observed hangs of ~20s per request during the 2026-07-24 outage). On
 // timeout the fetch fails fast and the stale-on-error fallback kicks in.
+//
+// Deliberately separate from SUPABASE_FETCH_TIMEOUT_MS (bounded-fetch.ts), not
+// reused: that constant is the client-wide ceiling for every call, including
+// heavy ones, while this read sits on every public request and has a stale
+// fallback, so it should give up much sooner. The two signals are combined in
+// the client's fetch wrapper, so this tighter bound still applies.
 const PROFILE_FETCH_TIMEOUT_MS = 8_000
 
 // PostgREST error code for `.single()` matching zero rows — the only error
