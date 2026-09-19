@@ -14,6 +14,7 @@ const draftDueWorkMigration = readFileSync('supabase/migrations/20260913000001_j
 const confirmationMigration = readFileSync('supabase/migrations/20260913000002_application_submission_confirmation.sql', 'utf8')
 const applicationEvidenceSnapshotMigration = readFileSync('supabase/migrations/20260914000000_application_evidence_snapshot.sql', 'utf8')
 const applicationEvidenceRecoveryMigration = readFileSync('supabase/migrations/20260915000000_application_evidence_recovery.sql', 'utf8')
+const applicationEvidenceRetentionMigration = readFileSync('supabase/migrations/20260919000000_application_evidence_snapshot_retention.sql', 'utf8')
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
   .replace(/^create extension if not exists pg_trgm;$/m, '')
   .replace(/^create index .*gin_trgm_ops.*;$/gm, '')
@@ -54,6 +55,10 @@ try {
   await sql(confirmationMigration)
   await sql(applicationEvidenceSnapshotMigration)
   await sql(applicationEvidenceRecoveryMigration)
+  // Keep this list through the newest creator definition: without it the runner
+  // exercises a superseded create_application_evidence_snapshot() and the PGlite
+  // suites are the only check on what production actually runs.
+  await sql(applicationEvidenceRetentionMigration)
   assert.equal(await sql("select to_regprocedure('pg_catalog.sha256(bytea)') is not null and to_regprocedure('public.digest(bytea,text)') is null and to_regprocedure('extensions.digest(bytea,text)') is not null;"), 't')
 
   const beforeDraft = await readFeed()

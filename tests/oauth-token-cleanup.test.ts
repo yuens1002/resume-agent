@@ -45,10 +45,37 @@ import {
  */
 const UNREACHABLE_DELAY_MS = 2_000_000_000
 
+/** Real-time deadline for assertions that must not be able to hang. */
+const GUARD_DEADLINE_MS = 2_000
+
+// Captured before any test installs mock timers: the deadline below must run on
+// real time, or it would sit unfired inside the very mock clock it is guarding.
+const realSetTimeout = globalThis.setTimeout
+const realClearTimeout = globalThis.clearTimeout
+
 /** How many prune intervals the "stuck prune" cases span. */
 const STUCK_PRUNE_INTERVALS = 10
 
 /** Let pending promise continuations run (setImmediate is left unmocked on purpose). */
+/**
+ * Fail with a diagnosis instead of hanging: a guard that regressed would leave
+ * the awaited call pending forever, and node:test applies no per-test timeout.
+ */
+async function settleWithin<T>(promise: Promise<T>, deadlineMs: number, label: string): Promise<T> {
+  let guardTimer: ReturnType<typeof setTimeout> | undefined
+  const guard = new Promise<never>((_resolve, reject) => {
+    guardTimer = realSetTimeout(
+      () => reject(new Error(`${label}: still pending after ${deadlineMs}ms, so the single-flight guard did not hold`)),
+      deadlineMs,
+    )
+  })
+  try {
+    return await Promise.race([promise, guard])
+  } finally {
+    realClearTimeout(guardTimer)
+  }
+}
+
 async function flushAsyncWork(): Promise<void> {
   for (let turn = 0; turn < 5; turn++) {
     await new Promise((resolve) => setImmediate(resolve))
@@ -217,7 +244,10 @@ test('single-flight: runPrune while a prune is pending returns false without cal
   await advancePruneIntervals(t, 1)
   assert.equal(script.callCount(), 1)
 
-  assert.equal(await handle.runPrune(), false)
+  // Raced against a deadline: if the guard regresses, runPrune() would await the
+  // never-settling prune and this test would hang instead of failing.
+  assert.equal(await settleWithin(handle.runPrune(), GUARD_DEADLINE_MS,
+    'runPrune while a prune is pending'), false)
   assert.equal(script.callCount(), 1)
 })
 
