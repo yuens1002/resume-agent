@@ -22,7 +22,9 @@
  * scripts that import the shared client) keep headroom, while a degraded
  * database fails requests in seconds rather than the minutes observed without
  * it. Call sites that need a tighter bound pass their own abort signal; the two
- * are combined, so whichever fires first wins.
+ * are combined, so whichever fires first wins — a call site can tighten this
+ * bound but never extend it. A call that legitimately needs longer must use a
+ * client built with its own, larger timeout rather than the shared one.
  */
 export const SUPABASE_FETCH_TIMEOUT_MS = 30_000
 

@@ -30,12 +30,20 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   AUTH_CODE_SWEEP_INTERVAL_MS,
+  OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS,
   OAUTH_TOKEN_PRUNE_INTERVAL_MS,
   startOAuthTokenCleanup,
   type OAuthCleanupHandle,
   type OAuthCleanupOptions,
   type TokenPruneResult,
 } from '../src/lib/oauth-token-cleanup.js'
+
+/**
+ * A delay no test advances to, used to keep the post-boot first prune out of
+ * the way. Stays under setTimeout's 2^31-1 ms ceiling: above it, Node fires
+ * the timer immediately instead of never.
+ */
+const UNREACHABLE_DELAY_MS = 2_000_000_000
 
 /** How many prune intervals the "stuck prune" cases span. */
 const STUCK_PRUNE_INTERVALS = 10
@@ -106,18 +114,27 @@ function captureLog(): LogCapture {
  * Start cleanup under mock timers with the module's default intervals, and
  * fail the test if anything escapes as an unhandled rejection or uncaught
  * exception while it runs.
+ *
+ * The post-boot first prune is pushed out of reach by default so the cases
+ * below observe the interval alone; the cadence tests pass the real
+ * OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS to exercise it.
  */
 function startUnderMockTimers(
   t: TestContext,
   options: Pick<OAuthCleanupOptions, 'prune'> & Partial<OAuthCleanupOptions>,
 ): OAuthCleanupHandle {
-  t.mock.timers.enable({ apis: ['setInterval'] })
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] })
   const escaped: unknown[] = []
   const onEscape = (reason: unknown) => escaped.push(reason)
   process.on('unhandledRejection', onEscape)
   process.on('uncaughtException', onEscape)
 
-  const handle = startOAuthTokenCleanup({ sweepAuthCodes: () => {}, logError: () => {}, ...options })
+  const handle = startOAuthTokenCleanup({
+    sweepAuthCodes: () => {},
+    logError: () => {},
+    firstPruneDelayMs: UNREACHABLE_DELAY_MS,
+    ...options,
+  })
 
   t.after(async () => {
     handle.stop()
@@ -133,20 +150,30 @@ function startUnderMockTimers(
 // Cadence
 // ---------------------------------------------------------------------------
 
-test('cadence: the first prune runs one OAUTH_TOKEN_PRUNE_INTERVAL_MS after start, not at start', async (t) => {
+test('cadence: the first prune runs OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS after start, not at start', async (t) => {
   const script = scriptedPrune(succeeds)
-  startUnderMockTimers(t, { prune: script.prune })
+  startUnderMockTimers(t, { prune: script.prune, firstPruneDelayMs: OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS })
 
   await flushAsyncWork()
   assert.equal(script.callCount(), 0)
 
-  t.mock.timers.tick(OAUTH_TOKEN_PRUNE_INTERVAL_MS - 1)
+  t.mock.timers.tick(OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS - 1)
   await flushAsyncWork()
-  assert.equal(script.callCount(), 0, 'pruned before a full interval elapsed')
+  assert.equal(script.callCount(), 0, 'pruned before the first-run delay elapsed')
 
   t.mock.timers.tick(1)
   await flushAsyncWork()
-  assert.equal(script.callCount(), 1)
+  assert.equal(script.callCount(), 1, 'a restart more frequent than the interval must still prune')
+
+  // The interval takes over from there, measured from start.
+  t.mock.timers.tick(OAUTH_TOKEN_PRUNE_INTERVAL_MS - OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS)
+  await flushAsyncWork()
+  assert.equal(script.callCount(), 2)
+})
+
+test('cadence: the first-run delay is shorter than the interval, or it would never help', () => {
+  assert.ok(OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS > 0)
+  assert.ok(OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS < OAUTH_TOKEN_PRUNE_INTERVAL_MS)
 })
 
 test('cadence: a prune that settles promptly runs once per interval', async (t) => {

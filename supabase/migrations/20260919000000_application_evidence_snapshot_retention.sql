@@ -41,6 +41,20 @@ $$;
 revoke all on function public.application_evidence_snapshot_retention() from public, anon, authenticated;
 grant execute on function public.application_evidence_snapshot_retention() to service_role;
 
+-- How many expired snapshots one create call may prune. Defined once, beside
+-- the window, so tests and operators read both by name.
+create or replace function public.application_evidence_snapshot_prune_batch()
+returns integer
+language sql
+immutable
+set search_path = pg_catalog
+as $$
+  select 5
+$$;
+
+revoke all on function public.application_evidence_snapshot_prune_batch() from public, anon, authenticated;
+grant execute on function public.application_evidence_snapshot_prune_batch() to service_role;
+
 create or replace function public.create_application_evidence_snapshot()
 returns jsonb
 language plpgsql
@@ -53,10 +67,24 @@ declare
   v_total integer;
 begin
   -- Retention: drop snapshots created before the window, entries cascade.
-  -- created_at (not as_of) is the age, so a snapshot still being
-  -- materialized, whose as_of is '-infinity', is never mistaken for old.
+  -- created_at (not as_of) is the age: it is the row default stamped at
+  -- transaction start, which is the creation time the docs describe, and it
+  -- differs from the reader-visible as_of only by the materialization time.
+  --
+  -- Bounded per call, because an unbounded prune would make the first call
+  -- after deploy delete the whole backlog in the same transaction as a full
+  -- materialization. Any client abort (this repo's own fetch timeout among
+  -- them) would roll that back and the next call would repeat it, so the
+  -- backlog would never drain. At one expired snapshot per call in steady
+  -- state this is slack; a backlog drains over the next few calls.
   delete from public.application_evidence_snapshots
-  where created_at < now() - public.application_evidence_snapshot_retention();
+  where id in (
+    select id
+    from public.application_evidence_snapshots
+    where created_at < now() - public.application_evidence_snapshot_retention()
+    order by created_at
+    limit public.application_evidence_snapshot_prune_batch()
+  );
 
   insert into public.application_evidence_snapshots (id, as_of, total_applications)
   values (v_snapshot_id, '-infinity'::timestamptz, 0);

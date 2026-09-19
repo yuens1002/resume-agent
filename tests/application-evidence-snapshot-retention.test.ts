@@ -17,6 +17,7 @@ import { getApplicationEvidenceSnapshotPage } from '../src/lib/application-evide
 import { SECURITY_DEFINER_GRANTS_QUERY } from '../scripts/check-security-definer-grants.js'
 
 const RETENTION_FUNCTION_NAME = 'application_evidence_snapshot_retention'
+const PRUNE_BATCH_FUNCTION_NAME = 'application_evidence_snapshot_prune_batch'
 const RETENTION_MIGRATION_PATH = 'supabase/migrations/20260919000000_application_evidence_snapshot_retention.sql'
 
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
@@ -172,6 +173,30 @@ describe('application evidence snapshot retention', () => {
        where created_at < now() - public.${RETENTION_FUNCTION_NAME}()`,
     )
     assert.equal(stale.rows[0].stale, 0)
+  })
+
+  it('prunes at most one batch per create and drains a backlog over the next calls', async () => {
+    const batch = (await db.query<{ size: number }>(
+      `select public.${PRUNE_BATCH_FUNCTION_NAME}()::integer as size`,
+    )).rows[0].size
+    assert.ok(batch > 0, 'fixture: the batch bound must be positive')
+
+    // Create the whole backlog first: each create prunes, so ageing as we go
+    // would let the loop drain its own backlog before the measured call.
+    const backlog: string[] = []
+    for (let index = 0; index < batch + 2; index += 1) backlog.push((await createSnapshot()).snapshot_id)
+    // Oldest first, so the prune order is observable.
+    for (const [index, id] of backlog.entries()) await ageSnapshotRelativeToRetention(id, `-${batch + 2 - index} hours`)
+
+    await createSnapshot()
+    const survivors = []
+    for (const id of backlog) if (await snapshotExists(id)) survivors.push(id)
+    assert.equal(survivors.length, 2, 'one create prunes exactly one batch, not the whole backlog')
+    assert.deepEqual(survivors, backlog.slice(batch), 'the oldest expired snapshots go first')
+
+    await createSnapshot()
+    for (const id of backlog) assert.equal(await snapshotExists(id), false, 'the backlog drains over the next calls')
+    assert.equal(await orphanEntryCount(), 0)
   })
 
   it('pages an in-window snapshot end to end, every ordinal exactly once, after a later create has pruned', async () => {

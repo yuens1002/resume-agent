@@ -23,10 +23,18 @@ export const AUTH_CODE_SWEEP_INTERVAL_MS = 60_000
 /**
  * How often the refresh-token table is pruned. Refresh tokens live for days
  * and rows are kept for a further multi-day retention period after expiry, so
- * removing a row up to an hour after it becomes eligible is immaterial, and it
- * issues a sixtieth of the statements the previous per-minute prune did.
+ * removing a row up to one interval after it becomes eligible is immaterial.
+ * The interval is far shorter than the token lifetime and far longer than a
+ * healthy prune, so overlap stays unlikely even on a slow database.
  */
 export const OAUTH_TOKEN_PRUNE_INTERVAL_MS = 60 * 60 * 1000
+
+/**
+ * Delay before the first prune after start. Short enough that a service which
+ * restarts more often than the interval still prunes, long enough to stay out
+ * of the way of boot work and of a database that is still recovering.
+ */
+export const OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS = 60_000
 
 /** Shape of a supabase-js mutation result; only `error` is read. */
 export interface TokenPruneResult {
@@ -42,6 +50,8 @@ export interface OAuthCleanupOptions {
   sweepAuthCodes: () => void
   pruneIntervalMs?: number
   sweepIntervalMs?: number
+  /** Delay before the first prune. Defaults to OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS. */
+  firstPruneDelayMs?: number
   /** Defaults to console.error. */
   logError?: (message: string, detail?: unknown) => void
 }
@@ -54,12 +64,13 @@ export interface OAuthCleanupHandle {
   runPrune: () => Promise<boolean>
   /** Whether a prune is currently pending. */
   isPruneInFlight: () => boolean
-  /** Clears both timers. */
+  /** Clears every timer. */
   stop: () => void
-  /** Exposed so callers and tests can confirm both timers are unref'd. */
+  /** Exposed so callers and tests can confirm every timer is unref'd. */
   timers: {
     prune: ReturnType<typeof setInterval>
     sweep: ReturnType<typeof setInterval>
+    firstPrune: ReturnType<typeof setTimeout>
   }
 }
 
@@ -68,7 +79,7 @@ const LOG_PREFIX = '[oauth] cleanup:'
 /**
  * Start the auth-code sweep and the single-flight token prune. Both timers are
  * unref'd, so they never keep the process alive on their own. The first prune
- * runs one interval after start, as before.
+ * runs `firstPruneDelayMs` after start; the interval takes over from there.
  */
 export function startOAuthTokenCleanup(options: OAuthCleanupOptions): OAuthCleanupHandle {
   const {
@@ -76,6 +87,7 @@ export function startOAuthTokenCleanup(options: OAuthCleanupOptions): OAuthClean
     sweepAuthCodes,
     pruneIntervalMs = OAUTH_TOKEN_PRUNE_INTERVAL_MS,
     sweepIntervalMs = AUTH_CODE_SWEEP_INTERVAL_MS,
+    firstPruneDelayMs = OAUTH_TOKEN_FIRST_PRUNE_DELAY_MS,
     logError = (message, detail) => console.error(message, detail),
   } = options
 
@@ -114,12 +126,20 @@ export function startOAuthTokenCleanup(options: OAuthCleanupOptions): OAuthClean
     }
   }, sweepIntervalMs)
 
+  // The first prune runs shortly after boot rather than a full interval later:
+  // a service redeployed or restarted more often than the interval would
+  // otherwise never prune at all. The delay keeps it clear of boot work.
+  const firstPruneTimer = setTimeout(() => {
+    void runPrune()
+  }, firstPruneDelayMs)
+
   const pruneTimer = setInterval(() => {
     void runPrune()
   }, pruneIntervalMs)
 
   sweepTimer.unref()
   pruneTimer.unref()
+  firstPruneTimer.unref()
 
   return {
     runPrune,
@@ -127,7 +147,8 @@ export function startOAuthTokenCleanup(options: OAuthCleanupOptions): OAuthClean
     stop: () => {
       clearInterval(sweepTimer)
       clearInterval(pruneTimer)
+      clearTimeout(firstPruneTimer)
     },
-    timers: { prune: pruneTimer, sweep: sweepTimer },
+    timers: { prune: pruneTimer, sweep: sweepTimer, firstPrune: firstPruneTimer },
   }
 }

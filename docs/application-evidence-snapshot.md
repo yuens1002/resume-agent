@@ -48,10 +48,16 @@ is defined once, as the SQL function
 `20260919000000_application_evidence_snapshot_retention.sql`; read the value
 there rather than from this document.
 
-Every `create_application_evidence_snapshot` call first deletes each snapshot
-whose creation time is older than that window, in the same transaction that
-records the new snapshot. Its entries are removed with it. No scheduler is
-involved, so pruning happens only when a snapshot is created.
+Every `create_application_evidence_snapshot` call first deletes expired
+snapshots, oldest first, in the same transaction that records the new snapshot.
+Their entries are removed with them. No scheduler is involved, so pruning
+happens only when a snapshot is created.
+
+One call prunes at most `public.application_evidence_snapshot_prune_batch()`
+snapshots, so a large backlog drains over the next few calls rather than
+putting one call's transaction at risk of running long and rolling the prune
+back. In steady state at most a handful expire between calls, so the bound is
+slack.
 
 A reader must finish paging a snapshot inside the window. Once a later create
 call has pruned it, `get_application_evidence_snapshot_page` refuses that ID
