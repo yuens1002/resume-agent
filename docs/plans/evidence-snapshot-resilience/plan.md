@@ -2,7 +2,7 @@
 
 **Issues:** #285 (snapshot retention), #286 (bounded Supabase fetch, single-flight token cleanup)
 **Branch:** `feat/evidence-snapshot-resilience` · **Cadence:** Full · **Execution:** `/agentic-orca` Implement + Verify
-**Acceptance criteria:** `ACs.md` · **Status:** awaiting plan approval
+**Acceptance criteria:** `ACs.md` · **Review report:** `review.md` · **Status:** plan approved 2026-09-19; implemented and verified (17/17 ACs), awaiting human review
 
 ## 1. Why
 
@@ -17,13 +17,14 @@ A real deployment on the smallest compute tier (~1 GB RAM) became unresponsive t
 
 - **Retention is 24 hours**, pruned inside `create_application_evidence_snapshot()` in the same transaction, with no scheduler. A pruned ID already returns `snapshot_not_found` (`P0001`) from `get_application_evidence_snapshot_page`, so the page contract does not change.
 - **Out of scope:** reusing an unchanged snapshot instead of materializing a duplicate (#285 option 2). Retention plus the consumer fix bound growth. Revisit only if storage grows again.
-- **The one-time reclaim** (`VACUUM FULL application_evidence_snapshot_entries`) is a post-merge operation (§5). It is not part of the migration, because `VACUUM FULL` cannot run inside a transaction and takes an exclusive lock.
+- **The one-time reclaim** (`VACUUM FULL application_evidence_snapshot_entries`) is not part of the migration, because `VACUUM FULL` cannot run inside a transaction and takes an exclusive lock. It was performed by hand, with owner approval, on **2026-09-19 at 15:18Z**, before this branch merged: 222 expired snapshots deleted, the entries table 307 MB → 83 MB, the database 406 MB → 182 MB. §5 records what remains.
+- **The prune is bounded per call** (`application_evidence_snapshot_prune_batch()`). An unbounded prune would put the whole backlog in one request-path transaction, and any client abort — including this branch's own fetch ceiling — would roll it back and leave the next call to repeat it.
 
 ## Deliverables
 
 | ID | Deliverable | Kind | Role | Files |
 |---|---|---|---|---|
-| D1 | Forward migration redefining `create_application_evidence_snapshot()` to delete snapshots older than the retention window in the same transaction; retention defined once (a SQL function or constant named `application_evidence_snapshot_retention`) | database | backend-architect | new `supabase/migrations/<timestamp>_application_evidence_snapshot_retention.sql` |
+| D1 | Forward migration redefining `create_application_evidence_snapshot()` to delete snapshots older than the retention window in the same transaction, oldest first and bounded per call; retention and the per-call bound each defined once (`application_evidence_snapshot_retention`, `application_evidence_snapshot_prune_batch`) | database | backend-architect | new `supabase/migrations/<timestamp>_application_evidence_snapshot_retention.sql` |
 | D2 | PGlite tests for D1: pruning, in-window paging, pruned-ID refusal, retention defined once | verification | backend-architect | `tests/application-evidence-snapshot-retention.test.ts`, `package.json` (`test:application-evidence-source`, `test:unit` if applicable) |
 | D3 | Source-contract doc update: retention semantics, and a reader must finish paging within the window | documentation | backend-architect | `docs/application-evidence-snapshot.md` |
 | D4 | Bounded fetch for the shared Supabase client: `global.fetch` wrapped with `AbortSignal.timeout`, as one named timeout constant; profile-cache timeout reuses or deliberately stays separate (decision recorded in code comment) | library | backend-architect | `src/lib/supabase.ts` (and `src/lib/profile-cache.ts` only if reconciled) |
@@ -51,6 +52,6 @@ Streams share one repo, so each runs in its **own git worktree** on its own sub-
 | Op | Action | Evidence |
 |---|---|---|
 | O1 | Deploy (the target deployment redeploys on merge to `main`) and apply the migration | Migration listed as applied; `/health` 200 |
-| O2 | One snapshot call triggers the first prune; then `VACUUM FULL application_evidence_snapshot_entries` in a quiet window | `pg_total_relation_size` before and after |
+| O2 | Already done (2026-09-19 15:18Z, §2): the expired backlog was deleted and `VACUUM FULL application_evidence_snapshot_entries` reclaimed the space. After deploy, confirm the automatic prune keeps up — each create prunes at most one batch, so a new backlog drains over consecutive calls | `pg_total_relation_size` and the count of snapshots older than the window |
 | O3 | Next day: snapshot rows older than 24h = 0; swap and IO budget trend down | Query + dashboard read |
 | O4 | Close #285 and #286 with the evidence | Issue comments |
