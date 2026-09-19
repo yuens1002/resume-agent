@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import crypto from 'crypto'
 import { supabase } from '../lib/supabase.js'
+import { startOAuthTokenCleanup } from '../lib/oauth-token-cleanup.js'
 
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('Missing JWT_SECRET')
@@ -82,18 +83,24 @@ const authCodes = new Map<string, {
   expires_at: number
 }>()
 
-const cleanupInterval = setInterval(() => {
-  const now = Date.now()
-  for (const [code, data] of authCodes) {
-    if (now > data.expires_at) authCodes.delete(code)
-  }
-  // Prune rows older than 7 days — keeps consumed tokens live long enough for replay detection
-  supabase.from('oauth_refresh_tokens')
-    .delete()
-    .lt('expires_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-    .then(({ error }) => { if (error) console.error('[oauth] cleanup: failed to prune tokens', error.message) })
-}, 60_000)
-cleanupInterval.unref()
+// Rows are pruned only once expired for this long — keeps consumed tokens live
+// long enough for replay detection
+const REFRESH_TOKEN_PRUNE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+// Separate timers for the in-memory sweep and the single-flight DB prune, both
+// unref'd — see oauth-token-cleanup.ts (#286)
+startOAuthTokenCleanup({
+  sweepAuthCodes: () => {
+    const now = Date.now()
+    for (const [code, data] of authCodes) {
+      if (now > data.expires_at) authCodes.delete(code)
+    }
+  },
+  prune: () =>
+    supabase.from('oauth_refresh_tokens')
+      .delete()
+      .lt('expires_at', new Date(Date.now() - REFRESH_TOKEN_PRUNE_RETENTION_MS).toISOString()),
+})
 
 const oauth = new Hono()
 
