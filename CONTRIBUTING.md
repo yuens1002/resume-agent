@@ -8,7 +8,7 @@ Conventions for anyone contributing to this repo — use whatever editor, AI ass
 
 Hono app on Railway, Supabase Postgres + pgvector as the data tier. See [README.md](README.md) for the vision, [ROADMAP.md](ROADMAP.md) for shipped + in-progress work.
 
-- **Runtime:** Node 20+, Railway single replica (stateless — horizontal scale is safe)
+- **Runtime:** Node 20.3+ (`AbortSignal.any`), Railway single replica (stateless — horizontal scale is safe)
 - **Language:** TypeScript strict. No `any` — use `unknown` + type guards
 - **Framework:** Hono, routes in `src/routes/`
 - **AI:** Vercel AI SDK via OpenRouter; model selection in `src/lib/ai.ts`

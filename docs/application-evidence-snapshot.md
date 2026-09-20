@@ -40,6 +40,37 @@ snapshot or appears under an earlier timestamp. The snapshot is intentionally
 not an acknowledgement, submission confirmation, or external-ATS acceptance
 record.
 
+## Retention
+
+Snapshots are short-lived read handles, not an archive. The retention window
+is defined once, as the SQL function
+`public.application_evidence_snapshot_retention()` in
+`20260919000000_application_evidence_snapshot_retention.sql`; read the value
+there rather than from this document.
+
+Every `create_application_evidence_snapshot` call first deletes expired
+snapshots, oldest first, in the same transaction that records the new snapshot.
+Their entries are removed with them. No scheduler is involved, so pruning
+happens only when a snapshot is created.
+
+One call prunes at most `public.application_evidence_snapshot_prune_batch()`
+snapshots, so a large backlog drains over the next few calls rather than
+putting one call's transaction at risk of running long and rolling the prune
+back. In steady state at most a handful expire between calls, so the bound is
+slack.
+
+A reader must finish paging a snapshot inside the window. Once a later create
+call has pruned it, `get_application_evidence_snapshot_page` refuses that ID
+with `snapshot_not_found`, exactly as for an ID that never existed; it never
+returns a partial or empty page for it. That holds even when the prune commits
+while a page call is in flight, because the reader is `stable`: its snapshot
+lookup and its entries lookup share one snapshot of the database, so it cannot
+observe the row and then miss its entries. A consumer that sees this mid-page
+starts again from a new snapshot rather than resuming.
+
+Creating a snapshot re-materializes every application, so callers should
+create one when they need a fresh read, not on a fixed polling schedule.
+
 ## Evidence and provenance
 
 The response includes complete current application fields, including current
@@ -88,8 +119,9 @@ all response channels were searched.
 ## Refusals
 
 Malformed tool inputs return `invalid_input`. The page reader maps a missing
-snapshot to `snapshot_not_found`, an invalid cursor or page limit to
-`invalid_cursor_or_limit`, and source/RPC failures to a non-diagnostic refusal.
+snapshot, including one pruned by retention, to `snapshot_not_found`, an
+invalid cursor or page limit to `invalid_cursor_or_limit`, and source/RPC
+failures to a non-diagnostic refusal.
 
 ## Source-owner recovery
 
@@ -114,7 +146,8 @@ deterministic path for the same safe retry rather than being silently deleted.
 New snapshots label the version `provenance.status: recovered`, preserve its
 server `recorded_at`, and set `original_generated_at: null` with
 `original_generation_time_status: unknown`. Existing materialized snapshots
-remain readable with their original immutable shape. The legacy JD remains
-`legacy_unversioned`; recovery never invents its historical capture time.
+remain readable with their original immutable shape until the retention window
+prunes them (see Retention). The legacy JD remains `legacy_unversioned`;
+recovery never invents its historical capture time.
 Application stage, scores, submission confirmations, outcomes, and prior resume
 versions are outside the function's write set.
