@@ -2,7 +2,7 @@
 
 **Branch:** `feat/resume-wiki-format`
 **Reviewed against:** `origin/main` @ `354d131` (merge base verified equal before review)
-**Scope:** `docs/plans/resume-wiki-format/plan.md` and issue #298. Docs-only; no code, tests or ACs exist yet, so Steps 1–2 (deliverables ↔ code, ACs ↔ tests) do not apply.
+**Scope:** `docs/plans/resume-wiki-format/plan.md` and issue #298. Docs-only. The plan defines AC-1 to AC-14, but no implementation or tests exist for them yet, so Steps 1–2 (deliverables ↔ code, ACs ↔ tests) have nothing to check until implementation lands.
 
 ## Verdict
 
@@ -43,6 +43,16 @@ Two findings, both valid, both fixed:
 - **Missing required structure.** The plan lacked CONTRIBUTING's required plan sections (Context through What this unlocks, with `AC-N` criteria) and a `ROADMAP.md` entry. The plan was restructured to that template with 14 ACs (2 marked pending on open questions), and the ROADMAP gained a Next entry.
 
 3e re-run after these fixes: the CHANGELOG entry's "phases" and "one page enforced" wording and this report's dead "Phase 2" anchor were updated to match. Clean.
+
+## Round-2 addendum (Copilot review on PR #299)
+
+Four findings, all valid, all fixed:
+- Goal 2 promised past-tense openings as an invariant, but only periods and `&` are enforced deterministically. The goals now separate guaranteed from required-and-rewarded.
+- The caps don't bound every field. Goal 1 is narrowed, and unbounded role count and text length are a stated non-goal.
+- Rollback claimed no consumer coordination. Wrong: switching the prompt changes the wire format from strings to objects. Rollback and the consumer note now require consumers to accept both shapes first; AC-11 pins both.
+- This report's scope line said no ACs exist; it now says they're defined but not yet implemented or tested.
+
+3e re-run after these fixes: goal numbering (now 1–7) isn't referenced elsewhere; the CHANGELOG entry doesn't restate the changed claims. Clean.
 
 ## Inputs for /retro
 

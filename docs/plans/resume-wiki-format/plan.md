@@ -22,16 +22,18 @@
 
 ## Goals
 
-1. Generated content fits a one-page content budget: bounded summary, bullets, projects and skill rows.
-2. Every emitted bullet opens with a past-tense action verb and carries no trailing period, `&`, or slash between alternatives.
-3. Skills are emitted as categorized rows of concrete tools.
-4. The rubric rewards STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]).
-5. Self-employment bullets and Projects don't restate the same work.
-6. Profile authors have guidance for writing bullets the generator can use well.
+1. Generated content is bounded toward a one-page budget: the summary, bullets per role, projects, highlights and skill rows are capped. This narrows the usual overflow; it does not bound every field (see Non-goals).
+2. **Guaranteed** by deterministic post-processing: no emitted bullet ends with a period or contains `" & "`.
+3. **Required and rewarded, not guaranteed:** past-tense opening verbs and no slashes between alternatives. The prompt requires them and the rubric scores them, but the winning candidate still ships when it fails the rubric, so they aren't guarantees.
+4. Skills are emitted as categorized rows of concrete tools.
+5. The rubric rewards STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]).
+6. Self-employment bullets and Projects don't restate the same work.
+7. Profile authors have guidance for writing bullets the generator can use well.
 
 ## Non-goals
 
 - **Physical page fit.** This repo emits structured content. Fonts, margins, header and layout belong to each consumer, so page count is theirs to verify. This plan sets a content budget only.
+- **Bounding every field.** The number of employment entries and the length of individual bullets, descriptions and education lines are not capped. Truncating text mid-sentence would damage meaning, and the role count is left to the prompt's relevance selection.
 - **Rendering.** Consumer presentation (including header contents) is out of scope; see "Notes for consumers".
 - **Generating metrics.** No metric may be generated, estimated or placeholdered that the profile doesn't ground. A bullet without a real metric stays without one.
 - **Editing any fork's profile content.** Each fork curates its own profile; this plan ships guidance only.
@@ -98,7 +100,7 @@ Criteria marked *(pending OQ-n)* depend on an open question and are finalized wh
 - AC-10: `PASS_THRESHOLD` is set per the answer to OQ-1, and `docs/resume-pipeline-v2.md` states the new total. *(pending OQ-1)*
 
 **Schema**
-- AC-11: The prompt's response example emits `skills` as `{ category, items }` rows, and the rubric's skill rules accept that shape (already true today, pinned by test).
+- AC-11: The prompt's response example emits `skills` as `{ category, items }` rows, and the rubric's skill rules accept both that shape and flat strings (pinned by test).
 
 **Truthfulness (regression)**
 - AC-12: Post-processing never adds characters that form a number; a fixture bullet without a metric has none after processing.
@@ -111,7 +113,9 @@ Criteria marked *(pending OQ-n)* depend on an open question and are finalized wh
 
 ## Rollback
 
-`git revert <implementation merge commit>`. Every change is code and prompt text in this repo; there are no migrations or data changes. The response shape doesn't change (`skills` is already typed as categorized rows), so consumers need no coordinated rollback.
+`git revert <implementation merge commit>`. Every change is code and prompt text in this repo; there are no migrations or data changes.
+
+The wire format does change: `Skill` is already typed as `{ category, items }`, but `parseJSON` only casts model output and today's prompt yields flat strings, so consumers currently receive strings. Switching the prompt makes them receive objects. Consumers must therefore accept **both** shapes before the generation change ships. Once they do, a revert back to flat strings is safe with no coordinated change.
 
 ## What this unlocks
 
@@ -121,7 +125,7 @@ Criteria marked *(pending OQ-n)* depend on an open question and are finalized wh
 
 ## Notes for consumers
 
-`skills` is emitted as categorized `{ category, items }` rows. A consumer rendering the résumé should print one row per category with its items comma-separated. Middle dots, pipes and slashes are what the wiki warns against. Header contents are the consumer's call; the wiki recommends leaving out a LinkedIn URL. Page fit depends on the consumer's layout.
+`skills` changes from flat strings to categorized `{ category, items }` rows when this ships. Accept both shapes first (see Rollback). A consumer rendering the résumé should print one row per category with its items comma-separated. Middle dots, pipes and slashes are what the wiki warns against. Header contents are the consumer's call; the wiki recommends leaving out a LinkedIn URL. Page fit depends on the consumer's layout.
 
 ## Open questions
 
