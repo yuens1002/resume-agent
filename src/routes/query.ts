@@ -38,6 +38,17 @@ export async function fetchCandidateName(): Promise<string> {
   return deriveCandidateName(result.kind === 'ok' ? result.profile : null)
 }
 
+/**
+ * The profile's full `contact.name` (empty string if unavailable), for the
+ * eval runner's output redaction — answers can use the full name, which the
+ * first-name-only `fetchCandidateName` wouldn't cover.
+ */
+export async function fetchCandidateFullName(): Promise<string> {
+  const result = await fetchProfile()
+  const raw = result.kind === 'ok' ? (result.profile as { contact?: { name?: unknown } }).contact?.name : undefined
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
 // ── Thoughts version cache ───────────────────────────────
 // A lightweight version token for OB1 public thoughts: MAX(updated_at) across
 // all thoughts rows. Changes whenever any thought is added or updated, which
