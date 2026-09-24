@@ -1,9 +1,11 @@
 /**
  * Candidate-name redaction for eval output that can end up public — the
- * weekly eval gate pastes `eval:query` stdout into an `eval-parity` GitHub
- * issue on this public repo, and the judge sweep files arbitration issues.
+ * weekly eval gate pastes `eval:query` stdout+stderr into an `eval-parity`
+ * GitHub issue on this public repo, and the judge sweep files arbitration
+ * issues.
  *
- * Pure and env-free so it's importable from tests without setup.
+ * Pure and env-free (apart from installOutputRedaction, which patches the
+ * process streams it is handed) so it's importable from tests without setup.
  */
 
 import { escapeRegExp } from '../../src/lib/eval-query-answer.js'
@@ -19,14 +21,32 @@ export function wholeWordNameRe(name: string, suffix = ''): RegExp {
   return new RegExp(String.raw`(?<![\p{L}\p{N}_])${escapeRegExp(name)}(${suffix})(?![\p{L}\p{N}_])`, 'giu')
 }
 
-/** Every name form worth redacting, longest first: the full name, then each of its words. */
+/**
+ * Single-word forms shorter than this are skipped: an initial ("A", "Q.")
+ * or two-letter token would, case-insensitively, redact ordinary words and
+ * the runner's own "A:" prefix. Full/multi-word forms are always kept.
+ */
+export const MIN_SINGLE_WORD_FORM_LENGTH = 3
+
+/**
+ * Every name form worth redacting, longest first: the full name, first+last
+ * (answers usually drop a middle name), then each word — also split on
+ * hyphens, so "Mary-Kate" yields "Mary" and "Kate".
+ */
 export function candidateNameForms(...names: string[]): string[] {
   const forms = new Set<string>()
   for (const name of names) {
     const full = name.trim().replace(/\s+/g, ' ')
     if (!full) continue
     forms.add(full)
-    for (const word of full.split(' ')) forms.add(word)
+    const words = full.split(' ')
+    if (words.length > 2) forms.add(`${words[0]} ${words[words.length - 1]}`)
+    for (const word of words) {
+      for (const part of new Set([word, ...word.split('-')])) {
+        const bare = part.replace(/\.$/, '')
+        if (bare.length >= MIN_SINGLE_WORD_FORM_LENGTH) forms.add(bare)
+      }
+    }
   }
   return [...forms].sort((a, b) => b.length - a.length)
 }
@@ -52,4 +72,21 @@ export function redactCandidateNameToRole(text: string, forms: readonly string[]
     })
   }
   return out
+}
+
+type Write = NodeJS.WriteStream['write']
+
+/**
+ * Route every write to `streams` through redactCandidateNameToRole — so
+ * console.* output from src/ modules (e.g. a logged raw model reply) is
+ * covered too, not only the runner's own writes.
+ */
+export function installOutputRedaction(forms: readonly string[], streams: NodeJS.WriteStream[] = [process.stdout, process.stderr]): void {
+  for (const stream of streams) {
+    const original = stream.write.bind(stream) as (...args: unknown[]) => boolean
+    stream.write = ((chunk: unknown, ...rest: unknown[]) => {
+      const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) || chunk instanceof Uint8Array ? Buffer.from(chunk).toString('utf8') : chunk
+      return original(typeof text === 'string' ? redactCandidateNameToRole(text, forms) : text, ...rest)
+    }) as Write
+  }
 }

@@ -35,7 +35,7 @@ import { parseJSON } from '../../src/lib/parse-json.js'
 import { fetchCandidateFullName, fetchCandidateName, queryProfile } from '../../src/routes/query.js'
 import { scoreAnswer, buildJudgePrompt, PASS_RATIO, type RuleResult } from '../../src/lib/eval-query-answer.js'
 import { EVAL_CASES, type EvalCase } from './query-eval-cases.js'
-import { candidateNameForms, redactCandidateNameToRole } from './redact-candidate-name.js'
+import { candidateNameForms, installOutputRedaction } from './redact-candidate-name.js'
 
 // ── CLI parsing ──────────────────────────────────────────────
 
@@ -137,14 +137,6 @@ function appendBaseline(row: string): void {
   }
 }
 
-// ── Output redaction ─────────────────────────────────────────
-
-let nameForms: string[] = []
-
-function out(text: string): void {
-  process.stdout.write(redactCandidateNameToRole(text, nameForms))
-}
-
 // ── Main ─────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -166,7 +158,7 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
-  out([
+  process.stdout.write([
     `Running ${selected.length} case(s)`,
     flags.threshold !== undefined ? `  threshold=${flags.threshold}` : `  threshold=${process.env.QUERY_THOUGHTS_THRESHOLD ?? '0.35 (default)'}`,
     `  judge=${flags.judge ? 'on' : 'off'}`,
@@ -178,16 +170,25 @@ async function main(): Promise<void> {
   // hardcoded literal. Fetched once; scoreAnswer's no_data name-aware regexes
   // (contact-tail, inference-claim) are built from this per case.
   const candidateName = await fetchCandidateName()
-  // This stdout is pasted into a public eval-parity issue by eval-weekly.yml,
-  // so every line below goes through `out`, which swaps the candidate's name
-  // (full or any part) for "the candidate". Scoring still sees the real name.
-  nameForms = candidateNameForms(await fetchCandidateFullName(), candidateName)
+
+  // eval-weekly.yml pastes this process's stdout+stderr into a public
+  // eval-parity issue, so from here on every write — the runner's own and
+  // console.* from src/ (e.g. a logged raw model reply) — has the candidate's
+  // name swapped for "the candidate". Scoring above still uses the real name.
+  // No name means no redaction is possible: refuse to run rather than risk
+  // later answers (after the profile recovers) printing it unredacted.
+  const fullName = await fetchCandidateFullName()
+  if (!fullName) {
+    process.stderr.write('Cannot redact eval output: the profile has no contact.name (or could not be fetched). Refusing to run.\n')
+    process.exit(2)
+  }
+  installOutputRedaction(candidateNameForms(fullName))
 
   const scores: { caseId: string; category: string; pass: boolean; total: number; maxTotal: number }[] = []
   const latencyByCase: { caseId: string; category: string; med: Sample }[] = []
 
   for (const caseDef of selected) {
-    out(`\n[${caseDef.id}] (${caseDef.category})\n  Q: ${caseDef.question}\n`)
+    process.stdout.write(`\n[${caseDef.id}] (${caseDef.category})\n  Q: ${caseDef.question}\n`)
 
     const callerHint = caseDef.callerHint ?? 'Unknown caller. Balance structure and readability. Be honest and direct.'
 
@@ -213,7 +214,7 @@ async function main(): Promise<void> {
     }
 
     if (!result || 'kind' in result || !lastScore) {
-      out(`  FAIL — queryProfile error: ${result && 'kind' in result ? result.kind : 'no result'}\n`)
+      process.stdout.write(`  FAIL — queryProfile error: ${result && 'kind' in result ? result.kind : 'no result'}\n`)
       scores.push({ caseId: caseDef.id, category: caseDef.category, pass: false, total: 0, maxTotal: 1 })
       continue
     }
@@ -257,15 +258,15 @@ async function main(): Promise<void> {
     // than merely nudging the additive threshold.
     const pass = detPass && (judgeRule ? judgeRule.pass : true)
 
-    out(`  A: ${result.answer.slice(0, 180).replace(/\s+/g, ' ')}${result.answer.length > 180 ? '…' : ''}\n`)
-    out(`  confidence=${result.confidence}  sources=${JSON.stringify(result.sources ?? [])}\n`)
-    out(`  latency(median of ${samples.length}): total ${med.total}ms  llm ${med.llm}ms  retrieval ${med.retrieval}ms\n`)
+    process.stdout.write(`  A: ${result.answer.slice(0, 180).replace(/\s+/g, ' ')}${result.answer.length > 180 ? '…' : ''}\n`)
+    process.stdout.write(`  confidence=${result.confidence}  sources=${JSON.stringify(result.sources ?? [])}\n`)
+    process.stdout.write(`  latency(median of ${samples.length}): total ${med.total}ms  llm ${med.llm}ms  retrieval ${med.retrieval}ms\n`)
     for (const r of rules) {
       const tag = r.blocking ? (r.pass ? '✓ (blocking)' : '✗ BLOCKING-FAIL') : (r.pass ? '✓' : '✗')
-      out(`  ${tag} ${r.rule} — ${r.detail}\n`)
+      process.stdout.write(`  ${tag} ${r.rule} — ${r.detail}\n`)
     }
     const voteNote = runPasses.length > 1 ? ` [passed ${passCount}/${runPasses.length} runs]` : ''
-    out(`  ${pass ? 'PASS' : 'FAIL'} (additive ${total.toFixed(1)}/${maxTotal})${voteNote}\n`)
+    process.stdout.write(`  ${pass ? 'PASS' : 'FAIL'} (additive ${total.toFixed(1)}/${maxTotal})${voteNote}\n`)
 
     scores.push({ caseId: caseDef.id, category: caseDef.category, pass, total, maxTotal })
   }
@@ -278,28 +279,28 @@ async function main(): Promise<void> {
     if (s.pass) acc.pass++
     byCategory.set(s.category, acc)
   }
-  out('\n── Summary ─────────────────────────────────\n')
+  process.stdout.write('\n── Summary ─────────────────────────────────\n')
   for (const [cat, { pass, total }] of byCategory) {
-    out(`  ${cat.padEnd(14)} ${pass}/${total}\n`)
+    process.stdout.write(`  ${cat.padEnd(14)} ${pass}/${total}\n`)
   }
   const overallPass = scores.filter((s) => s.pass).length
   const overallTotal = scores.length
   const overallScore = scores.reduce((s, c) => s + c.total, 0)
   const overallMax = scores.reduce((s, c) => s + c.maxTotal, 0)
-  out(`  ─────────────────────────────────\n`)
-  out(`  Overall:       ${overallPass}/${overallTotal} cases   ${overallScore.toFixed(1)}/${overallMax} rule points\n`)
+  process.stdout.write(`  ─────────────────────────────────\n`)
+  process.stdout.write(`  Overall:       ${overallPass}/${overallTotal} cases   ${overallScore.toFixed(1)}/${overallMax} rule points\n`)
 
   // Latency report — aggregate over per-case medians
   const totals = latencyByCase.map((l) => l.med.total)
   const llms = latencyByCase.map((l) => l.med.llm)
   const retrievals = latencyByCase.map((l) => l.med.retrieval)
   if (latencyByCase.length) {
-    out('\n── Latency (median per case, aggregated, ms) ─\n')
-    out(`  total      p50 ${percentile(totals, 50)}   p95 ${percentile(totals, 95)}   avg ${avg(totals)}\n`)
-    out(`  llm        p50 ${percentile(llms, 50)}   p95 ${percentile(llms, 95)}   avg ${avg(llms)}\n`)
-    out(`  retrieval  p50 ${percentile(retrievals, 50)}   p95 ${percentile(retrievals, 95)}   avg ${avg(retrievals)}\n`)
+    process.stdout.write('\n── Latency (median per case, aggregated, ms) ─\n')
+    process.stdout.write(`  total      p50 ${percentile(totals, 50)}   p95 ${percentile(totals, 95)}   avg ${avg(totals)}\n`)
+    process.stdout.write(`  llm        p50 ${percentile(llms, 50)}   p95 ${percentile(llms, 95)}   avg ${avg(llms)}\n`)
+    process.stdout.write(`  retrieval  p50 ${percentile(retrievals, 50)}   p95 ${percentile(retrievals, 95)}   avg ${avg(retrievals)}\n`)
     const slowest = [...latencyByCase].sort((a, b) => b.med.total - a.med.total).slice(0, 3)
-    out(`  slowest:   ${slowest.map((s) => `${s.caseId} (${s.med.total}ms)`).join(', ')}\n`)
+    process.stdout.write(`  slowest:   ${slowest.map((s) => `${s.caseId} (${s.med.total}ms)`).join(', ')}\n`)
   }
 
   // Baseline append — deliberate, only on --baseline. Records the current run so
@@ -309,12 +310,12 @@ async function main(): Promise<void> {
   if (flags.baseline) {
     if (latencyByCase.length !== scores.length) {
       const errored = scores.length - latencyByCase.length
-      out(`\n  baseline NOT recorded — ${errored} case(s) errored (no latency captured). Fix and re-run before baselining.\n`)
+      process.stdout.write(`\n  baseline NOT recorded — ${errored} case(s) errored (no latency captured). Fix and re-run before baselining.\n`)
     } else {
       const date = new Date().toISOString().slice(0, 10)
       const row = `| ${date} | ${readVersion()} | ${flags.runs} | ${overallPass}/${overallTotal} | ${percentile(totals, 50)} | ${percentile(totals, 95)} | ${percentile(llms, 50)} | ${percentile(retrievals, 50)} |`
       appendBaseline(row)
-      out(`\n  baseline recorded → ${BASELINE_PATH}\n`)
+      process.stdout.write(`\n  baseline recorded → ${BASELINE_PATH}\n`)
     }
   }
 
@@ -322,6 +323,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(redactCandidateNameToRole(`Eval crashed: ${(err as Error).message}\n`, nameForms))
+  process.stderr.write(`Eval crashed: ${(err as Error).message}\n`)
   process.exit(2)
 })

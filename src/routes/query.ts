@@ -9,7 +9,7 @@ import { parseJSON, salvageTrailingSourcesBlock } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
-import { buildSystemPrompt, deriveCandidateName, deriveCandidatePronouns, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
+import { buildSystemPrompt, deriveCandidateFullName, deriveCandidateName,deriveCandidatePronouns, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
@@ -45,8 +45,7 @@ export async function fetchCandidateName(): Promise<string> {
  */
 export async function fetchCandidateFullName(): Promise<string> {
   const result = await fetchProfile()
-  const raw = result.kind === 'ok' ? (result.profile as { contact?: { name?: unknown } }).contact?.name : undefined
-  return typeof raw === 'string' ? raw.trim() : ''
+  return deriveCandidateFullName(result.kind === 'ok' ? result.profile : null)
 }
 
 // ── Thoughts version cache ───────────────────────────────
