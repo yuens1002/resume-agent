@@ -43,6 +43,9 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 
 ## Next
 
+### Résumé output aligned with r/EngineeringResumes conventions
+One-page content budget, categorized skills, bullet grammar, a scored STAR/XYZ rule, and no duplication between self-employment and Projects — without ever generating a metric the profile doesn't ground. Plan: [docs/plans/resume-wiki-format/plan.md](docs/plans/resume-wiki-format/plan.md); issue [#298](https://github.com/yuens1002/resume-agent/issues/298).
+
 ### OEP Phase 2b — peer attestation discovery
 LinkedIn public post search for third-party attestations ("I worked with X at Y at Z"). Organic consensus (N ≥ 2 independent witnesses) is the proof model — no timestamp required, retrospective posts are valid. Requires LinkedIn OAuth. See issue [#119](https://github.com/yuens1002/resume-agent/issues/119).
 

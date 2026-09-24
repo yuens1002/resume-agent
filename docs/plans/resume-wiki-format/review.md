@@ -23,7 +23,7 @@ None stale or overstated.
 
 ### Internal consistency (3e), re-run after the last fix
 - Two references still used the retracted "content pass" framing (the problem table, open question 3). Reworded to "profile-authoring guidance" / "Guidance scope".
-- Anchors ("Notes for consumers", "Phase 2") resolve. Counts agree. Clean.
+- Anchors ("Notes for consumers") resolve. Counts agree. Clean.
 
 ## Docs hygiene / public-voice audit
 
@@ -36,8 +36,20 @@ Checked under the repo's own Public-Repo Rule (`CONTRIBUTING.md`).
 
 Mechanical scan: plan and issue #298 contain no private repo/org names, denylist terms, personal names, emails, or local paths.
 
+## Round-1 addendum (Copilot review on PR #299)
+
+Two findings, both valid, both fixed:
+- **Overclaim.** "One page, enforced by deterministic caps" promised a physical outcome this repo can't control, since layout belongs to consumers. Reworded to a one-page *content budget*; page fit is now an explicit non-goal.
+- **Missing required structure.** The plan lacked CONTRIBUTING's required plan sections (Context through What this unlocks, with `AC-N` criteria) and a `ROADMAP.md` entry. The plan was restructured to that template with 14 ACs (2 marked pending on open questions), and the ROADMAP gained a Next entry.
+
+3e re-run after these fixes: the CHANGELOG entry's "phases" and "one page enforced" wording and this report's dead "Phase 2" anchor were updated to match. Clean.
+
 ## Inputs for /retro
 
 - **Route:** cross-cutting → planning practice
   **Draft principle:** *"When a feature spans this public repo and a private consumer, the public plan describes only this repo's contract and a generic consumer note. The consumer's own implementation plan lives in the consumer's repo."*
   **Triggered by:** first-draft Phase 1.
+
+- **Route:** cross-cutting → `/review` Step 3 (repo conventions)
+  **Draft principle:** *"For a new `docs/plans/` file, check it against the repo's own required plan structure (CONTRIBUTING's section list, `AC-N` format, ROADMAP entry) before hygiene. A hygiene-only pass misses a structurally incomplete plan."*
+  **Triggered by:** round-1 finding on missing required sections.
