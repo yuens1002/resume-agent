@@ -18,15 +18,26 @@ import { escapeRegExp } from '../../src/lib/eval-query-answer.js'
  * (e.g. a possessive), captured as group 1.
  */
 export function wholeWordNameRe(name: string, suffix = ''): RegExp {
-  return new RegExp(String.raw`(?<![\p{L}\p{N}_])${escapeRegExp(name)}(${suffix})(?![\p{L}\p{N}_])`, 'giu')
+  return nameAlternationRe([name], 'giu', suffix)
+}
+
+/** wholeWordNameRe over several names at once (an alternation, tried in the given order). */
+function nameAlternationRe(names: readonly string[], flags: string, suffix = ''): RegExp {
+  const alternation = names.map(escapeRegExp).join('|')
+  return new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${alternation})(${suffix})(?![\p{L}\p{N}_])`, flags)
 }
 
 /**
- * Single-word forms shorter than this are skipped: an initial ("A", "Q.")
- * or two-letter token would, case-insensitively, redact ordinary words and
- * the runner's own "A:" prefix. Full/multi-word forms are always kept.
+ * Single-word forms shorter than this match case-sensitively (exactly as
+ * written in the profile) instead of case-insensitively, so a two-letter
+ * name like "Li" is still redacted without eating lowercase ordinary words.
+ * A two-letter name that is also a common word ("He", "An") will still eat
+ * that word where it is capitalized, e.g. sentence-initially — accepted:
+ * over-redaction is the safe direction. One-letter tokens and initials
+ * ("A", "Q.") are dropped entirely: even case-sensitive, "A" would eat the
+ * runner's own "A:" prefix and every sentence-initial article.
  */
-export const MIN_SINGLE_WORD_FORM_LENGTH = 3
+export const MIN_CASE_INSENSITIVE_FORM_LENGTH = 3
 
 /**
  * Every name form worth redacting, longest first: the full name, first+last
@@ -44,12 +55,14 @@ export function candidateNameForms(...names: string[]): string[] {
     for (const word of words) {
       for (const part of new Set([word, ...word.split('-')])) {
         const bare = part.replace(/\.$/, '')
-        if (bare.length >= MIN_SINGLE_WORD_FORM_LENGTH) forms.add(bare)
+        if (bare.length > 1) forms.add(bare)
       }
     }
   }
   return [...forms].sort((a, b) => b.length - a.length)
 }
+
+const POSSESSIVE = `['’]s|`
 
 /** Text so far ends at a sentence/line start, allowing opening quotes, brackets, or markdown emphasis. */
 const SENTENCE_START_RE = /(^|[.!?:]\s+|\n\s*)["'“‘(*[]*$/u
@@ -58,20 +71,27 @@ const SENTENCE_START_RE = /(^|[.!?:]\s+|\n\s*)["'“‘(*[]*$/u
  * Replace the candidate's name with the role phrase "the candidate" —
  * "Jamie Doe built X" → "The candidate built X", "Jamie's" → "the
  * candidate's". Capitalized at the start of the text or of a sentence/line.
- * Full-name forms run before single words (see candidateNameForms) so
- * "Jamie Doe" collapses to one "the candidate", not two.
+ *
+ * All forms go into one alternation, longest first, and the text is scanned
+ * once per case tier — so "Jamie Doe" collapses to one "the candidate", and
+ * a form can never re-match inside an already-inserted "the candidate"
+ * (a surname like "The" or "Candidate" would otherwise do exactly that).
  */
 export function redactCandidateNameToRole(text: string, forms: readonly string[]): string {
+  const valid = [...new Set(forms.filter((f) => f.length > 1))].sort((a, b) => b.length - a.length)
+  const long = valid.filter((f) => f.length >= MIN_CASE_INSENSITIVE_FORM_LENGTH || f.includes(' '))
+  const short = valid.filter((f) => !long.includes(f))
   let out = text
-  for (const form of forms) {
-    if (!form) continue
-    out = out.replace(wholeWordNameRe(form, `['’]s|`), (_match, possessive: string, offset: number, whole: string) => {
-      const sentenceStart = SENTENCE_START_RE.test(whole.slice(0, offset))
-      const phrase = sentenceStart ? 'The candidate' : 'the candidate'
-      return phrase + (possessive ? "'s" : '')
-    })
-  }
+  if (long.length) out = out.replace(nameAlternationRe(long, 'giu', POSSESSIVE), toRole)
+  // Case-sensitive short forms are ≤2 letters and whole-word, so they can't
+  // match inside the "the candidate" the first pass inserted.
+  if (short.length) out = out.replace(nameAlternationRe(short, 'gu', POSSESSIVE), toRole)
   return out
+}
+
+function toRole(_match: string, possessive: string, offset: number, whole: string): string {
+  const phrase = SENTENCE_START_RE.test(whole.slice(0, offset)) ? 'The candidate' : 'the candidate'
+  return phrase + (possessive ? "'s" : '')
 }
 
 type Write = NodeJS.WriteStream['write']

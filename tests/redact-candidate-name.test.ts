@@ -25,11 +25,34 @@ test('candidateNameForms: ignores empty and whitespace-only names', () => {
   assert.deepEqual(candidateNameForms('', '  '), [])
 })
 
-test('candidateNameForms: skips initials and two-letter words, adds first+last for 3+ words', () => {
+test('candidateNameForms: skips one-letter initials, adds first+last for 3+ words', () => {
   assert.deepEqual(candidateNameForms('Jamie Q. Doe'), ['Jamie Q. Doe', 'Jamie Doe', 'Jamie', 'Doe'])
   assert.equal(
     redactCandidateNameToRole('  A: Jamie Doe cites a source.', candidateNameForms('Jamie A Doe')),
     '  A: The candidate cites a source.',
+  )
+})
+
+test('redactCandidateNameToRole: two-letter name words redact case-sensitively only', () => {
+  const forms = candidateNameForms('Bo Li')
+  assert.deepEqual(forms, ['Bo Li', 'Bo', 'Li'])
+  assert.equal(
+    redactCandidateNameToRole('Li shipped it; the li element and bo staff stay.', forms),
+    'The candidate shipped it; the li element and bo staff stay.',
+  )
+})
+
+test('redactCandidateNameToRole: a form never re-matches inside an inserted "the candidate"', () => {
+  // Sequential per-form passes (longest first) would turn "Maximilian built"
+  // into "The candidate built", then redact its "candidate" again via the
+  // shorter surname form — and "Jamie" into "the candidate", then its "the".
+  assert.equal(
+    redactCandidateNameToRole('Maximilian built it; Candidate agreed.', candidateNameForms('Maximilian Candidate')),
+    'The candidate built it; the candidate agreed.',
+  )
+  assert.equal(
+    redactCandidateNameToRole('Ask Jamie about it.', candidateNameForms('Jamie The')),
+    'Ask the candidate about it.',
   )
 })
 
