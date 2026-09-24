@@ -64,6 +64,15 @@ export function candidateNameForms(...names: string[]): string[] {
 
 const POSSESSIVE = `['’]s|`
 
+/**
+ * The forms redactCandidateNameToRole actually uses: deduped, one-letter
+ * tokens dropped, longest first. Empty means nothing would be redacted —
+ * callers that must not leak (run-eval.ts) refuse to run on that.
+ */
+export function redactableForms(forms: readonly string[]): string[] {
+  return [...new Set(forms.filter((f) => f.length > 1))].sort((a, b) => b.length - a.length)
+}
+
 /** Text so far ends at a sentence/line start, allowing opening quotes, brackets, or markdown emphasis. */
 const SENTENCE_START_RE = /(^|[.!?:]\s+|\n\s*)["'“‘(*[]*$/u
 
@@ -78,7 +87,7 @@ const SENTENCE_START_RE = /(^|[.!?:]\s+|\n\s*)["'“‘(*[]*$/u
  * (a surname like "The" or "Candidate" would otherwise do exactly that).
  */
 export function redactCandidateNameToRole(text: string, forms: readonly string[]): string {
-  const valid = [...new Set(forms.filter((f) => f.length > 1))].sort((a, b) => b.length - a.length)
+  const valid = redactableForms(forms)
   const long = valid.filter((f) => f.length >= MIN_CASE_INSENSITIVE_FORM_LENGTH || f.includes(' '))
   const short = valid.filter((f) => !long.includes(f))
   let out = text

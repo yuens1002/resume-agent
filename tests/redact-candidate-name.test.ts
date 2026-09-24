@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Writable } from 'node:stream'
-import { candidateNameForms, installOutputRedaction, redactCandidateNameToRole } from '../scripts/eval/redact-candidate-name.js'
+import { candidateNameForms, installOutputRedaction, redactableForms, redactCandidateNameToRole } from '../scripts/eval/redact-candidate-name.js'
 
 const FORMS = candidateNameForms('Jamie Doe')
 
@@ -58,6 +58,12 @@ test('redactCandidateNameToRole: a form never re-matches inside an inserted "the
 
 test('candidateNameForms: splits hyphenated names into their parts', () => {
   assert.deepEqual(candidateNameForms('Mary-Kate Doe'), ['Mary-Kate Doe', 'Mary-Kate', 'Mary', 'Kate', 'Doe'])
+})
+
+test('redactableForms: empty for a one-letter-only name, so run-eval refuses to run', () => {
+  assert.deepEqual(redactableForms(candidateNameForms('A')), [])
+  assert.deepEqual(redactableForms(candidateNameForms('')), [])
+  assert.deepEqual(redactableForms(['Jamie', 'J', 'Jamie Doe']), ['Jamie Doe', 'Jamie'])
 })
 
 // ── redactCandidateNameToRole ────────────────────────────────

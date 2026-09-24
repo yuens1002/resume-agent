@@ -35,7 +35,7 @@ import { parseJSON } from '../../src/lib/parse-json.js'
 import { fetchCandidateFullName, fetchCandidateName, queryProfile } from '../../src/routes/query.js'
 import { scoreAnswer, buildJudgePrompt, PASS_RATIO, type RuleResult } from '../../src/lib/eval-query-answer.js'
 import { EVAL_CASES, type EvalCase } from './query-eval-cases.js'
-import { candidateNameForms, installOutputRedaction } from './redact-candidate-name.js'
+import { candidateNameForms, installOutputRedaction, redactableForms } from './redact-candidate-name.js'
 
 // ── CLI parsing ──────────────────────────────────────────────
 
@@ -175,14 +175,15 @@ async function main(): Promise<void> {
   // eval-parity issue, so from here on every write — the runner's own and
   // console.* from src/ (e.g. a logged raw model reply) — has the candidate's
   // name swapped for "the candidate". Scoring above still uses the real name.
-  // No name means no redaction is possible: refuse to run rather than risk
-  // later answers (after the profile recovers) printing it unredacted.
-  const fullName = await fetchCandidateFullName()
-  if (!fullName) {
-    process.stderr.write('Cannot redact eval output: the profile has no contact.name (or could not be fetched). Refusing to run.\n')
+  // No redactable name (missing, unfetchable, or only a one-letter token the
+  // redactor drops) means no redaction is possible: refuse to run rather than
+  // risk later answers (after the profile recovers) printing it unredacted.
+  const nameForms = redactableForms(candidateNameForms(await fetchCandidateFullName()))
+  if (!nameForms.length) {
+    process.stderr.write('Cannot redact eval output: the profile has no usable contact.name (or it could not be fetched). Refusing to run.\n')
     process.exit(2)
   }
-  installOutputRedaction(candidateNameForms(fullName))
+  installOutputRedaction(nameForms)
 
   const scores: { caseId: string; category: string; pass: boolean; total: number; maxTotal: number }[] = []
   const latencyByCase: { caseId: string; category: string; med: Sample }[] = []
