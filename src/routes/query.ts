@@ -9,7 +9,7 @@ import { parseJSON, salvageTrailingSourcesBlock } from '../lib/parse-json.js'
 import { detectCaller, callerContextFromQuery } from '../lib/detect-caller.js'
 import { logObservedQuery } from '../lib/log-observed-query.js'
 import { queryRelevantThoughtsForQuestion } from '../lib/thoughts-query.js'
-import { buildSystemPrompt, deriveCandidateName, deriveCandidatePronouns, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
+import { buildSystemPrompt, deriveCandidateFullName, deriveCandidateName,deriveCandidatePronouns, parseShownProjectSlugs, sanitizeCallerHint, sortProjectsByRecency } from '../lib/query-prompt.js'
 import { isBinaryQuestion, isBehavioralQuestion, maxTokensForQuestion } from '../lib/query-classify.js'
 import { classifyRoute, ROUTE_CLASSIFIER_RULE, type Route } from '../lib/route-classifier.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from '../lib/hidden-projects.js'
@@ -36,6 +36,16 @@ const HIDE_FROM_PROJECTS = parseHiddenProjectSlugs(process.env.HIDE_FROM_PROJECT
 export async function fetchCandidateName(): Promise<string> {
   const result = await fetchProfile()
   return deriveCandidateName(result.kind === 'ok' ? result.profile : null)
+}
+
+/**
+ * The profile's full `contact.name` (empty string if unavailable), for the
+ * eval runner's output redaction — answers can use the full name, which the
+ * first-name-only `fetchCandidateName` wouldn't cover.
+ */
+export async function fetchCandidateFullName(): Promise<string> {
+  const result = await fetchProfile()
+  return deriveCandidateFullName(result.kind === 'ok' ? result.profile : null)
 }
 
 // ── Thoughts version cache ───────────────────────────────

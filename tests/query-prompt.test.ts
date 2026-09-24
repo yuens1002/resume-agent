@@ -21,6 +21,9 @@ import {
   parseShownProjectSlugs,
   sanitizeCallerHint,
   deriveCandidatePronouns,
+  deriveCandidateFullName,
+  deriveCandidateName,
+  DEFAULT_CANDIDATE_NAME,
   CANDIDATE_PRONOUNS_TOKEN,
   DEFAULT_CANDIDATE_PRONOUNS,
   META_TONE_NOTE,
@@ -186,6 +189,23 @@ describe('candidate pronouns — token substitution and derivation', () => {
     const out = deriveCandidatePronouns({ contact: { pronouns: evil } })
     assert.ok(!out.includes('\n'), 'newlines must be stripped')
     assert.ok(!/\n\s*#/.test(out), 'no newline-then-hash sequence survives')
+  })
+
+  it('deriveCandidateFullName returns the trimmed full contact.name', () => {
+    assert.equal(deriveCandidateFullName({ contact: { name: '  Jamie Q. Doe ' } }), 'Jamie Q. Doe')
+  })
+
+  it('deriveCandidateFullName returns empty (no placeholder) when missing or malformed', () => {
+    assert.equal(deriveCandidateFullName(null), '')
+    assert.equal(deriveCandidateFullName({ contact: {} }), '')
+    assert.equal(deriveCandidateFullName({ contact: { name: 42 } }), '')
+    assert.equal(deriveCandidateFullName({ contact: { name: '   ' } }), '')
+  })
+
+  it('deriveCandidateName is the first word of the full name, else DEFAULT_CANDIDATE_NAME', () => {
+    assert.equal(deriveCandidateName({ contact: { name: 'Jamie Q. Doe' } }), 'Jamie')
+    assert.equal(deriveCandidateName({ contact: { name: '   ' } }), DEFAULT_CANDIDATE_NAME)
+    assert.equal(deriveCandidateName(null), DEFAULT_CANDIDATE_NAME)
   })
 })
 

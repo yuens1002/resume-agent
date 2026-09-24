@@ -22,7 +22,7 @@
  */
 
 import type { Route } from '../../src/lib/route-classifier.js'
-import { escapeRegExp } from '../../src/lib/eval-query-answer.js'
+import { wholeWordNameRe } from './redact-candidate-name.js'
 import { DEFAULT_CANDIDATE_NAME } from '../../src/lib/query-prompt.js'
 
 // ── Constants ────────────────────────────────────────────────
@@ -88,14 +88,11 @@ export interface JudgedEntry {
  * carry "Alex"). Redacting here keeps both sides of every dedupe comparison
  * on the same footing.
  *
- * Word-boundary-safe via Unicode property classes (not `\b`, which is
- * ASCII-only and would misfire around non-ASCII names) so redaction can't
- * clip into or out of an adjacent word.
+ * Word-boundary-safe — see wholeWordNameRe.
  */
 export function redactCandidateName(question: string, candidateName: string): string {
   if (!candidateName) return question
-  const re = new RegExp(String.raw`(?<![\p{L}\p{N}_])${escapeRegExp(candidateName)}(?![\p{L}\p{N}_])`, 'giu')
-  return question.replace(re, DEFAULT_CANDIDATE_NAME)
+  return question.replace(wholeWordNameRe(candidateName), DEFAULT_CANDIDATE_NAME)
 }
 
 // ── Normalization + dedupe ──────────────────────────────────

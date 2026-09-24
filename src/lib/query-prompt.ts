@@ -416,10 +416,18 @@ export function buildSystemPrompt(
  * person's name) when the profile shape is missing or malformed.
  */
 export function deriveCandidateName(profile: unknown): string {
-  const raw = (profile as { contact?: { name?: unknown } } | null | undefined)?.contact?.name
-  if (typeof raw !== 'string') return DEFAULT_CANDIDATE_NAME
-  const first = raw.trim().split(/\s+/)[0]
+  const first = deriveCandidateFullName(profile).split(/\s+/)[0]
   return first || DEFAULT_CANDIDATE_NAME
+}
+
+/**
+ * The profile's full, trimmed `contact.name`, or '' when missing/malformed.
+ * No placeholder fallback — callers that redact the name (the eval runner)
+ * need to tell "no name available" apart from a real one.
+ */
+export function deriveCandidateFullName(profile: unknown): string {
+  const raw = (profile as { contact?: { name?: unknown } } | null | undefined)?.contact?.name
+  return typeof raw === 'string' ? raw.trim() : ''
 }
 
 /**
