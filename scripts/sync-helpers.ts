@@ -276,3 +276,13 @@ export function buildEmploymentNotificationMetadata(): Record<string, unknown> {
     topics: ['employment', 'employment_sync_applied', 'notification'],
   }
 }
+
+/**
+ * True when an employment entry's bullets are owner-curated and fixed
+ * (`pinned: true` in the profile). The nightly sync must never propose or
+ * apply replacement bullets for such an entry: the owner wrote them
+ * deliberately, and an automated rewrite would silently undo that.
+ */
+export function isPinnedEmployment(entry: unknown): boolean {
+  return (entry as { pinned?: unknown } | null | undefined)?.pinned === true
+}

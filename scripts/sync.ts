@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
 import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
@@ -485,7 +485,7 @@ async function proposeEmploymentDelta(
     e.company?.toLowerCase().includes('self-employed') ||
     e.company?.toLowerCase().includes('self employed'),
   )
-  if (!selfEmployed) return
+  if (!selfEmployed || isPinnedEmployment(selfEmployed)) return
 
   const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets : []
 
@@ -1032,6 +1032,10 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
   )
   if (!selfEmployed) {
     console.log('  — no self-employed entry found in profile')
+    return
+  }
+  if (isPinnedEmployment(selfEmployed)) {
+    console.log('  — employment consolidation skipped: self-employed bullets are pinned')
     return
   }
   const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets as string[] : []
