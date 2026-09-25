@@ -63,3 +63,77 @@ Four findings, all valid, all fixed:
 - **Route:** cross-cutting → `/review` Step 3 (repo conventions)
   **Draft principle:** *"For a new `docs/plans/` file, check it against the repo's own required plan structure (CONTRIBUTING's section list, `AC-N` format, ROADMAP entry) before hygiene. A hygiene-only pass misses a structurally incomplete plan."*
   **Triggered by:** round-1 finding on missing required sections.
+
+---
+
+# /review report — implementation
+
+**Branch:** `feat/resume-wiki-format-impl`, reviewed at `02ab421` against `origin/main` `68babbe` (merge base verified equal).
+
+## Verdict
+
+Clear for owner review. Every AC passes (Agent and QC columns in `ACs.md`). Verification, `/ocr-review` and this pass each found real defects in work the previous layer had passed, and all were fixed before this report. Three AC Pass cells were amended with the reason recorded in the cell.
+
+## Deliverables ↔ code
+
+| Deliverable | Implementation | Docs touched? |
+|---|---|---|
+| D1 post-processing | `src/lib/resume-format.ts` | Y (`docs/resume-pipeline-v2.md`) |
+| D2 rubric | `src/lib/score-resume.ts` | Y |
+| D3 replacements | `src/lib/strip-banned.ts` | Y |
+| D4 prompt + wiring | `src/lib/generate-resume.ts`, `src/routes/resume.ts` | Y |
+| D5 tests | `tests/resume-format.test.ts`, `tests/score-resume.test.ts`, `tests/strip-banned.test.ts`, `package.json` | n/a |
+| D6 docs | `docs/resume-pipeline-v2.md`, `README.md` | Y |
+| D7 generation core | `src/lib/generate-resume.ts` | Y |
+| D8 eval | `scripts/eval/run-resume-eval.ts`, `scripts/eval/resume-eval-cases.ts`, `package.json` | Y |
+| D9 pinned roles | `src/lib/resume-format.ts`, `src/lib/generate-resume.ts`, `src/lib/score-resume.ts`, `src/types.ts` | Y |
+
+Changes outside the deliverables list: the README's rubric sentence (it already named a rule removed in #80; fixed alongside D6). The sync-side guard for pinned roles shipped separately in #301, ahead of this branch.
+
+## Plan and AC changes during implementation
+
+- **AC-FN-8 (STAR/XYZ detector).** The first live eval showed the detector rejecting clear outcomes because it required a method word, and accepting any digit as a result. Amended with owner approval: a past-tense verb plus a real result, numeric or an outcome clause.
+- **AC-FN-14 (pinned roles).** Three rounds of verification probes found that reconciling model output with pinned roles duplicated or merged roles. Redesigned so pinned roles always come from the profile: the model sees them only as context, and post-processing inserts them.
+- **AC-FN-1.** Scoped to non-pinned bullets, since pinned bullets are verbatim by AC-FN-14.
+- **Banned phrases.** `/ocr-review` showed "functions as" and "responsible for" rewrote ordinary prose ("Lambda functions as microservices"). Both were dropped; the STAR/XYZ rule already penalizes them as openers.
+- **Commit schedule.** D1–D9 landed as one feature commit plus fix commits, noted in the plan.
+
+## Docs drift
+
+- **Stale:** the plan's status line, and the pipeline doc's pre-existing Rule 5 and "4.0 / 6" claims. Both fixed.
+- **Overclaims fixed:** plan Goal 2 (bullet grammar is guaranteed only for non-pinned bullets), and "post-processing never adds content" in the pipeline doc and code comment (it adds pinned roles, from the profile).
+- **Rule names:** the pipeline doc's rules table uses the exact `name` strings `scoreResume` returns.
+- **Internal consistency,** re-run after the last fix commit: the banned-phrase list reads the same in the pipeline doc, the ACs and the code. Clean.
+
+## Docs hygiene / public-voice audit
+
+- No private repo, org or person, and no personal data, in the diff or commit messages.
+- Test fixtures use fictional product names and roles.
+- Eval JDs are synthetic.
+- The downstream renderer is referenced generically.
+
+## Consumers
+
+- **`resume-agent-web`:** already accepts both skill shapes.
+- **The private renderer:** shipped its update ahead of this branch.
+- **`scripts/sync.ts`:** its banned-phrase gate widens with the newly banned phrases, as the plan intends.
+
+## Inputs for /retro
+
+- **Route:** cross-cutting, the working method for scripted edits.
+  **Draft principle:** *"Don't write regex or escape-bearing code through a Python heredoc: `\b`, `\n` and `\d` were silently turned into control characters or real newlines five times in this feature. Use the Edit tool for any line containing escapes, and grep for `\x08` after scripted edits."*
+  **Triggered by:** repeated corrupted regexes and strings, each caught only by a later test or read.
+- **Route:** `/test-engineer`.
+  **Draft principle:** *"Check what `tsc -p .` actually covers before citing it as evidence. Here `tsconfig.json` includes only `src`, so the eval scripts were never typechecked until checked explicitly."*
+  **Triggered by:** a mangled string in the eval runner that "tsc clean" didn't catch.
+- **Route:** `/backend-architect`.
+  **Draft principle:** *"When a pipeline must honor owner-fixed content alongside model output, make the owner's source the only source (context-only for the model, inserted after) instead of reconciling the model's copy. Reconciliation needs identity rules that fail in ways probes keep finding."*
+  **Triggered by:** three probe rounds on pinned-role matching before the redesign.
+
+## Addendum — STAR/XYZ moved to an off-path LLM judge
+
+After review, the owner judged the regex STAR/XYZ rule unacceptable: on concrete cases it credited intentions and rejected real results. The rule was removed from the scored rubric (pass mark back to 4.0 of 5, as on `main`) and replaced by an LLM judge used only off the request path: report-only in `eval:resume`, `check:bullets` over the profile's stored bullets, and `eval:star-judge` against a labeled calibration set. The judge prompt was calibrated to credit non-numeric results (scale, a met commitment, adoption, a delivered capability, a replacement) and reached full agreement with the owner's labels on two consecutive runs, including after rewording negatives that had reused the prompt's own examples.
+
+Re-verification of the affected ACs passed with no code defects; five stale doc and comment references to the removed rule were fixed, including a pre-existing README line describing a 6-rule rubric.
+
+A separate observation for follow-up, outside #298: generation models intermittently return unparseable JSON, so a run can be decided by the one remaining candidate.

@@ -268,3 +268,37 @@ describe('jd_term_count — thin JD signal', () => {
     assert.equal(result.jd_term_count, 0)
   })
 })
+
+describe('Rule 4 — weak openings added for #298', () => {
+  it('vetoes each newly banned weak-opening phrase', () => {
+    const jd = 'Senior Engineer building TypeScript services.'
+    for (const phrase of ['utilized', 'utilizing', 'participated in', 'enhanced']) {
+      const result = scoreResume({
+        contact: { name: 'Test User', email: 'test@example.com' },
+        summary: 'Senior Engineer.',
+        skills: [],
+        employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: [`Built a service, ${phrase} the team`] }],
+        education: [],
+        projects: [],
+      } as never, jd)
+      const rule4 = result.rules.find((r) => r.rule === 4)!
+      assert.equal(rule4.pass, false, `"${phrase}" did not trigger the veto`)
+      assert.equal(rule4.score, 0)
+    }
+  })
+})
+
+describe('pinned roles and Rule 4', () => {
+  const jd = 'Senior Engineer building TypeScript services.'
+  const base = (employment: unknown[]) => ({
+    contact: { name: 'Test User', email: 'test@example.com' }, summary: 'Senior Engineer.', skills: [],
+    employment, education: [], projects: [],
+  }) as never
+  const rule = (r: ReturnType<typeof scoreResume>, id: number) => r.rules.find((x) => x.rule === id)!
+
+  it('never vetoes a pinned role for owner-written phrasing', () => {
+    const r = scoreResume(base([{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, pinned: true, bullets: ['Enhanced the design system'] }]), jd)
+    assert.equal(rule(r, 4).pass, true)
+  })
+
+})

@@ -382,9 +382,9 @@ Response:
 ```
 
 ### `POST /resume` _(private, key-protected)_
-Feed a job description (and optional `framing_hints`), get back a tailored 2-page resume as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
+Feed a job description (and optional `framing_hints`), get back a tailored resume, sized to a one-page content budget, as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
 
-**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 6-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, bullet prioritization, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores and a `jd_term_count` field — the number of unique extractable terms found in the submitted JD. Low `jd_term_count` (< 15) signals that the JD may be too thin for reliable keyword-dependent scoring; callers can use this to prompt users to enrich the JD before submitting. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
+**v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 5-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores and a `jd_term_count` field — the number of unique extractable terms found in the submitted JD. Low `jd_term_count` (< 15) signals that the JD may be too thin for reliable keyword-dependent scoring; callers can use this to prompt users to enrich the JD before submitting. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
 
 ---
 
@@ -407,7 +407,7 @@ The `/match` endpoint is not a keyword matcher. It uses Claude to reason over th
 
 5. **Surface gaps honestly.** The agent does not inflate fit scores. Gaps are reported as: learnable (tooling, framework), structural (years of experience, role type), or fundamental (domain, function).
 
-The private `/resume` endpoint uses the same match methodology as context, then generates two independent resumes in parallel and selects the highest-scoring one via a deterministic rubric. The rubric enforces 6 ATS-informed rules: JD title mirroring, keyword coverage, quantified impact bullets, authenticity (no generic phrases), JD-aligned bullet prioritization, and skills ordering by relevance. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md).
+The private `/resume` endpoint uses the same match methodology as context, then generates two independent resumes in parallel and selects the highest-scoring one via a deterministic rubric. The rubric scores 5 ATS-informed rules: JD title mirroring, keyword coverage, quantified results, authenticity (no generic or weak phrases, a hard veto), and skills ordering by relevance. A deterministic post-processing step applies bullet grammar and a one-page content budget before scoring; STAR/XYZ bullet shape is required by the prompt and checked by an on-demand LLM judge. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md).
 
 ---
 

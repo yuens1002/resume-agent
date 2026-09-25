@@ -1,12 +1,16 @@
 /**
  * Deterministic rubric scorer for generated resumes.
  *
- * Scores a ResumeResponse against 6 ATS-informed rules using the JD as
- * reference. Rules 1-4 are fully deterministic (string/regex). Rules 5-6
- * use keyword overlap (no LLM needed).
+ * Scores a ResumeResponse against 5 ATS-informed rules using the JD as
+ * reference. Rules 1, 3 and 4 are string/regex checks; Rules 2 and 7 use
+ * keyword overlap. No LLM call.
  *
- * Returns a per-rule breakdown + total score (0-6). The caller uses this
- * to pick the best of two independent generations and to log failures.
+ * Returns a per-rule breakdown + total score (0-5). The caller uses this to
+ * pick the best of two independent generations and to log failures. Pinned
+ * employment entries are owner-written and verbatim (#298), so Rule 4 skips
+ * them. STAR/XYZ bullet shape is a prompt rule, measured by the LLM judge in
+ * `npm run eval:resume` rather than here: a regex can't tell a result from an
+ * intention.
  */
 
 import type { ResumeResponse } from '../types.js'
@@ -23,7 +27,7 @@ export interface RuleResult {
 
 export interface RubricResult {
   rules: RuleResult[]
-  total: number      // 0.0–6.0
+  total: number      // 0.0–5.0
   passed: boolean    // total >= threshold
   jd_term_count: number // unique extractable terms in the JD; < 15 suggests the JD is too thin for reliable keyword scoring
 }
@@ -45,6 +49,11 @@ export const BANNED_PHRASES = [
   'detail-oriented professional',
   'highly motivated',
   'strong work ethic',
+  // Weak or passive openings the r/EngineeringResumes wiki calls out (#298)
+  'utilized',
+  'utilizing',
+  'participated in',
+  'enhanced',
 ]
 
 // ── Keyword extraction ───────────────────────────────────
@@ -203,7 +212,8 @@ function scoreRule3(resume: ResumeResponse): RuleResult {
 function scoreRule4(resume: ResumeResponse): RuleResult {
   const fullText = [
     resume.summary ?? '',
-    ...(resume.employment?.flatMap(e => e.bullets ?? []) ?? []),
+    // Pinned bullets are the owner's verbatim text: never stripped, so never vetoed.
+    ...(resume.employment?.filter(e => e.pinned !== true).flatMap(e => e.bullets ?? []) ?? []),
     ...(resume.projects?.flatMap(p => p.highlights ?? []) ?? []),
   ].join(' ').toLowerCase()
 
@@ -271,7 +281,9 @@ export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
   return {
     rules,
     total,
-    passed: total >= PASS_THRESHOLD,
+    // Tolerance for float summation: rule scores like 0.8 + … can land a hair
+    // under a total that is exactly at the threshold.
+    passed: total >= PASS_THRESHOLD - 1e-9,
     jd_term_count: jdKeywords.length,
   }
 }
