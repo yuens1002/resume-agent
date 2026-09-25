@@ -276,3 +276,36 @@ export function buildEmploymentNotificationMetadata(): Record<string, unknown> {
     topics: ['employment', 'employment_sync_applied', 'notification'],
   }
 }
+
+/**
+ * True when an employment entry's bullets are owner-curated and fixed
+ * (`pinned: true` in the profile). The nightly sync must never propose or
+ * apply replacement bullets for such an entry: the owner wrote them
+ * deliberately, and an automated rewrite would silently undo that.
+ */
+export function isPinnedEmployment(entry: unknown): boolean {
+  return (entry as { pinned?: unknown } | null | undefined)?.pinned === true
+}
+
+const isSelfEmployedCompany = (company: unknown) => {
+  const c = String(company ?? '').toLowerCase()
+  return c.includes('self-employed') || c.includes('self employed')
+}
+
+/**
+ * Apply consolidated bullets to every self-employed entry that is not
+ * pinned. `changed` is false when there was nothing eligible to update (for
+ * example, every self-employed entry is pinned), so the caller skips the write.
+ */
+export function applyConsolidatedBullets<E extends { company?: string; bullets?: unknown }>(
+  employment: E[],
+  bullets: string[],
+): { updated: E[]; changed: boolean } {
+  let changed = false
+  const updated = employment.map((e) => {
+    if (!isSelfEmployedCompany(e.company) || isPinnedEmployment(e)) return e
+    changed = true
+    return { ...e, bullets }
+  })
+  return { updated, changed }
+}

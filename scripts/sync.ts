@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment, applyConsolidatedBullets } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
 import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
@@ -480,10 +480,10 @@ async function proposeEmploymentDelta(
   const shippedUx = newThoughts.filter(f => f.status === 'shipped' && f.category === 'ux')
   if (shippedUx.length === 0) return
 
-  // Find the self-employed entry (or first entry)
+  // First self-employed entry that isn't pinned; pinned entries are owner-written.
   const selfEmployed = employment?.find(e =>
-    e.company?.toLowerCase().includes('self-employed') ||
-    e.company?.toLowerCase().includes('self employed'),
+    (e.company?.toLowerCase().includes('self-employed') ||
+    e.company?.toLowerCase().includes('self employed')) && !isPinnedEmployment(e),
   )
   if (!selfEmployed) return
 
@@ -1028,10 +1028,11 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
   }
 
   const selfEmployed = employment?.find(e =>
-    e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'),
+    (e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed')) &&
+    !isPinnedEmployment(e),
   )
   if (!selfEmployed) {
-    console.log('  — no self-employed entry found in profile')
+    console.log('  — no unpinned self-employed entry found in profile')
     return
   }
   const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets as string[] : []
@@ -1054,18 +1055,42 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
     ? [...new Set([...currentBullets, ...proposed])]
     : proposed
 
-  const updatedEmployment = (employment ?? []).map(e =>
-    (e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'))
-      ? { ...e, bullets: finalBullets }
-      : e,
+  // Re-read employment right before writing: `employment` was loaded at the
+  // start of the run, and the owner may have pinned or edited a role since.
+  // Writing the stale snapshot back would undo that.
+  const { data: fresh, error: readError } = await supabase
+    .from('public_profile')
+    .select('employment, updated_at')
+    .eq('id', PROFILE_ID)
+    .single()
+  if (readError || !fresh) {
+    console.warn(`  ⚠ employment consolidation skipped — could not re-read employment: ${readError?.message ?? 'no row'}`)
+    return
+  }
+  const { updated: updatedEmployment, changed } = applyConsolidatedBullets(
+    Array.isArray(fresh.employment) ? fresh.employment : [],
+    finalBullets,
   )
+  if (!changed) {
+    console.log('  — employment consolidation skipped: no unpinned self-employed entry to update')
+    return
+  }
 
-  const { error } = await supabase
+  // Optimistic concurrency: write only if nothing changed the row since the
+  // read above (every profile write bumps updated_at). If the owner pinned or
+  // edited a role in between, the update matches no row and we abort.
+  const { data: written, error } = await supabase
     .from('public_profile')
     .update({ employment: updatedEmployment, updated_at: new Date().toISOString() })
     .eq('id', PROFILE_ID)
+    .eq('updated_at', fresh.updated_at)
+    .select('id')
   if (error) {
     console.warn(`  ⚠ employment consolidation failed: ${error.message}`)
+    return
+  }
+  if (!written?.length) {
+    console.log('  — employment consolidation skipped: profile changed during the run')
     return
   }
   console.log(`  ✔ employment bullets updated: ${currentBullets.length} → ${finalBullets.length} (${config.strategy})`)
