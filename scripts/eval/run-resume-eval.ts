@@ -18,8 +18,7 @@
 import './eval-env.js'
 import { fetchProfile } from '../../src/lib/profile-cache.js'
 import { generateResume } from '../../src/lib/generate-resume.js'
-import { RESUME_BUDGET } from '../../src/lib/resume-format.js'
-import { queryRelevantThoughts } from '../../src/lib/thoughts-query.js'
+import { groundedNumbers, NUMBER_RE, RESUME_BUDGET, splitSentences } from '../../src/lib/resume-format.js'
 import type { ResumeResponse } from '../../src/types.js'
 import { RESUME_EVAL_CASES } from './resume-eval-cases.js'
 import { judgeStarBullets } from './star-judge.js'
@@ -28,24 +27,6 @@ interface Check {
   name: string
   pass: boolean
   detail?: string
-}
-
-const NUMBER_RE = /\d+(?:[.,]\d+)*/g
-
-/**
- * Numbers a bullet may legitimately cite: those in the candidate's written
- * text (employment bullets, project prose) and in the Open Brain context the
- * model was given for this JD. Dates, counts and ids elsewhere in the profile
- * are excluded, so they can't whitelist an invented figure.
- */
-function groundedNumbers(profile: Record<string, any>, thoughts: string[]): Set<string> {
-  const prose = [
-    ...(profile.employment ?? []).flatMap((e: { bullets?: string[] }) => e?.bullets ?? []),
-    ...(profile.projects ?? []).flatMap((p: Record<string, unknown>) =>
-      [p?.description, p?.impact, p?.problem, ...((p?.highlights as string[] | undefined) ?? [])].filter((x): x is string => typeof x === 'string')),
-    ...thoughts,
-  ]
-  return new Set(prose.join(' ').match(NUMBER_RE) ?? [])
 }
 
 function checkResume(resume: ResumeResponse, profile: Record<string, any>, thoughts: string[], rules: { rule: number; pass: boolean; detail: string }[]): Check[] {
@@ -59,7 +40,7 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, thoug
   const periods = [...unpinned.flatMap((e) => e.bullets ?? []), ...highlights].filter((b) => b.trim().endsWith('.'))
   checks.push({ name: 'no trailing periods', pass: periods.length === 0, detail: periods[0] })
 
-  const sentences = (resume.summary ?? '').trim().split(/(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean).length
+  const sentences = splitSentences(resume.summary ?? '').length
   checks.push({ name: 'summary within budget', pass: sentences <= RESUME_BUDGET.summarySentences, detail: `${sentences} sentences` })
 
   const ordered = employment.every((e, i) => i === 0 || String(employment[i - 1].start_date) >= String(e.start_date))
@@ -133,14 +114,14 @@ async function main(): Promise<void> {
   let failedCases = 0
   for (const c of cases) {
     process.stdout.write(`\n[${c.id}] (${c.roleType})\n`)
-    const candidates = await generateResume({ profile, jobDescription: c.jobDescription })
+    // The exact thoughts the model was given, so grounding checks the same set.
+    const { candidates, relevantThoughts: thoughts } = await generateResume({ profile, jobDescription: c.jobDescription })
     if (!candidates.length) {
       process.stdout.write('  FAIL — both generations failed to parse\n')
       failedCases++
       continue
     }
     const winner = candidates[0]
-    const thoughts = await queryRelevantThoughts(c.jobDescription)
     const checks = checkResume(winner.resume, profile, thoughts, winner.rubric.rules)
     for (const ch of checks) {
       process.stdout.write(`  ${ch.pass ? '✓' : '✗'} ${ch.name}${!ch.pass && ch.detail ? ` — ${ch.detail}` : ''}\n`)

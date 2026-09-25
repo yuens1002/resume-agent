@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
-- 2026-09-25 — feat(resume): align generated résumés with r/EngineeringResumes conventions (#298). What changed: a new post-processing step (`src/lib/resume-format.ts`) applies bullet grammar and a one-page content budget before scoring; the prompt asks for categorized skills, STAR/XYZ bullets and 1–2 JD-relevant projects, and never for invented metrics; weak verbs join the banned phrases; the generation core moved into `src/lib/generate-resume.ts`, shared by the route and a new on-demand `npm run eval:resume`; employment roles marked `pinned` in the profile are emitted verbatim from the profile; an LLM judge for STAR/XYZ (`scripts/eval/star-judge.ts`) reports in the eval and powers `npm run check:bullets` and `npm run eval:star-judge`. `skills` now arrives as categorized rows. The scored rubric and pass mark are unchanged apart from the banned phrases. Plan, decisions and ACs: `docs/plans/resume-wiki-format/`.
+- 2026-09-25 — feat(resume): align generated résumés with r/EngineeringResumes conventions (#298)
+  - Post-processing before scoring: bullet grammar, 2-sentence summary, roles most recent first, one-page content budget
+  - Generator-written bullets citing a number not grounded in the profile's text or the given thoughts are dropped
+  - Prompt: categorized skills, STAR/XYZ bullets, 1–2 JD-relevant projects, no invented metrics
+  - Banned phrases: weak verbs added; pinned roles exempt
+  - Generation core moved to `src/lib/generate-resume.ts`
+  - Generation output-token cap raised from 8,192 to 16,000 so reasoning models can finish their answer
+  - Pinned employment roles emitted verbatim from the profile
+  - New commands: `eval:resume`, `check:bullets`, `eval:star-judge` (LLM STAR/XYZ judge, off the request path)
+  - `skills` now emitted as categorized `{ category, items }` rows
 
 - 2026-09-25 — fix(sync): never rewrite pinned employment bullets — the nightly employment consolidation replaced the self-employment entry's bullets with the latest auto-generated proposal whenever its gates passed, with no way for the owner to keep a deliberately written set. An entry marked `pinned: true` in the profile is now skipped both when proposals are generated and when they are applied, via a shared `isPinnedEmployment` helper in `scripts/sync-helpers.ts`. The write itself is also guarded: consolidation re-reads employment immediately before writing, so a role pinned while a run is in progress isn't overwritten from the run's earlier snapshot, and the write is conditional on the row's `updated_at` being unchanged since that read, so a pin or edit landing in between aborts the write. Both proposal generation and consolidation select the first unpinned self-employed entry, and `applyConsolidatedBullets` skips every pinned entry. This is the sync-side half of pinned bullets for owner-curated roles (#298); the generation side ships with that feature.
 

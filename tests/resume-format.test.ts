@@ -5,7 +5,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { RESUME_BUDGET, capSentences, cleanBullet, normalizeResumeFormat } from '../src/lib/resume-format.js'
+import { RESUME_BUDGET, capSentences, cleanBullet, dropUngroundedNumbers, groundedNumbers, normalizeResumeFormat } from '../src/lib/resume-format.js'
 import { scoreResume, PASS_THRESHOLD } from '../src/lib/score-resume.js'
 import type { ResumeResponse } from '../src/types.js'
 
@@ -38,6 +38,10 @@ describe('cleanBullet', () => {
 describe('capSentences', () => {
   it('keeps the first N sentences and ignores periods inside tokens', () => {
     assert.equal(capSentences('Built on Node.js and React. Owns delivery. Explores AI.', 2), 'Built on Node.js and React. Owns delivery.')
+  })
+  it('splits a sentence that starts lowercase or with a quote', () => {
+    assert.equal(capSentences('Built APIs. shipped the service. Added tests.', 2), 'Built APIs. shipped the service.')
+    assert.equal(capSentences('Led the team. "Ship it" became the motto. Third.', 2), 'Led the team. "Ship it" became the motto.')
   })
   it('does not split after common abbreviations', () => {
     assert.equal(capSentences('Engineer at Acme Inc. Building React apps. Third.', 2), 'Engineer at Acme Inc. Building React apps. Third.')
@@ -206,5 +210,41 @@ describe('pass threshold', () => {
   it('keeps the 4.0-of-5 bar across the scored rules', () => {
     const rules = scoreResume(resume(), 'Engineer').rules.length
     assert.ok(Math.abs(PASS_THRESHOLD / rules - 4.0 / 5) < 1e-9, `${PASS_THRESHOLD}/${rules} should equal 4.0/5`)
+  })
+})
+
+describe('number grounding (request path)', () => {
+  const profile = {
+    employment: [{ company: 'Acme', bullets: ['Cut latency from 900ms to 120ms'] }],
+    projects: [{ name: 'P', description: 'Serves 40 teams', highlights: ['Handled 1,200 requests a second'] }],
+  }
+  const grounded = groundedNumbers(profile, ['Migrated 12 services'])
+
+  it('keeps bullets whose numbers come from the profile text or the given thoughts', () => {
+    const { resume: out, dropped } = dropUngroundedNumbers(resume({
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: ['Cut latency to 120ms', 'Migrated 12 services', 'Led the platform team'] }],
+      projects: [{ name: 'P', slug: 'p', highlights: ['Scaled to 1,200 requests a second for 40 teams'] }] as unknown as ResumeResponse['projects'],
+    }), grounded)
+    assert.deepEqual(dropped, [])
+    assert.equal(out.employment[0].bullets.length, 3)
+  })
+
+  it('drops a generator-written bullet or highlight citing an invented number', () => {
+    const { resume: out, dropped } = dropUngroundedNumbers(resume({
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: ['Cut latency by 73%', 'Led the platform team'] }],
+      projects: [{ name: 'P', slug: 'p', highlights: ['Grew usage 5x'] }] as unknown as ResumeResponse['projects'],
+    }), grounded)
+    assert.deepEqual(out.employment[0].bullets, ['Led the platform team'])
+    assert.deepEqual(out.projects[0].highlights, [])
+    assert.equal(dropped.length, 2)
+  })
+
+  it('never touches a pinned role, and ignores dates and counts outside the written text', () => {
+    const withDates = groundedNumbers({ ...profile, contact: { phone: '555' }, git_evidence: { commit_count: 999 } }, [])
+    assert.ok(!withDates.has('999') && !withDates.has('555'))
+    const { resume: out } = dropUngroundedNumbers(resume({
+      employment: [{ company: 'Self-Employed', title: 'Builder', start_date: '2024-02', end_date: null, pinned: true, bullets: ['Shipped 3 products in 9 months'] }],
+    }), grounded)
+    assert.deepEqual(out.employment[0].bullets, ['Shipped 3 products in 9 months'])
   })
 })

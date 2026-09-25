@@ -125,7 +125,7 @@ app.post('/', zValidator('json', schema), async (c) => {
     const keepalive = setInterval(() => send(': keepalive\n\n'), 10_000)
 
     try {
-      const candidates = await generateResume({ profile, jobDescription: job_description, framingHints: framing_hints })
+      const { candidates } = await generateResume({ profile, jobDescription: job_description, framingHints: framing_hints })
 
       if (candidates.length === 0) {
         send(`data: ${JSON.stringify({ error: 'Both resume generations failed to parse' })}\n\n`)

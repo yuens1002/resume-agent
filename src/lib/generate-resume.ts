@@ -13,7 +13,7 @@ import { getModel } from './ai.js'
 import { parseJSON } from './parse-json.js'
 import { scoreResume, type RubricResult } from './score-resume.js'
 import { stripBannedPhrases } from './strip-banned.js'
-import { normalizeResumeFormat, RESUME_BUDGET as B } from './resume-format.js'
+import { dropUngroundedNumbers, groundedNumbers, normalizeResumeFormat, RESUME_BUDGET as B } from './resume-format.js'
 import { queryRelevantThoughts } from './thoughts-query.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from './hidden-projects.js'
 import type { ResumeResponse } from '../types.js'
@@ -130,13 +130,20 @@ export function buildResumeUserMessage(
   return userMessage
 }
 
+export interface GenerateResumeResult {
+  /** Sorted best-first by rubric total; empty when both generations failed. */
+  candidates: ResumeCandidate[]
+  /** The exact Open Brain thoughts the model was given, for grounding checks. */
+  relevantThoughts: string[]
+}
+
 /**
- * Candidates sorted best-first by rubric total; empty when both generations
- * failed to parse. Each candidate is already post-processed: banned phrases
- * stripped, then the format and content budget applied (pinned employment
- * bullets restored from the profile), so its score reflects what ships.
+ * Each candidate is already post-processed, so its score reflects what ships:
+ * banned phrases stripped, the format and content budget applied (pinned
+ * roles inserted from the profile), then any generator-written bullet citing
+ * a number not grounded in the profile's text or the given thoughts dropped.
  */
-export async function generateResume({ profile, jobDescription, framingHints }: GenerateResumeInput): Promise<ResumeCandidate[]> {
+export async function generateResume({ profile, jobDescription, framingHints }: GenerateResumeInput): Promise<GenerateResumeResult> {
   const relevantThoughts = await queryRelevantThoughts(jobDescription)
   // Pinned roles are inserted from the profile after generation (#298 D9), so
   // the model sees them only as context, never as part of its employment pool.
@@ -153,7 +160,10 @@ export async function generateResume({ profile, jobDescription, framingHints }: 
     try {
       const { text: raw } = await generateText({
         model: getModel(modelId),
-        maxTokens: 8192,
+        // Reasoning models spend output tokens thinking before they answer; at
+        // 8,192 one model used the whole budget reasoning and returned nothing,
+        // and another was truncated mid-JSON. The cap covers reasoning + answer.
+        maxTokens: 16000,
         system: RESUME_SYSTEM_PROMPT,
         prompt: userMessage,
       })
@@ -166,17 +176,20 @@ export async function generateResume({ profile, jobDescription, framingHints }: 
 
   const [gen1, gen2] = await Promise.all([generateOne(RESUME_MODEL), generateOne(RESUME_MODEL_B)])
 
+  const grounded = groundedNumbers(profile, relevantThoughts)
   const candidates: ResumeCandidate[] = []
   for (const [gen, model] of [[gen1, RESUME_MODEL], [gen2, RESUME_MODEL_B]] as const) {
     if (!gen) continue
     // A malformed shape from one model (e.g. `projects: [null]`) drops that
     // candidate only, instead of failing the whole request.
     try {
-      const r = normalizeResumeFormat(stripBannedPhrases(gen), profile.employment)
+      const formatted = normalizeResumeFormat(stripBannedPhrases(gen), profile.employment)
+      const { resume: r, dropped } = dropUngroundedNumbers(formatted, grounded)
+      if (dropped.length) console.warn(`[resume] Dropped ${dropped.length} bullet(s) citing ungrounded numbers from model ${model}`)
       candidates.push({ resume: r, rubric: scoreResume(r, jobDescription), model })
     } catch (err) {
       console.error(`[resume] Post-processing failed for model ${model}:`, err instanceof Error ? err.message : err)
     }
   }
-  return candidates.sort((a, b) => b.rubric.total - a.rubric.total)
+  return { candidates: candidates.sort((a, b) => b.rubric.total - a.rubric.total), relevantThoughts }
 }

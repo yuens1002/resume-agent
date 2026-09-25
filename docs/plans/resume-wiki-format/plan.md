@@ -90,7 +90,7 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 1. **Summary kept, capped at 2 sentences.** The wiki allows a summary when an exception applies. Rule 1 (JD title first) stays because title matching serves ATS parsing.
 2. **One-page content budget via deterministic caps**, not prompt guidance alone. Caps are predictable and testable; prompts drift. Physical page fit stays with consumers (Non-goals).
 3. **Employment describes outcomes, Projects carry technical depth.** A product featured under Projects is not restated in self-employment bullets, so the budget isn't spent twice on the same work.
-4. **Truthfulness over polish.** No metric is generated that the profile doesn't ground. A résumé making claims its owner can't back is worse than a plainer one.
+4. **Truthfulness over polish.** No metric is generated that the profile doesn't ground; post-processing enforces this on the request path by dropping generator-written bullets that cite an ungrounded number. A résumé making claims its owner can't back is worse than a plainer one.
 5. **This repo owns the output contract, not presentation.** Rendering guidance is a note for consumers, not a requirement here.
 6. ~~Pass threshold raised to 4.8~~ and 7. ~~STAR/XYZ as a scored rule~~ (owner, 2026-09-24) — **superseded 2026-09-25.** A regex detector was built and scored, but it matched wording, not meaning: it credited intentions ("to drive adoption") and rejected real results ("40 services"). The owner chose to remove it from the rubric (pass mark stays 4.0 of 5) and measure STAR/XYZ with an LLM judge off the request path (decision 11).
 8. **STAR/XYZ covers employment bullets only** (owner, 2026-09-24). Project highlights stay under Rule 3's metric check.

@@ -382,7 +382,7 @@ Response:
 ```
 
 ### `POST /resume` _(private, key-protected)_
-Feed a job description (and optional `framing_hints`), get back a tailored 2-page resume as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
+Feed a job description (and optional `framing_hints`), get back a tailored resume, sized to a one-page content budget, as structured JSON. This endpoint is for the candidate's own use — not exposed to employer agents.
 
 **v2 behavior:** The endpoint generates two independent resumes in parallel, scores both against a deterministic 5-rule ATS rubric (title matching, keyword coverage, quantified bullets, authenticity, skills ordering), and returns the higher-scoring candidate. The response includes `_rubric` metadata with per-rule scores and a `jd_term_count` field — the number of unique extractable terms found in the submitted JD. Low `jd_term_count` (< 15) signals that the JD may be too thin for reliable keyword-dependent scoring; callers can use this to prompt users to enrich the JD before submitting. If neither generation passes the rubric threshold, a structured failure is logged to OB1 for pattern analysis. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md) for architecture details.
 

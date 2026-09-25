@@ -30,6 +30,50 @@ const MIN_DEDUPE_NAME_LENGTH = 3
 /** Employment entries treated as self-employment for the Projects dedupe. */
 const SELF_EMPLOYED_RE = /\b(self[- ]?employed|freelance|independent)\b/i
 
+/** Numeric tokens, including decimals and thousands separators ("11.3", "1,200"). */
+export const NUMBER_RE = /\d+(?:[.,]\d+)*/g
+
+/**
+ * Numbers a generated bullet may cite: those in the candidate's own written
+ * text (employment bullets, project prose) and in the Open Brain thoughts the
+ * model was given. Dates, counts and ids elsewhere in the profile are left
+ * out, so they can't make an invented figure look grounded.
+ */
+export function groundedNumbers(profile: unknown, thoughts: readonly string[]): Set<string> {
+  const p = (profile ?? {}) as { employment?: unknown; projects?: unknown }
+  const employment = Array.isArray(p.employment) ? (p.employment as Array<{ bullets?: unknown }>) : []
+  const projects = Array.isArray(p.projects) ? (p.projects as Array<Record<string, unknown>>) : []
+  const prose: string[] = [
+    ...employment.flatMap((e) => (Array.isArray(e?.bullets) ? e.bullets : []).filter((b): b is string => typeof b === 'string')),
+    ...projects.flatMap((pr) => [pr?.description, pr?.impact, pr?.problem, ...(Array.isArray(pr?.highlights) ? pr.highlights : [])]
+      .filter((x): x is string => typeof x === 'string')),
+    ...thoughts,
+  ]
+  return new Set(prose.join(' ').match(NUMBER_RE) ?? [])
+}
+
+/**
+ * Enforces "never invent a metric" on the request path: drops any
+ * generator-written employment bullet or project highlight that cites a
+ * number not in `grounded`. Pinned roles are the owner's own text and are
+ * left alone. The summary is excluded, since years of experience are
+ * legitimately derived from dates. Returns what was dropped for logging.
+ */
+export function dropUngroundedNumbers(resume: ResumeResponse, grounded: ReadonlySet<string>): { resume: ResumeResponse; dropped: string[] } {
+  const dropped: string[] = []
+  const keep = (text: string) => {
+    const ok = (text.match(NUMBER_RE) ?? []).every((n) => grounded.has(n))
+    if (!ok) dropped.push(text)
+    return ok
+  }
+  const out: ResumeResponse = {
+    ...resume,
+    employment: (resume.employment ?? []).map((e) => (e.pinned ? e : { ...e, bullets: (e.bullets ?? []).filter(keep) })),
+    projects: (resume.projects ?? []).map((p) => ({ ...p, highlights: (p.highlights ?? []).filter(keep) })),
+  }
+  return { resume: out, dropped }
+}
+
 /** Trailing periods off, a standalone "&" spelled out. "R&D"-style names are untouched. */
 export function cleanBullet(text: string): string {
   return text
@@ -41,8 +85,16 @@ export function cleanBullet(text: string): string {
 
 /** The first `max` sentences. A period inside a token (Node.js, 3.5x) or after a common abbreviation (Inc., e.g.) is not a sentence end. */
 export function capSentences(text: string, max: number): string {
-  const sentences = text.trim().split(/(?<=[.!?])(?<!\b(?:Inc|Ltd|Co|Corp|Jr|Sr|Dr|Mr|Ms|vs|etc|e\.g|i\.e)\.)\s+(?=[A-Z])/)
-  return sentences.slice(0, max).join(' ')
+  return splitSentences(text).slice(0, max).join(' ')
+}
+
+/**
+ * Sentences in `text`: split after ., ! or ? followed by whitespace, whatever
+ * the case of the next word, except after a common abbreviation. A period
+ * inside a token (Node.js, 11.3s) has no whitespace after it, so it never splits.
+ */
+export function splitSentences(text: string): string[] {
+  return text.trim().split(/(?<=[.!?])(?<!\b(?:Inc|Ltd|Co|Corp|Jr|Sr|Dr|Mr|Ms|vs|etc|e\.g|i\.e)\.)\s+/).filter(Boolean)
 }
 
 function cleanList(items: unknown, cap: number): string[] {
