@@ -92,22 +92,40 @@ export function normalizeResumeFormat(resume: ResumeResponse, profileEmployment?
   const profileCompanies = new Set(
     (Array.isArray(profileEmployment) ? (profileEmployment as Employment[]) : []).map((p) => companyKey(p?.company)),
   )
-  // Match a pinned role by company. Only an entry whose company is unknown to
-  // the profile (the model renamed it) falls back to matching by start date,
-  // so a different real role that started the same month is never swallowed.
-  const pinFor = (e: Employment) => pinned.get(companyKey(e.company)) ??
-    (profileCompanies.has(companyKey(e.company))
-      ? undefined
-      : [...pinned.values()].find((p) => p.start_date && p.start_date === e.start_date))
+  const sameRole = (p: Employment, e: Employment) =>
+    p.start_date === e.start_date &&
+    (p.end_date ?? null) === (e.end_date ?? null) &&
+    String(p.title ?? '').toLowerCase() === String(e.title ?? '').toLowerCase()
+
+  // Resolve each emitted entry to a pinned role once, up front. An exact
+  // company match wins. Otherwise, only an entry whose company is unknown to
+  // the profile (the model renamed it) may map by identity — same start date,
+  // end date and title — and only when exactly one not-yet-matched pinned role
+  // fits. Anything ambiguous is left as the model wrote it rather than guessed.
   const emitted = [...(out.employment ?? [])]
+  const pinOf = new Map<Employment, Employment>()
+  const claimed = new Set<Employment>()
+  for (const e of emitted) {
+    const exact = pinned.get(companyKey(e.company))
+    if (exact && !claimed.has(exact)) { pinOf.set(e, exact); claimed.add(exact) }
+  }
+  for (const e of emitted) {
+    if (pinOf.has(e) || profileCompanies.has(companyKey(e.company))) continue
+    const fits = [...pinned.values()].filter((p) => !claimed.has(p) && sameRole(p, e))
+    if (fits.length === 1) { pinOf.set(e, fits[0]); claimed.add(fits[0]) }
+  }
   for (const entry of pinned.values()) {
-    if (!emitted.some((e) => pinFor(e) === entry)) emitted.push(structuredClone(entry))
+    if (!claimed.has(entry)) {
+      const restored = structuredClone(entry)
+      emitted.push(restored)
+      pinOf.set(restored, entry)
+    }
   }
 
   // Most recent first, so the first entry gets the larger bullet budget.
   const employment = emitted.sort((x, y) => String(y.start_date ?? '').localeCompare(String(x.start_date ?? '')))
   out.employment = employment.map((e, i) => {
-    const pin = pinFor(e)
+    const pin = pinOf.get(e)
     if (pin) return { ...e, company: pin.company, title: pin.title, pinned: true, bullets: [...pin.bullets] }
     let bullets = cleanList(e.bullets, Number.MAX_SAFE_INTEGER)
     if (SELF_EMPLOYED_RE.test(e.company ?? '')) {

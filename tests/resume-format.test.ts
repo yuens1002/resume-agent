@@ -135,7 +135,7 @@ describe('pinned employment (D9)', () => {
 
   it('treats a renamed company with the same start date as the pinned role, without a duplicate', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Independent Consulting', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Model text'] }],
+      employment: [{ company: 'Independent Consulting', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['Model text'] }],
     }), profileEmployment)
     assert.equal(out.employment.length, 1)
     assert.equal(out.employment[0].company, 'Self-Employed')
@@ -152,6 +152,32 @@ describe('pinned employment (D9)', () => {
     }), withSideCo)
     assert.deepEqual(out.employment.map((e) => e.company).sort(), ['Self-Employed', 'Side Co'])
     assert.deepEqual(out.employment.find((e) => e.company === 'Side Co')!.bullets, ['Side work'])
+  })
+
+  it('leaves a reworded non-pinned company alone instead of mapping it to a same-month pinned role', () => {
+    const withAcme = [...profileEmployment, { company: 'Acme Inc', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Acme work'] }]
+    const out = normalizeResumeFormat(resume({
+      employment: [
+        { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] },
+        { company: 'Acme', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Acme work'] },
+      ],
+    }), withAcme)
+    assert.equal(out.employment.filter((e) => e.pinned).length, 1)
+    assert.deepEqual(out.employment.find((e) => e.company === 'Acme')!.bullets, ['Acme work'])
+  })
+
+  it('maps each renamed role to its own pinned role when two share a start date', () => {
+    const twoPinned = [
+      { company: 'Studio A', title: 'Designer', start_date: '2023-08', end_date: null, pinned: true, bullets: ['A1'] },
+      { company: 'Studio B', title: 'Engineer', start_date: '2023-08', end_date: null, pinned: true, bullets: ['B1'] },
+    ]
+    const out = normalizeResumeFormat(resume({
+      employment: [
+        { company: 'A Studio', title: 'Designer', start_date: '2023-08', end_date: null, bullets: ['x'] },
+        { company: 'B Studio', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['y'] },
+      ],
+    }), twoPinned)
+    assert.deepEqual(out.employment.map((e) => e.company).sort(), ['Studio A', 'Studio B'])
   })
 
   it('exempts a pinned self-employment entry from the Projects dedupe', () => {
