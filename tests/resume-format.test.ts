@@ -119,78 +119,73 @@ describe('normalizeResumeFormat', () => {
 })
 
 describe('pinned employment (D9)', () => {
-  const profileEmployment = [
-    { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, pinned: true,
-      bullets: ['Owner bullet one.', 'Owner bullet two', 'Owner bullet three', 'Owner bullet four', 'Owner bullet five'] },
-    { company: 'Old Co', title: 'Engineer', start_date: '2018-01', end_date: '2020-01', bullets: ['Built things'] },
-  ]
+  const pinnedRole = { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, pinned: true,
+    bullets: ['Owner bullet one.', 'Owner bullet two', 'Owner bullet three', 'Owner bullet four', 'Owner bullet five'] }
+  const oldRole = { company: 'Old Co', title: 'Engineer', start_date: '2018-01', end_date: '2020-01', bullets: ['Built things'] }
+  const profileEmployment = [pinnedRole, oldRole]
+  const pinnedRows = (r: ResumeResponse) => r.employment.filter((e) => e.pinned)
 
-  it('emits the profile bullets verbatim, in order, over whatever the model returned, exempt from caps', () => {
+  it('inserts the pinned role from the profile verbatim and drops the model copy', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['Model rewrite'] }],
+      employment: [{ company: 'Self-Employed', title: 'Engineer', start_date: '2023-09', end_date: null, bullets: ['Model rewrite'] }],
     }), profileEmployment)
-    assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
-    assert.equal(out.employment[0].pinned, true)
-  })
-
-  it('treats a renamed company with the same start date as the pinned role, without a duplicate', () => {
-    const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Independent Consulting', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['Model text'] }],
-    }), profileEmployment)
+    assert.equal(pinnedRows(out).length, 1)
+    const { pinned: _p, ...fromProfile } = pinnedRole
+    assert.deepEqual({ ...pinnedRows(out)[0], pinned: undefined }, { ...fromProfile, pinned: undefined })
     assert.equal(out.employment.length, 1)
-    assert.equal(out.employment[0].company, 'Self-Employed')
-    assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
   })
 
-  it('never swallows a different profile role that started the same month', () => {
-    const withSideCo = [...profileEmployment, { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work'] }]
+  it('restores a pinned role the model left out', () => {
+    const out = normalizeResumeFormat(resume({ employment: [structuredClone(oldRole)] }), profileEmployment)
+    assert.deepEqual(out.employment.map((e) => e.company), ['Self-Employed', 'Old Co'])
+  })
+
+  it('drops a renamed model copy that keeps the pinned title and dates', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [
-        { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] },
-        { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work.'] },
-      ],
-    }), withSideCo)
-    assert.deepEqual(out.employment.map((e) => e.company).sort(), ['Self-Employed', 'Side Co'])
-    assert.deepEqual(out.employment.find((e) => e.company === 'Side Co')!.bullets, ['Side work'])
+      employment: [{ company: 'Independent Consulting', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }],
+    }), profileEmployment)
+    assert.deepEqual(out.employment.map((e) => e.company), ['Self-Employed'])
   })
 
-  it('leaves a reworded non-pinned company alone instead of mapping it to a same-month pinned role', () => {
-    const withAcme = [...profileEmployment, { company: 'Acme Inc', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Acme work'] }]
-    const out = normalizeResumeFormat(resume({
-      employment: [
-        { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] },
-        { company: 'Acme', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Acme work'] },
-      ],
-    }), withAcme)
-    assert.equal(out.employment.filter((e) => e.pinned).length, 1)
-    assert.deepEqual(out.employment.find((e) => e.company === 'Acme')!.bullets, ['Acme work'])
-  })
-
-  it('maps each renamed role to its own pinned role when two share a start date', () => {
-    const twoPinned = [
-      { company: 'Studio A', title: 'Designer', start_date: '2023-08', end_date: null, pinned: true, bullets: ['A1'] },
-      { company: 'Studio B', title: 'Engineer', start_date: '2023-08', end_date: null, pinned: true, bullets: ['B1'] },
+  it('keeps a different role at the same company with its own start date', () => {
+    const profile = [
+      { company: 'Acme', title: 'Senior Engineer', start_date: '2021-01', end_date: null, pinned: true, bullets: ['Senior work'] },
+      { company: 'Acme', title: 'Engineer', start_date: '2018-01', end_date: '2020-12', bullets: ['Junior work'] },
     ]
     const out = normalizeResumeFormat(resume({
-      employment: [
-        { company: 'A Studio', title: 'Designer', start_date: '2023-08', end_date: null, bullets: ['x'] },
-        { company: 'B Studio', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['y'] },
-      ],
-    }), twoPinned)
-    assert.deepEqual(out.employment.map((e) => e.company).sort(), ['Studio A', 'Studio B'])
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2018-01', end_date: '2020-12', bullets: ['Junior work'] }],
+    }), profile)
+    assert.deepEqual(out.employment.map((e) => [e.title, e.start_date, !!e.pinned]), [['Senior Engineer', '2021-01', true], ['Engineer', '2018-01', false]])
   })
 
-  it('exempts a pinned self-employment entry from the Projects dedupe', () => {
+  it('keeps a different company that started the same month', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }],
+      employment: [{ company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work.'] }],
+    }), [...profileEmployment, { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work'] }])
+    assert.deepEqual(out.employment.find((e) => e.company === 'Side Co')!.bullets, ['Side work'])
+    assert.equal(pinnedRows(out).length, 1)
+  })
+
+  it('emits a pinned role once even when the model emits it twice', () => {
+    const copy = { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }
+    const out = normalizeResumeFormat(resume({ employment: [copy, structuredClone(copy)] }), profileEmployment)
+    assert.equal(out.employment.length, 1)
+  })
+
+  it('never lets the model mark a role pinned', () => {
+    const out = normalizeResumeFormat(resume({
+      employment: [{ ...structuredClone(oldRole), pinned: true, bullets: ['a', 'b', 'c', 'd', 'e'] }],
+    }), profileEmployment)
+    const old = out.employment.find((e) => e.company === 'Old Co')!
+    assert.ok(!old.pinned)
+    assert.ok(old.bullets.length <= RESUME_BUDGET.mostRecentRoleBullets)
+  })
+
+  it('exempts the pinned role from caps and the Projects dedupe', () => {
+    const out = normalizeResumeFormat(resume({
       projects: [{ name: 'Owner bullet', slug: 'ob', highlights: [] }] as unknown as ResumeResponse['projects'],
     }), profileEmployment)
-    assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
-  })
-
-  it('restores a pinned entry the model dropped', () => {
-    const out = normalizeResumeFormat(resume({ employment: [job('Old Co', '2018-01', 1)] }), profileEmployment)
-    assert.deepEqual(out.employment.map((e) => e.company), ['Self-Employed', 'Old Co'])
+    assert.deepEqual(pinnedRows(out)[0].bullets, pinnedRole.bullets)
   })
 })
 

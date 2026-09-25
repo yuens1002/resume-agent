@@ -87,7 +87,7 @@ Rules:
 9. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Include only the 1–${B.projects} projects most relevant to the JD, each with a brief description and at most ${B.projectHighlights} highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
 
 Additional rules:
-- An employment entry marked "pinned": true has owner-written bullets. Copy them verbatim and in their original order; never select from, reword, reorder or trim them. Rules 3, 5 and 6 apply only to entries that are not pinned
+- Roles under "pinned_employment" are owner-written and are added to the resume automatically, exactly as written. Do NOT include them in your "employment" array; use them only as context (e.g. for the summary).
 - Never fabricate credentials, titles, dates, or skills
 - Do NOT include a "contact" key in your JSON — it will be injected server-side
 - Each project in the profile represents a distinct goal and outcome — never merge or combine them regardless of shared tech stack. Treat each as its own entry. As the portfolio grows, include only the projects most relevant to the target JD.
@@ -138,7 +138,15 @@ export function buildResumeUserMessage(
  */
 export async function generateResume({ profile, jobDescription, framingHints }: GenerateResumeInput): Promise<ResumeCandidate[]> {
   const relevantThoughts = await queryRelevantThoughts(jobDescription)
-  const visibleProfile = { ...profile, projects: filterVisibleProjects(profile.projects, HIDE_FROM_PROJECTS) }
+  // Pinned roles are inserted from the profile after generation (#298 D9), so
+  // the model sees them only as context, never as part of its employment pool.
+  const employment: Array<{ pinned?: unknown }> = Array.isArray(profile.employment) ? profile.employment : []
+  const visibleProfile = {
+    ...profile,
+    employment: employment.filter((e) => e?.pinned !== true),
+    pinned_employment: employment.filter((e) => e?.pinned === true),
+    projects: filterVisibleProjects(profile.projects, HIDE_FROM_PROJECTS),
+  }
   const userMessage = buildResumeUserMessage(visibleProfile, relevantThoughts, jobDescription, framingHints)
 
   async function generateOne(modelId: string): Promise<ResumeResponse | null> {

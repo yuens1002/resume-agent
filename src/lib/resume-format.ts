@@ -60,21 +60,36 @@ function mentions(bullet: string, name: string): boolean {
 
 const companyKey = (c: unknown) => String(c ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
-/** Profile employment entries the owner pinned (`pinned: true`), keyed by normalized company. */
-function pinnedByCompany(profileEmployment: unknown): Map<string, Employment> {
-  const out = new Map<string, Employment>()
-  if (!Array.isArray(profileEmployment)) return out
-  for (const e of profileEmployment as Employment[]) {
-    if (e?.pinned === true && Array.isArray(e.bullets)) out.set(companyKey(e.company), e)
-  }
-  return out
+/** Profile employment entries the owner pinned (`pinned: true`) that carry a bullets array. */
+function pinnedEntries(profileEmployment: unknown): Employment[] {
+  if (!Array.isArray(profileEmployment)) return []
+  return (profileEmployment as Employment[]).filter((e) => e?.pinned === true && Array.isArray(e.bullets))
 }
 
 /**
- * `profileEmployment` is the profile's employment array. Entries pinned there
- * (#298 D9) are emitted with the profile's bullets verbatim and in order —
- * whatever the model returned — and are exempt from caps and dedupe. A pinned
- * entry the model dropped is restored.
+ * Whether a model-emitted entry is the model's own copy of pinned role `p`,
+ * which is then dropped in favour of the profile's version. Same company and
+ * start date; or same company when it's the profile's only role there; or the
+ * same title and dates (a renamed company). A different role at the same
+ * company, with its own start date, is never matched.
+ */
+function copiesPinned(e: Employment, p: Employment, rolesPerCompany: Map<string, number>): boolean {
+  const sameCompany = companyKey(e.company) === companyKey(p.company)
+  if (sameCompany && e.start_date === p.start_date) return true
+  if (sameCompany && (rolesPerCompany.get(companyKey(p.company)) ?? 0) === 1) return true
+  return (
+    e.start_date === p.start_date &&
+    (e.end_date ?? null) === (p.end_date ?? null) &&
+    String(e.title ?? '').trim().toLowerCase() === String(p.title ?? '').trim().toLowerCase()
+  )
+}
+
+/**
+ * `profileEmployment` is the profile's employment array. Roles pinned there
+ * (#298 D9) always come from the profile, never from the model: each is
+ * inserted exactly once with the profile's company, title, dates and bullets
+ * verbatim, exempt from caps and dedupe, and any model copy of it is dropped.
+ * Model entries can never be marked pinned.
  */
 export function normalizeResumeFormat(resume: ResumeResponse, profileEmployment?: unknown): ResumeResponse {
   const out: ResumeResponse = structuredClone(resume)
@@ -88,45 +103,20 @@ export function normalizeResumeFormat(resume: ResumeResponse, profileEmployment?
   }))
   const featuredNames = out.projects.map((p) => p.name).filter((n): n is string => typeof n === 'string' && n.trim().length >= MIN_DEDUPE_NAME_LENGTH)
 
-  const pinned = pinnedByCompany(profileEmployment)
-  const profileCompanies = new Set(
-    (Array.isArray(profileEmployment) ? (profileEmployment as Employment[]) : []).map((p) => companyKey(p?.company)),
-  )
-  const sameRole = (p: Employment, e: Employment) =>
-    p.start_date === e.start_date &&
-    (p.end_date ?? null) === (e.end_date ?? null) &&
-    String(p.title ?? '').toLowerCase() === String(e.title ?? '').toLowerCase()
-
-  // Resolve each emitted entry to a pinned role once, up front. An exact
-  // company match wins. Otherwise, only an entry whose company is unknown to
-  // the profile (the model renamed it) may map by identity — same start date,
-  // end date and title — and only when exactly one not-yet-matched pinned role
-  // fits. Anything ambiguous is left as the model wrote it rather than guessed.
-  const emitted = [...(out.employment ?? [])]
-  const pinOf = new Map<Employment, Employment>()
-  const claimed = new Set<Employment>()
-  for (const e of emitted) {
-    const exact = pinned.get(companyKey(e.company))
-    if (exact && !claimed.has(exact)) { pinOf.set(e, exact); claimed.add(exact) }
+  const pinned = pinnedEntries(profileEmployment)
+  const rolesPerCompany = new Map<string, number>()
+  for (const e of Array.isArray(profileEmployment) ? (profileEmployment as Employment[]) : []) {
+    rolesPerCompany.set(companyKey(e?.company), (rolesPerCompany.get(companyKey(e?.company)) ?? 0) + 1)
   }
-  for (const e of emitted) {
-    if (pinOf.has(e) || profileCompanies.has(companyKey(e.company))) continue
-    const fits = [...pinned.values()].filter((p) => !claimed.has(p) && sameRole(p, e))
-    if (fits.length === 1) { pinOf.set(e, fits[0]); claimed.add(fits[0]) }
-  }
-  for (const entry of pinned.values()) {
-    if (!claimed.has(entry)) {
-      const restored = structuredClone(entry)
-      emitted.push(restored)
-      pinOf.set(restored, entry)
-    }
-  }
+  const fromModel = (out.employment ?? [])
+    .filter((e) => !pinned.some((p) => copiesPinned(e, p, rolesPerCompany)))
+    .map(({ pinned: _modelFlag, ...e }) => e as Employment)
+  const emitted: Employment[] = [...fromModel, ...pinned.map((p) => ({ ...structuredClone(p), pinned: true }))]
 
   // Most recent first, so the first entry gets the larger bullet budget.
   const employment = emitted.sort((x, y) => String(y.start_date ?? '').localeCompare(String(x.start_date ?? '')))
   out.employment = employment.map((e, i) => {
-    const pin = pinOf.get(e)
-    if (pin) return { ...e, company: pin.company, title: pin.title, pinned: true, bullets: [...pin.bullets] }
+    if (e.pinned) return e
     let bullets = cleanList(e.bullets, Number.MAX_SAFE_INTEGER)
     if (SELF_EMPLOYED_RE.test(e.company ?? '')) {
       // Projects already carry these products; don't spend the budget twice.

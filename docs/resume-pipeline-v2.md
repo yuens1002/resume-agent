@@ -39,7 +39,7 @@ POST /resume  { job_description, framing_hints? }
 
 The caps are the exported `RESUME_BUDGET` constant. They target a one-page résumé's content; physical page fit depends on each consumer's layout.
 
-**Pinned roles.** An employment entry marked `pinned: true` in the profile carries owner-written bullets. The prompt tells the model to copy them verbatim, and post-processing restores them from the profile regardless of what the model returned, exempt from caps and dedupe. A pinned entry the model dropped is restored. The nightly sync never proposes or applies replacement bullets for a pinned entry.
+**Pinned roles.** An employment entry marked `pinned: true` in the profile carries owner-written bullets and always comes from the profile, never the model. The model sees pinned roles only as context and is told not to output them; post-processing drops any model copy and inserts each pinned role once, with its company, title, dates and bullets verbatim, exempt from caps and dedupe. The model can't mark a role pinned. The nightly sync never proposes or applies replacement bullets for a pinned entry.
 
 ## Rubric
 
