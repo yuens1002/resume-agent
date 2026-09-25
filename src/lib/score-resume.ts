@@ -27,7 +27,7 @@ export interface RuleResult {
 
 export interface RubricResult {
   rules: RuleResult[]
-  total: number      // 0.0–6.0
+  total: number      // 0.0–5.0
   passed: boolean    // total >= threshold
   jd_term_count: number // unique extractable terms in the JD; < 15 suggests the JD is too thin for reliable keyword scoring
 }

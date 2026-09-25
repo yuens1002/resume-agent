@@ -239,6 +239,14 @@ describe('number grounding (request path)', () => {
     assert.equal(dropped.length, 2)
   })
 
+  it('falls back to the first profile bullet for a role instead of leaving it empty', () => {
+    const profileEmployment = [{ company: 'Self-Employed', title: 'Builder', start_date: '2024-02', end_date: null, bullets: ['Shipped a design system.', 'Led onboarding'] }]
+    const { resume: out } = dropUngroundedNumbers(resume({
+      employment: [{ company: 'Self-Employed', title: 'Builder', start_date: '2024-02', end_date: null, bullets: ['Shipped 73 products'] }],
+    }), grounded, profileEmployment)
+    assert.deepEqual(out.employment[0].bullets, ['Shipped a design system'])
+  })
+
   it('never touches a pinned role, and ignores dates and counts outside the written text', () => {
     const withDates = groundedNumbers({ ...profile, contact: { phone: '555' }, git_evidence: { commit_count: 999 } }, [])
     assert.ok(!withDates.has('999') && !withDates.has('555'))

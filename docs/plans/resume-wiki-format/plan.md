@@ -72,7 +72,7 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 **In-repo consumer.** `scripts/sync.ts` rejects LLM-proposed project highlights containing any `BANNED_PHRASES` entry. Adding the weak verbs (D2) widens that gate, so sync will also reject proposals using them. This is intended: it keeps weak verbs out of the profile.
 
 **Consumers of `/resume`.**
-- `resume-agent-web` (`src/lib/resumeDoc.ts`) already accepts both skill shapes, flattening categorized rows into chips, so it needs no change. Separately and pre-existing, it labels the rubric total as out of 10; this work makes the maximum 6. That label is out of scope here.
+- `resume-agent-web` (`src/lib/resumeDoc.ts`) already accepts both skill shapes, flattening categorized rows into chips, so it needs no change. Separately and pre-existing, it labels the rubric total as out of 10, while the maximum is 5. That label is out of scope here.
 - A private downstream document renderer must accept categorized `{ category, items }` rows before D4 ships (see Rollback). That change lives in its own repo.
 
 ### Commit schedule

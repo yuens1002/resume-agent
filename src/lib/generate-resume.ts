@@ -184,7 +184,7 @@ export async function generateResume({ profile, jobDescription, framingHints }: 
     // candidate only, instead of failing the whole request.
     try {
       const formatted = normalizeResumeFormat(stripBannedPhrases(gen), profile.employment)
-      const { resume: r, dropped } = dropUngroundedNumbers(formatted, grounded)
+      const { resume: r, dropped } = dropUngroundedNumbers(formatted, grounded, profile.employment)
       if (dropped.length) console.warn(`[resume] Dropped ${dropped.length} bullet(s) citing ungrounded numbers from model ${model}`)
       candidates.push({ resume: r, rubric: scoreResume(r, jobDescription), model })
     } catch (err) {

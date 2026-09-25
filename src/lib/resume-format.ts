@@ -57,18 +57,36 @@ export function groundedNumbers(profile: unknown, thoughts: readonly string[]): 
  * generator-written employment bullet or project highlight that cites a
  * number not in `grounded`. Pinned roles are the owner's own text and are
  * left alone. The summary is excluded, since years of experience are
- * legitimately derived from dates. Returns what was dropped for logging.
+ * legitimately derived from dates. If this would leave a role with no
+ * bullets, the role falls back to its first bullet from `profileEmployment`,
+ * which is the owner's own text and so grounded by definition. Returns what
+ * was dropped for logging.
  */
-export function dropUngroundedNumbers(resume: ResumeResponse, grounded: ReadonlySet<string>): { resume: ResumeResponse; dropped: string[] } {
+export function dropUngroundedNumbers(
+  resume: ResumeResponse,
+  grounded: ReadonlySet<string>,
+  profileEmployment?: unknown,
+): { resume: ResumeResponse; dropped: string[] } {
   const dropped: string[] = []
   const keep = (text: string) => {
     const ok = (text.match(NUMBER_RE) ?? []).every((n) => grounded.has(n))
     if (!ok) dropped.push(text)
     return ok
   }
+  const profileRoles = Array.isArray(profileEmployment) ? (profileEmployment as Employment[]) : []
+  const fallbackFor = (e: Employment): string[] => {
+    const src = profileRoles.find((p) => companyKey(p?.company) === companyKey(e.company) && p?.start_date === e.start_date) ??
+      profileRoles.find((p) => companyKey(p?.company) === companyKey(e.company))
+    const first = Array.isArray(src?.bullets) ? src.bullets.find((b): b is string => typeof b === 'string') : undefined
+    return first ? [cleanBullet(first)] : []
+  }
   const out: ResumeResponse = {
     ...resume,
-    employment: (resume.employment ?? []).map((e) => (e.pinned ? e : { ...e, bullets: (e.bullets ?? []).filter(keep) })),
+    employment: (resume.employment ?? []).map((e) => {
+      if (e.pinned) return e
+      const kept = (e.bullets ?? []).filter(keep)
+      return { ...e, bullets: kept.length || !(e.bullets ?? []).length ? kept : fallbackFor(e) }
+    }),
     projects: (resume.projects ?? []).map((p) => ({ ...p, highlights: (p.highlights ?? []).filter(keep) })),
   }
   return { resume: out, dropped }
