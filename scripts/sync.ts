@@ -480,12 +480,12 @@ async function proposeEmploymentDelta(
   const shippedUx = newThoughts.filter(f => f.status === 'shipped' && f.category === 'ux')
   if (shippedUx.length === 0) return
 
-  // Find the self-employed entry (or first entry)
+  // First self-employed entry that isn't pinned; pinned entries are owner-written.
   const selfEmployed = employment?.find(e =>
-    e.company?.toLowerCase().includes('self-employed') ||
-    e.company?.toLowerCase().includes('self employed'),
+    (e.company?.toLowerCase().includes('self-employed') ||
+    e.company?.toLowerCase().includes('self employed')) && !isPinnedEmployment(e),
   )
-  if (!selfEmployed || isPinnedEmployment(selfEmployed)) return
+  if (!selfEmployed) return
 
   const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets : []
 
@@ -1028,14 +1028,11 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
   }
 
   const selfEmployed = employment?.find(e =>
-    e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'),
+    (e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed')) &&
+    !isPinnedEmployment(e),
   )
   if (!selfEmployed) {
-    console.log('  — no self-employed entry found in profile')
-    return
-  }
-  if (isPinnedEmployment(selfEmployed)) {
-    console.log('  — employment consolidation skipped: self-employed bullets are pinned')
+    console.log('  — no unpinned self-employed entry found in profile')
     return
   }
   const currentBullets = Array.isArray(selfEmployed.bullets) ? selfEmployed.bullets as string[] : []
@@ -1063,7 +1060,7 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
   // Writing the stale snapshot back would undo that.
   const { data: fresh, error: readError } = await supabase
     .from('public_profile')
-    .select('employment')
+    .select('employment, updated_at')
     .eq('id', PROFILE_ID)
     .single()
   if (readError || !fresh) {
@@ -1079,12 +1076,21 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
     return
   }
 
-  const { error } = await supabase
+  // Optimistic concurrency: write only if nothing changed the row since the
+  // read above (every profile write bumps updated_at). If the owner pinned or
+  // edited a role in between, the update matches no row and we abort.
+  const { data: written, error } = await supabase
     .from('public_profile')
     .update({ employment: updatedEmployment, updated_at: new Date().toISOString() })
     .eq('id', PROFILE_ID)
+    .eq('updated_at', fresh.updated_at)
+    .select('id')
   if (error) {
     console.warn(`  ⚠ employment consolidation failed: ${error.message}`)
+    return
+  }
+  if (!written?.length) {
+    console.log('  — employment consolidation skipped: profile changed during the run')
     return
   }
   console.log(`  ✔ employment bullets updated: ${currentBullets.length} → ${finalBullets.length} (${config.strategy})`)
