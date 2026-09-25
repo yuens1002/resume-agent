@@ -26,6 +26,12 @@ const REPLACEMENTS: Record<string, string> = {
   'detail-oriented professional': '',
   'highly motivated':           '',
   'strong work ethic':          '',
+  'utilized':                   'used',
+  'utilizing':                  'using',
+  'participated in':            'contributed to',
+  'functions as':               'served as',
+  'responsible for':            'owned',
+  'enhanced':                   'improved',
 }
 
 /**

@@ -407,7 +407,7 @@ The `/match` endpoint is not a keyword matcher. It uses Claude to reason over th
 
 5. **Surface gaps honestly.** The agent does not inflate fit scores. Gaps are reported as: learnable (tooling, framework), structural (years of experience, role type), or fundamental (domain, function).
 
-The private `/resume` endpoint uses the same match methodology as context, then generates two independent resumes in parallel and selects the highest-scoring one via a deterministic rubric. The rubric enforces 6 ATS-informed rules: JD title mirroring, keyword coverage, quantified impact bullets, authenticity (no generic phrases), JD-aligned bullet prioritization, and skills ordering by relevance. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md).
+The private `/resume` endpoint uses the same match methodology as context, then generates two independent resumes in parallel and selects the highest-scoring one via a deterministic rubric. The rubric scores 6 ATS-informed rules: JD title mirroring, STAR/XYZ bullet shape, keyword coverage, quantified results, authenticity (no generic or weak phrases, a hard veto), and skills ordering by relevance. A deterministic post-processing step applies bullet grammar and a one-page content budget before scoring. See [`docs/resume-pipeline-v2.md`](docs/resume-pipeline-v2.md).
 
 ---
 

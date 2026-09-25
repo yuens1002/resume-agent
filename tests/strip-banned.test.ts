@@ -61,6 +61,18 @@ describe('stripBannedPhrases', () => {
     assert.ok(BANNED_PHRASES.length > 0)
   })
 
+  it('removes every banned phrase without emptying the bullet', () => {
+    for (const phrase of BANNED_PHRASES) {
+      const bullet = `Built the reporting app and ${phrase} the release process`
+      const cleaned = stripBannedPhrases(makeResume({
+        employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: [bullet] }],
+      }))
+      const out = cleaned.employment[0].bullets[0] ?? ''
+      assert.ok(!containsBanned(out), `"${phrase}" survived: "${out}"`)
+      assert.ok(out.trim().length > 0, `"${phrase}" emptied the bullet`)
+    }
+  })
+
   it('strips banned phrases from summary', () => {
     const resume = makeResume({
       summary: 'A results-driven engineer with a proven track record of leveraging modern tools.',

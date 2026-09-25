@@ -237,7 +237,7 @@ describe('Overall rubric scoring', () => {
 
   it('returns 5 rule results', () => {
     const result = scoreResume(makeResume(), UX_ENGINEER_JD)
-    assert.equal(result.rules.length, 5)
+    assert.equal(result.rules.length, 6)
   })
 
   it('total is sum of individual scores', () => {

@@ -6,45 +6,61 @@ The v1 `/resume` endpoint produced a single LLM-generated resume per JD. Quality
 
 ## Architecture
 
+The generation core lives in `src/lib/generate-resume.ts` (`generateResume`), shared by the route and the on-demand eval. The route adds SSE framing, rubric-failure logging and contact/URL injection.
+
 ```
 POST /resume  { job_description, framing_hints? }
   │
   ├─ Fetch candidate profile from OB1 Postgres (Supabase DB)
-  ├─ Build system prompt (6 ATS rules)
-  ├─ Build user message (profile + JD + framing hints)
   │
-  ├─ ┌─ generateOne() ─┐  (parallel, independent)
-  │  └─ generateOne() ─┘
+  ├─ generateResume()                     src/lib/generate-resume.ts
+  │    ├─ Build user message (profile + relevant thoughts + JD + framing hints)
+  │    ├─ ┌─ generateOne() ─┐  (parallel, independent)
+  │    │  └─ generateOne() ─┘
+  │    ├─ For each candidate:
+  │    │    stripBannedPhrases → normalizeResumeFormat → scoreResume
+  │    └─ Candidates sorted best-first
   │
-  ├─ scoreResume(gen1, jd)
-  ├─ scoreResume(gen2, jd)
-  │
-  ├─ Pick highest total score
-  │
-  ├─ If neither passes threshold:
-  │    └─ Log RESUME_RUBRIC_FAILURE to OB1 thoughts
+  ├─ If the winner doesn't pass the threshold:
+  │    └─ Log RESUME_RUBRIC_FAILURE to OB1 thoughts (private)
   │
   └─ Return winner + _rubric metadata
 ```
 
-## The 8 Rules (ATS-Informed) — 6 Scored + 2 Prompt-Only
+## Post-processing: format and content budget
 
-| # | Rule | Measurement | Pass threshold |
-|---|------|-------------|----------------|
-| 1 | Summary opens with JD title | Distinctive title keywords in first sentence | 60% of title words |
-| 2 | Keyword coverage from JD | % of JD terms found across resume | 25%+ |
-| 3 | Bullets have quantified results | % of bullets containing metrics | 40%+ |
-| 4 | No generic/banned phrases | Count of banned phrases found | 0 (**hard veto** — score 0) |
-| 5 | First bullet matches JD primary resp | Keyword overlap with JD opening | 5%+ overlap |
-| 6 | Top skills match JD requirements | Top 5 skills appearing in JD | 40%+ |
-| 7 | Self-employment framed as JD role | Prompt rule (not scored) | N/A |
-| 8 | Projects section for highlights/scale | Prompt rule (not scored) | N/A |
+`normalizeResumeFormat` (`src/lib/resume-format.ts`) runs before scoring, so the rubric scores what ships. It only removes or rewords; it never adds content or a number.
 
-**Overall pass threshold:** 4.0 / 6.0 total score (Rules 1-6 scored; Rules 7-8 are prompt-only).
+- Strips trailing periods from bullets and spells out a standalone `&` as "and"
+- Caps the summary at 2 sentences
+- Orders roles most recent first and caps bullets: 4 for the most recent role, 2 for each earlier role
+- Caps Projects at 2 entries with 3 highlights each, and categorized skills at 4 rows
+- Drops self-employment bullets that restate a featured project, always keeping at least one
 
-**Hard vetoes:** Rule 4 scores 0 (not a penalty) — any banned phrase causes the resume to lose to the other candidate. Edge case: if both candidates contain banned phrases, the higher-scoring one still ships (with a warning logged). If only one candidate parsed successfully, it ships regardless of Rule 4.
+The caps are the exported `RESUME_BUDGET` constant. They target a one-page résumé's content; physical page fit depends on each consumer's layout.
 
-Rules 1-4 are fully deterministic (string matching, regex). Rules 5-6 use keyword overlap (no LLM needed). Rules 7-8 are prompt instructions only (not scored by the rubric).
+**Pinned roles.** An employment entry marked `pinned: true` in the profile carries owner-written bullets. The prompt tells the model to copy them verbatim, and post-processing restores them from the profile regardless of what the model returned, exempt from caps and dedupe. A pinned entry the model dropped is restored. The nightly sync never proposes or applies replacement bullets for a pinned entry.
+
+## Rubric
+
+| Id | Rule | Measurement | Pass |
+|---|------|-------------|------|
+| 1 | Summary opens with JD title | Distinctive title keywords in the first sentence | 60% of title words |
+| 5 | STAR/XYZ bullet shape | Share of generator-selected employment bullets that open with a past-tense verb and state a result: a real metric or an outcome clause (", replacing …", "so … could", "used by", "without …"); incidental digits like version numbers don't count. Pinned entries and project highlights are excluded | 50%+ |
+| 2 | Keyword coverage from JD | % of JD terms found across the résumé | 25%+ |
+| 3 | Quantified results | % of employment bullets and project highlights containing metrics | 40%+ |
+| 4 | No generic or weak phrases | Count of `BANNED_PHRASES` found | 0 (**hard veto**, score 0) |
+| 7 | Top skills match JD | Top 5 skills appearing in the JD | 40%+ |
+
+Rules are listed in the order `scoreResume` returns them; ids are stable identifiers, which is why the STAR/XYZ rule (id 5, the slot freed when the old "first bullet matches JD" rule was removed) sits second.
+
+**Overall pass threshold:** `PASS_THRESHOLD` = 4.8 of 6. It was 4.0 of 5 before the STAR/XYZ rule; 4.8 keeps the same ratio.
+
+**Hard veto:** Rule 4 scores 0, so a candidate with a banned phrase loses to the other. `BANNED_PHRASES` includes weak or passive openings ("utilized", "participated in", "enhanced", "functions as", "responsible for"); `stripBannedPhrases` replaces each with a plain substitute before scoring. If both candidates contain banned phrases, the higher-scoring one still ships with a warning logged. The nightly sync also rejects proposed project highlights that contain any banned phrase.
+
+**Prompt-only rules** (not scored): summary of at most 2 sentences with no abstract descriptors; bullet grammar (past-tense opening verb, no trailing period, no `&`, no slashes between alternatives); never invent or estimate a metric; categorized skills of concrete tools; self-employment framed as the JD's role without restating featured projects; 1–2 JD-relevant projects.
+
+All rules are deterministic (string matching, regex, keyword overlap); no LLM call scores a résumé.
 
 ## Why Dual-Gen Over Retry
 
@@ -96,16 +112,15 @@ The `/resume` response now includes a `_rubric` metadata key:
 
 The `_rubric` key is metadata for callers to log or surface — it does not affect the resume content fields.
 
-## Test Coverage
+## Eval
 
-| File | Tests | What's covered |
-|---|---|---|
-| `tests/score-resume.test.ts` | 18 | All 6 rules with pass/fail fixtures, title extraction, overall scoring |
-| `tests/resume-framing.test.ts` | 18 | Schema validation, prompt injection, framing hint formatting |
+`npm run eval:resume` (`scripts/eval/run-resume-eval.ts`) runs synthetic job descriptions across several role types through `generateResume` against the live profile and checks each output's format and budget invariants, categorized skills, STAR/XYZ share, absence of banned phrases, and that every number in the résumé appears in the profile. It runs on demand only; it is not part of `test:unit` or the weekly eval workflow.
 
-## Files Changed
+## Tests
 
-- `src/routes/resume.ts` — New system prompt (6 rules), dual-gen, rubric scoring, failure logging
-- `src/lib/score-resume.ts` — **New** — Deterministic rubric scorer (6 rules, pure function)
-- `tests/score-resume.test.ts` — **New** — 16 unit tests for the scorer
-- `docs/resume-pipeline-v2.md` — This document
+| File | What's covered |
+|---|---|
+| `tests/score-resume.test.ts` | Each scored rule with pass/fail fixtures, title extraction, overall scoring |
+| `tests/resume-format.test.ts` | Post-processing invariants, pinned roles, the STAR/XYZ rule, the pass threshold ratio |
+| `tests/strip-banned.test.ts` | Every banned phrase is removed or replaced |
+| `tests/resume-framing.test.ts` | Schema validation, prompt injection, framing hint formatting |

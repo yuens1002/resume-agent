@@ -22,6 +22,8 @@ export interface Employment {
   end_date: string | null   // null = current
   description?: string
   bullets: string[]
+  /** Owner-written bullets, emitted verbatim by /resume and never rewritten by sync (#298). */
+  pinned?: boolean
   attestations?: PeerAttestation[]
 }
 
