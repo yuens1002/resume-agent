@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { createOpenAI } from '@ai-sdk/openai'
 import { embed, generateText } from 'ai'
-import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment } from './sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, detectGitProvider, parseCommitCount, buildRepoStats, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment, applyConsolidatedBullets } from './sync-helpers.js'
 import { loadPublicKeyFromEnv, loadPrivateKeyFromEnv, signEvidence } from '../src/lib/oep-key.js'
 import { BANNED_PHRASES } from '../src/lib/score-resume.js'
 import type { GitEvidence, EvidenceSignature } from '../src/types.js'
@@ -1058,11 +1058,26 @@ async function consolidateEmployment(employment: ProfileRow['employment']): Prom
     ? [...new Set([...currentBullets, ...proposed])]
     : proposed
 
-  const updatedEmployment = (employment ?? []).map(e =>
-    (e.company?.toLowerCase().includes('self-employed') || e.company?.toLowerCase().includes('self employed'))
-      ? { ...e, bullets: finalBullets }
-      : e,
+  // Re-read employment right before writing: `employment` was loaded at the
+  // start of the run, and the owner may have pinned or edited a role since.
+  // Writing the stale snapshot back would undo that.
+  const { data: fresh, error: readError } = await supabase
+    .from('public_profile')
+    .select('employment')
+    .eq('id', PROFILE_ID)
+    .single()
+  if (readError || !fresh) {
+    console.warn(`  ⚠ employment consolidation skipped — could not re-read employment: ${readError?.message ?? 'no row'}`)
+    return
+  }
+  const { updated: updatedEmployment, changed } = applyConsolidatedBullets(
+    Array.isArray(fresh.employment) ? fresh.employment : [],
+    finalBullets,
   )
+  if (!changed) {
+    console.log('  — employment consolidation skipped: no unpinned self-employed entry to update')
+    return
+  }
 
   const { error } = await supabase
     .from('public_profile')

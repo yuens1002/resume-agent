@@ -12,7 +12,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY, parseCommitCount, buildRepoStats, detectGitProvider, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment } from '../scripts/sync-helpers.js'
+import { inferStatus, inferUrl, inferTech, PACKAGE_TO_DISPLAY, parseCommitCount, buildRepoStats, detectGitProvider, buildEmploymentDeltaMetadata, buildEmploymentNotificationMetadata, isPinnedEmployment, applyConsolidatedBullets } from '../scripts/sync-helpers.js'
 import { isPublicThought } from '../src/lib/observations.js'
 
 // ── splitChangelogSections (re-implemented for test) ─────
@@ -413,5 +413,31 @@ describe('isPinnedEmployment', () => {
     assert.equal(isPinnedEmployment({ company: 'Self-Employed' }), false)
     assert.equal(isPinnedEmployment({ company: 'Self-Employed', pinned: 'true' }), false)
     assert.equal(isPinnedEmployment(null), false)
+  })
+})
+
+describe('applyConsolidatedBullets', () => {
+  const proposed = ['New bullet']
+
+  it('updates an unpinned self-employed entry and leaves other roles alone', () => {
+    const { updated, changed } = applyConsolidatedBullets(
+      [{ company: 'Self-Employed', bullets: ['Old'] }, { company: 'Acme', bullets: ['Kept'] }],
+      proposed,
+    )
+    assert.equal(changed, true)
+    assert.deepEqual(updated.map((e) => e.bullets), [proposed, ['Kept']])
+  })
+
+  it('never rewrites a pinned entry, even when another self-employed entry is unpinned', () => {
+    const { updated } = applyConsolidatedBullets(
+      [{ company: 'Self-Employed', bullets: ['Old'] }, { company: 'Self Employed (consulting)', pinned: true, bullets: ['Owner'] }],
+      proposed,
+    )
+    assert.deepEqual(updated[1].bullets, ['Owner'])
+  })
+
+  it('reports no change when every self-employed entry is pinned', () => {
+    const { changed } = applyConsolidatedBullets([{ company: 'Self-Employed', pinned: true, bullets: ['Owner'] }], proposed)
+    assert.equal(changed, false)
   })
 })
