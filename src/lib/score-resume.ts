@@ -1,15 +1,16 @@
 /**
  * Deterministic rubric scorer for generated resumes.
  *
- * Scores a ResumeResponse against 6 ATS-informed rules using the JD as
- * reference. Rules 1, 3, 4 and 5 are string/regex checks; Rules 2 and 7 use
+ * Scores a ResumeResponse against 5 ATS-informed rules using the JD as
+ * reference. Rules 1, 3 and 4 are string/regex checks; Rules 2 and 7 use
  * keyword overlap. No LLM call.
  *
- * Returns a per-rule breakdown + total score (0-6). The STAR/XYZ rule
- * (Rule 5) is listed second, right after the summary-title rule. The caller
- * uses this to pick the best of two independent generations and to log
- * failures. Pinned employment entries are owner-written and verbatim (#298),
- * so Rules 4 and 5 skip them.
+ * Returns a per-rule breakdown + total score (0-5). The caller uses this to
+ * pick the best of two independent generations and to log failures. Pinned
+ * employment entries are owner-written and verbatim (#298), so Rule 4 skips
+ * them. STAR/XYZ bullet shape is a prompt rule, measured by the LLM judge in
+ * `npm run eval:resume` rather than here: a regex can't tell a result from an
+ * intention.
  */
 
 import type { ResumeResponse } from '../types.js'
@@ -31,8 +32,7 @@ export interface RubricResult {
   jd_term_count: number // unique extractable terms in the JD; < 15 suggests the JD is too thin for reliable keyword scoring
 }
 
-// 4.8 of 6 holds the bar the rubric had at 4.0 of 5, before the STAR/XYZ rule (#298).
-const PASS_THRESHOLD = 4.8
+const PASS_THRESHOLD = 4.0
 
 // Generic phrases that signal "robo resume" — checked case-insensitively
 export const BANNED_PHRASES = [
@@ -208,73 +208,6 @@ function scoreRule3(resume: ResumeResponse): RuleResult {
   }
 }
 
-/** Words ending in -ed that aren't past-tense verbs. */
-const NOT_PAST_ED = new Set(['need', 'feed', 'speed', 'seed', 'bed', 'red', 'shed', 'bred'])
-
-/** Past-tense forms that don't end in -ed. */
-const IRREGULAR_PAST = new Set([
-  'built', 'led', 'ran', 'wrote', 'drove', 'cut', 'made', 'won', 'grew', 'set', 'took',
-  'rebuilt', 'brought', 'began', 'chose', 'found', 'held', 'kept', 'laid', 'met', 'paid',
-  'put', 'sent', 'spent', 'taught', 'oversaw', 'shook', 'split', 'rewrote', 'undertook',
-])
-
-/**
- * A measurable result: a percentage, a multiplier, "N+", a currency amount,
- * a before→after with numbers, or "to zero". A bare digit is not a result —
- * version numbers, standards and product names ("v1", "Section 508",
- * "Drupal 8") don't count.
- */
-const METRIC_RE = /\d+(?:\.\d+)?\s*%|\b\d+(?:\.\d+)?x\b|\b\d+\+|\$\s?\d|\bfrom\b[^,;]*\d[^,;]*\bto\b[^,;]*\d|\bto zero\b/i
-
-/**
- * A stated outcome without a number: a trailing result clause
- * (", improving …", ", replacing …"), a "so … could" consequence, a reach
- * statement ("used by", "serving"), a "without …" burden removed, or an
- * intent-to-outcome ("to drive …", "to inform …").
- */
-const OUTCOME_CLAUSE_RE = /,\s*(improving|enabling|replacing|reducing|cutting|increasing|eliminating|preventing|lowering|saving|letting|allowing|making|raising|speeding|creating|removing|keeping)\b|\bso(?: that)?\b[^,;.]{0,60}\b(could|can|would)\b|\b(used by|used across|serving|adopted by|relied on by)\b|\bwithout\b|\bto (drive|inform|enable|reduce|improve|prevent|eliminate)\b/i
-
-/**
- * STAR/XYZ shape: opens with a past-tense action verb and states a result,
- * measurable or a concrete outcome. The action and its object are the
- * "how", so no separate method word is required. Amended during
- * verification (#298, AC-FN-8): requiring "by/through/using/via/with"
- * rejected clear outcomes like ", replacing phone directories", and any
- * digit counted as a result.
- */
-export function isXyzBullet(bullet: string): boolean {
-  const first = bullet.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? ''
-  const pastTense = (first.endsWith('ed') && !NOT_PAST_ED.has(first)) || IRREGULAR_PAST.has(first)
-  return pastTense && (METRIC_RE.test(bullet) || OUTCOME_CLAUSE_RE.test(bullet))
-}
-
-/**
- * Rule 5: employment bullets follow STAR/XYZ — accomplished [X], as measured
- * by [Y], by doing [Z]: a past-tense opening verb and a result (see isXyzBullet).
- * Employment bullets only (#298); project highlights are scored by Rule 3.
- */
-function scoreRule5(resume: ResumeResponse): RuleResult {
-  // Pinned entries are owner-written and passed through verbatim (#298 D9);
-  // this rule measures only the bullets the generator selected.
-  const bullets = resume.employment?.filter(e => e.pinned !== true).flatMap(e => e.bullets ?? []) ?? []
-  if (bullets.length === 0) {
-    // Every role pinned: nothing the generator chose to measure, so the rule is neutral.
-    if (resume.employment?.some(e => e.pinned === true)) {
-      return { rule: 5, name: 'STAR/XYZ bullet shape', pass: true, score: 1, detail: 'All employment roles are pinned; nothing generator-selected to score' }
-    }
-    return { rule: 5, name: 'STAR/XYZ bullet shape', pass: false, score: 0, detail: 'No employment bullets found' }
-  }
-  const shaped = bullets.filter(isXyzBullet)
-  const ratio = shaped.length / bullets.length
-  return {
-    rule: 5,
-    name: 'STAR/XYZ bullet shape',
-    pass: ratio >= 0.5,
-    score: Math.min(ratio / 0.5, 1),
-    detail: `${shaped.length}/${bullets.length} employment bullets are STAR/XYZ-shaped`,
-  }
-}
-
 /** Rule 4: No banned generic phrases. */
 function scoreRule4(resume: ResumeResponse): RuleResult {
   const fullText = [
@@ -337,7 +270,6 @@ export function scoreResume(resume: ResumeResponse, jd: string): RubricResult {
   const jdKeywords = [...new Set(extractKeywords(jd))]
   const rules = [
     scoreRule1(resume, jd),
-    scoreRule5(resume),
     scoreRule2(resume, jdKeywords),
     scoreRule3(resume),
     scoreRule4(resume),

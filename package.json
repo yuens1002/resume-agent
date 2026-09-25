@@ -35,7 +35,9 @@
     "eval:route": "tsx scripts/eval/run-route-eval.ts",
     "eval:judge-sweep": "tsx scripts/eval/judge-sweep.ts",
     "eval:match": "tsx scripts/eval/run-match-eval.ts",
-    "eval:resume": "tsx scripts/eval/run-resume-eval.ts"
+    "eval:resume": "tsx scripts/eval/run-resume-eval.ts",
+    "check:bullets": "tsx scripts/check-bullets.ts",
+    "eval:star-judge": "tsx scripts/eval/run-star-judge-calibration.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.19",

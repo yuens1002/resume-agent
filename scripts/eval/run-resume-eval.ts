@@ -7,7 +7,8 @@
  * Runs each synthetic JD through the real `generateResume` core (two live
  * model calls per case, against the live profile) and checks the winning,
  * post-processed résumé against the invariants the pipeline promises. Any
- * failed check fails its case and is named.
+ * failed check fails its case and is named. An LLM judge also reports, without
+ * gating, how many generator-written employment bullets follow STAR/XYZ.
  *
  * Not part of `test:unit` and not in any scheduled workflow: it makes live
  * model calls, so it's run before and after changes to the prompt, the
@@ -21,6 +22,7 @@ import { RESUME_BUDGET } from '../../src/lib/resume-format.js'
 import { queryRelevantThoughts } from '../../src/lib/thoughts-query.js'
 import type { ResumeResponse } from '../../src/types.js'
 import { RESUME_EVAL_CASES } from './resume-eval-cases.js'
+import { judgeStarBullets } from './star-judge.js'
 
 interface Check {
   name: string
@@ -74,9 +76,6 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, thoug
   const categorized = skills.length > 0 && skills.every((s) => typeof s === 'object' && s !== null && Array.isArray((s as { items?: unknown }).items))
   checks.push({ name: 'skills categorized within budget', pass: categorized && skills.length <= RESUME_BUDGET.skillRows, detail: `${skills.length} rows, categorized=${categorized}` })
 
-  const xyz = rules.find((r) => r.rule === 5)
-  checks.push({ name: 'STAR/XYZ rule passes', pass: !!xyz?.pass, detail: xyz?.detail })
-
   const banned = rules.find((r) => r.rule === 4)
   checks.push({ name: 'no banned phrases', pass: !!banned?.pass, detail: banned?.detail })
 
@@ -92,6 +91,23 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, thoug
   }
 
   return checks
+}
+
+/**
+ * STAR/XYZ report for the generator-written employment bullets (pinned
+ * bullets are the owner's text and excluded). Report-only: it never fails a
+ * case, because the generator can only adapt stored bullets, so the verdict
+ * mostly reflects the profile's content — `npm run check:bullets` is where
+ * that gets fixed.
+ */
+async function reportStar(bullets: string[]): Promise<void> {
+  try {
+    const v = await judgeStarBullets(bullets)
+    process.stdout.write(`  · STAR/XYZ (LLM judge, report-only): ${v.counted}/${v.total} generator-written bullets state a result\n`)
+    for (const m of v.misses) process.stdout.write(`      - "${m.bullet}" — ${m.reason}\n`)
+  } catch (err) {
+    process.stdout.write(`  · STAR/XYZ (LLM judge, report-only): judge unavailable — ${(err as Error).message}\n`)
+  }
 }
 
 async function main(): Promise<void> {
@@ -129,6 +145,7 @@ async function main(): Promise<void> {
     for (const ch of checks) {
       process.stdout.write(`  ${ch.pass ? '✓' : '✗'} ${ch.name}${!ch.pass && ch.detail ? ` — ${ch.detail}` : ''}\n`)
     }
+    await reportStar(winner.resume.employment.filter((e) => e.pinned !== true).flatMap((e) => e.bullets ?? []))
     const pass = checks.every((ch) => ch.pass)
     if (!pass) failedCases++
     process.stdout.write(`  ${pass ? 'PASS' : 'FAIL'}  rubric ${winner.rubric.total.toFixed(2)}${winner.rubric.passed ? ' (passed)' : ' (below threshold)'}  model=${winner.model}\n`)

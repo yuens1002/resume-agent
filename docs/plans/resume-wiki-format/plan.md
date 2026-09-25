@@ -18,16 +18,16 @@
 | Skills as one flat, uncategorized list mixing tools and concepts | Prompt Rule 7 and the response example ask for a flat list, although `Skill` in `src/types.ts` is already `{ category, items }` |
 | Trailing periods, `&`, slashes in bullets | Profile bullet pool; no rule or post-processing |
 | Weak, passive, present-tense or verbless openings ("utilized", "participated", "functions as") | Profile bullet pool; `BANNED_PHRASES` too narrow |
-| Bullets describe duties rather than results | Profile bullet pool; Rule 3 checks for a number, not the STAR/XYZ shape |
+| Bullets describe duties rather than results | Profile bullet pool; Rule 3 checks for a number, not the STAR/XYZ shape | Prompt rule + an LLM judge off the request path (D10) |
 | Self-employment bullets restate products already under Projects | Prompt rules 8 and 9 route the same products to both sections |
 
 ## Goals
 
 1. Generated content is bounded toward a one-page budget: the summary, bullets per role, projects, highlights and skill rows are capped. This narrows the usual overflow; it does not bound every field (see Non-goals).
 2. **Guaranteed** by deterministic post-processing: no emitted project highlight or non-pinned employment bullet ends with a period or contains `" & "`. Pinned bullets are the owner's text, emitted verbatim.
-3. **Required and rewarded, not guaranteed:** past-tense opening verbs and no slashes between alternatives. The prompt requires them and the rubric scores them, but the winning candidate still ships when it fails the rubric, so they aren't guarantees.
+3. **Required, not guaranteed:** past-tense opening verbs, STAR/XYZ shape, and no slashes between alternatives. The prompt requires them and an off-path LLM judge reports on them, but nothing blocks a résumé that misses them.
 4. Skills are emitted as categorized rows of concrete tools.
-5. The rubric rewards STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]).
+5. STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]) are required by the prompt and measured by an LLM judge off the request path.
 6. Self-employment bullets and Projects don't restate the same work.
 
 ## Non-goals
@@ -47,7 +47,7 @@ POST /resume
   ├─ generateOne() ×2 (parallel)
   ├─ stripBannedPhrases()   ─────── (changed: weak-verb replacements)
   ├─ normalizeResumeFormat() ────── (new: deterministic format + content budget)
-  ├─ scoreResume() ×2 ──────────── (changed: weak verbs in Rule 4, new XYZ rule)
+  ├─ scoreResume() ×2 ──────────── (changed: weak verbs in Rule 4)
   └─ pick winner → respond
 ```
 
@@ -58,7 +58,7 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 | ID | Deliverable | Kind | Owning role |
 |----|-------------|------|-------------|
 | D1 | `src/lib/resume-format.ts`: `normalizeResumeFormat` + exported `RESUME_BUDGET`. Strips trailing periods, spells out a standalone `&`, caps the summary at 2 sentences, orders roles most recent first, caps bullets (4 for the most recent role, 2 for others), projects (2 × 3 highlights) and categorized skill rows (4), and drops self-employment bullets that restate a featured project while keeping at least one | lib (pure function) | `/backend-architect` |
-| D2 | `src/lib/score-resume.ts`: weak verbs added to `BANNED_PHRASES`; new STAR/XYZ rule over employment bullets, listed second; `PASS_THRESHOLD` raised to 4.8 | lib (scorer) | `/backend-architect` |
+| D2 | `src/lib/score-resume.ts`: weak verbs added to `BANNED_PHRASES`; Rule 4 skips pinned roles. The scored rules and `PASS_THRESHOLD` (4.0 of 5) are otherwise unchanged | lib (scorer) | `/backend-architect` |
 | D3 | `src/lib/strip-banned.ts`: a grammatical replacement for each new banned phrase | lib | `/backend-architect` |
 | D4 | `src/lib/generate-resume.ts` (prompt, moved from `src/routes/resume.ts` by D7) and `src/routes/resume.ts`: prompt updates (summary bound, STAR/XYZ and bullet grammar, categorized skills and response example, verb-rewrite permission with no added metrics, role bullet budget, 1–2 projects, self-employment dedupe), and `normalizeResumeFormat` wired after `stripBannedPhrases`, before scoring | endpoint | `/backend-architect` |
 | D5 | `tests/resume-format.test.ts` plus updates to `tests/score-resume.test.ts`, registered in `test:unit` | test | `/test-engineer` |
@@ -67,6 +67,7 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 | D8 | `scripts/eval/resume-eval-cases.ts` + `scripts/eval/run-resume-eval.ts` + `npm run eval:resume`: synthetic JDs across different role types, run through `generateResume`, with deterministic checks per output (format and budget invariants, categorized skills, STAR/XYZ share of employment bullets, no banned phrases, and every number in the résumé present somewhere in the profile). On demand only, not in `test:unit` or the weekly workflow | eval | `/test-engineer` |
 
 | D9 | Pinned employment bullets: an employment entry with `pinned: true` in the profile always comes from the profile, never the model. The model sees pinned roles only as context (a separate `pinned_employment` key) and is told not to output them; `normalizeResumeFormat` drops any model copy and inserts each pinned role once with its company, title, dates and bullets verbatim, exempt from caps and dedupe. The model can't mark a role pinned, and the STAR/XYZ rule skips pinned entries | lib + endpoint | `/backend-architect` |
+| D10 | `scripts/eval/star-judge.ts` (shared LLM judge for STAR/XYZ), `scripts/check-bullets.ts` + `npm run check:bullets` (reviews the profile's stored employment bullets), `scripts/eval/star-judge-calibration.ts` + `npm run eval:star-judge` (labeled calibration set, reports agreement). The eval uses the judge report-only. Nothing here runs during `/resume` | eval / tooling | `/test-engineer` |
 
 **In-repo consumer.** `scripts/sync.ts` rejects LLM-proposed project highlights containing any `BANNED_PHRASES` entry. Adding the weak verbs (D2) widens that gate, so sync will also reject proposals using them. This is intended: it keeps weak verbs out of the profile.
 
@@ -91,11 +92,11 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 3. **Employment describes outcomes, Projects carry technical depth.** A product featured under Projects is not restated in self-employment bullets, so the budget isn't spent twice on the same work.
 4. **Truthfulness over polish.** No metric is generated that the profile doesn't ground. A résumé making claims its owner can't back is worse than a plainer one.
 5. **This repo owns the output contract, not presentation.** Rendering guidance is a note for consumers, not a requirement here.
-6. **Pass threshold raised to 4.8** (owner, 2026-09-24). A sixth scored rule at the old 4.0 would lower the bar; 4.8 of 6 keeps the 4.0-of-5 ratio.
-7. **STAR/XYZ is a scored rule, listed second** (owner, 2026-09-24), right after the summary-title rule. It counts toward the pass mark but doesn't veto on its own. It takes the vacant Rule 5 id, so existing rule ids stay stable.
+6. ~~Pass threshold raised to 4.8~~ and 7. ~~STAR/XYZ as a scored rule~~ (owner, 2026-09-24) — **superseded 2026-09-25.** A regex detector was built and scored, but it matched wording, not meaning: it credited intentions ("to drive adoption") and rejected real results ("40 services"). The owner chose to remove it from the rubric (pass mark stays 4.0 of 5) and measure STAR/XYZ with an LLM judge off the request path (decision 11).
 8. **STAR/XYZ covers employment bullets only** (owner, 2026-09-24). Project highlights stay under Rule 3's metric check.
 9. **A résumé eval runs on demand only** (owner, 2026-09-24): `npm run eval:resume`, not part of the weekly gate. Its JDs are synthetic, so no real employer text enters the public repo.
 10. **Pinned bullets for owner-curated roles** (owner, 2026-09-25). A role can carry a fixed list of bullets, written by the owner to state common threads across work, instead of a pool the generator picks from. The pipeline passes them through unchanged; the STAR/XYZ rule scores only generator-selected bullets.
+11. **STAR/XYZ is judged by an LLM, never in `/resume`** (owner, 2026-09-25). The judge is report-only in `eval:resume`, reviews stored bullets via `check:bullets`, and is kept honest by a labeled calibration set. It stays out of the live path because it adds seconds and cost per résumé, and because the generator can only adapt stored bullets, so the source is where results are fixed.
 
 ## Acceptance criteria
 
@@ -110,7 +111,7 @@ The wire format does change: `Skill` is already typed as `{ category, items }`, 
 ## What this unlocks
 
 - Consumers get one-page-oriented, wiki-conformant content without their own trimming logic.
-- The STAR/XYZ rule gives the dual-generation picker a quality signal beyond "contains a number".
+- `check:bullets` shows which stored bullets don't state a result, which is where a résumé's STAR quality is actually decided.
 - Profile-authoring guidance lets any fork improve its output by improving its source bullets.
 
 ## Notes for consumers

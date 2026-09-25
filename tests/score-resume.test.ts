@@ -235,9 +235,9 @@ describe('Overall rubric scoring', () => {
     assert.ok(result.passed, `Expected pass (${result.total.toFixed(1)} >= ${PASS_THRESHOLD}), rules: ${result.rules.map(r => `R${r.rule}:${r.score.toFixed(2)}`).join(', ')}`)
   })
 
-  it('returns 6 rule results', () => {
+  it('returns 5 rule results', () => {
     const result = scoreResume(makeResume(), UX_ENGINEER_JD)
-    assert.equal(result.rules.length, 6)
+    assert.equal(result.rules.length, 5)
   })
 
   it('total is sum of individual scores', () => {
@@ -288,7 +288,7 @@ describe('Rule 4 — weak openings added for #298', () => {
   })
 })
 
-describe('pinned roles and Rules 4 and 5', () => {
+describe('pinned roles and Rule 4', () => {
   const jd = 'Senior Engineer building TypeScript services.'
   const base = (employment: unknown[]) => ({
     contact: { name: 'Test User', email: 'test@example.com' }, summary: 'Senior Engineer.', skills: [],
@@ -301,9 +301,4 @@ describe('pinned roles and Rules 4 and 5', () => {
     assert.equal(rule(r, 4).pass, true)
   })
 
-  it('treats Rule 5 as neutral when every role is pinned, and fails it when there are no roles', () => {
-    const pinnedOnly = scoreResume(base([{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, pinned: true, bullets: ['Owned it'] }]), jd)
-    assert.equal(rule(pinnedOnly, 5).pass, true)
-    assert.equal(rule(scoreResume(base([]), jd), 5).pass, false)
-  })
 })

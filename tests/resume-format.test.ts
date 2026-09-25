@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { RESUME_BUDGET, capSentences, cleanBullet, normalizeResumeFormat } from '../src/lib/resume-format.js'
-import { isXyzBullet, scoreResume, PASS_THRESHOLD } from '../src/lib/score-resume.js'
+import { scoreResume, PASS_THRESHOLD } from '../src/lib/score-resume.js'
 import type { ResumeResponse } from '../src/types.js'
 
 function resume(overrides: Partial<ResumeResponse> = {}): ResumeResponse {
@@ -201,58 +201,9 @@ describe('pinned employment (D9)', () => {
   })
 })
 
-describe('isXyzBullet', () => {
-  it('accepts a past-tense verb with a measurable result', () => {
-    assert.ok(isXyzBullet('Cut p95 latency from 11.3s to 320ms by adding two-layer caching'))
-    assert.ok(isXyzBullet('Raised test coverage from 50% to 80% using Jest'))
-    assert.ok(isXyzBullet('Reduced open npm vulnerabilities to zero through dependency updates'))
-  })
-  it('accepts a past-tense verb with a non-numeric outcome, no method word needed', () => {
-    assert.ok(isXyzBullet('Integrated Active Directory to make staff searchable, replacing phone directories'))
-    assert.ok(isXyzBullet('Introduced feature flags, enabling staged production rollouts'))
-    assert.ok(isXyzBullet('Built a query interface so power users could search inventory without learning SQL'))
-    assert.ok(isXyzBullet('Developed dashboards used by every regional team'))
-  })
-  it('rejects duty-only, present-tense and verbless bullets', () => {
-    assert.ok(!isXyzBullet('Built responsive UI using React'))
-    assert.ok(!isXyzBullet('Functions as sole engineer, reducing costs by automating deploys'))
-    assert.ok(!isXyzBullet('Sole engineer on a SaaS platform'))
-    assert.ok(!isXyzBullet('Need to ship features without regressions'))
-  })
-  it('does not treat incidental digits as a result', () => {
-    assert.ok(!isXyzBullet('Automated Section 508 testing using Jest and Playwright'))
-    assert.ok(!isXyzBullet('Launched v1 with authenticated REST APIs'))
-    assert.ok(!isXyzBullet('Refactored the Drupal 8 theme into modular Sass'))
-  })
-})
-
-describe('STAR/XYZ rule (Rule 5)', () => {
-  const jd = 'Senior Product Engineer to build TypeScript services.'
-  const base = () => resume({
-    employment: [
-      { company: 'Self-Employed', title: 'Staff Builder', start_date: '2024-02', end_date: null, pinned: true, bullets: ['Owned the product cycle'] },
-      { ...job('Co', '2020-01', 0), bullets: ['Cut latency from 11s to 1s by caching responses', 'Built a dashboard'] },
-    ],
-    projects: [{ name: 'P', slug: 'p', highlights: ['Wrote docs'] }] as unknown as ResumeResponse['projects'],
-  })
-  const rule5 = (r: ResumeResponse) => scoreResume(r, jd).rules.find((x) => x.rule === 5)!
-
-  it('is listed second, after the summary-title rule', () => {
-    assert.equal(scoreResume(base(), jd).rules[1].rule, 5)
-  })
-
-  it('never changes when pinned bullets or project highlights change', () => {
-    const a = rule5(base())
-    const b = base()
-    b.employment[0].bullets = ['Reduced costs from 9 to 1 by consolidating using a queue']
-    b.projects[0].highlights = ['Cut build time from 60s to 5s by caching with Turbo']
-    assert.equal(rule5(b).score, a.score)
-  })
-})
-
 describe('pass threshold', () => {
 
-  it('keeps the 4.0-of-5 ratio across the scored rules', () => {
+  it('keeps the 4.0-of-5 bar across the scored rules', () => {
     const rules = scoreResume(resume(), 'Engineer').rules.length
     assert.ok(Math.abs(PASS_THRESHOLD / rules - 4.0 / 5) < 1e-9, `${PASS_THRESHOLD}/${rules} should equal 4.0/5`)
   })

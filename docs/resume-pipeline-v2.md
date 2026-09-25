@@ -46,15 +46,16 @@ The caps are the exported `RESUME_BUDGET` constant. They target a one-page résu
 | Id | Rule | Measurement | Pass |
 |---|------|-------------|------|
 | 1 | JD title in summary | Distinctive title keywords in the first sentence | 60% of title words |
-| 5 | STAR/XYZ bullet shape | Share of generator-selected employment bullets that open with a past-tense verb and state a result: a real metric or an outcome clause (", replacing …", "so … could", "used by", "without …"); incidental digits like version numbers don't count. Pinned entries and project highlights are excluded | 50%+ |
 | 2 | Keyword coverage | % of JD terms found across the résumé | 25%+ |
 | 3 | Quantified bullets | % of employment bullets and project highlights containing metrics | 40%+ |
 | 4 | Authenticity (no generic phrases) | Count of `BANNED_PHRASES` found | 0 (**hard veto**, score 0) |
 | 7 | Skills ordered by JD relevance | Top 5 skills appearing in the JD | 40%+ |
 
-Rules are listed in the order `scoreResume` returns them; ids are stable identifiers, which is why the STAR/XYZ rule (id 5, the slot freed when the old "first bullet matches JD" rule was removed) sits second.
+Ids are stable identifiers; id 5 is unused since the old "first bullet matches JD" rule was removed.
 
-**Overall pass threshold:** `PASS_THRESHOLD` = 4.8 of 6. It was 4.0 of 5 before the STAR/XYZ rule; 4.8 keeps the same ratio.
+**Overall pass threshold:** `PASS_THRESHOLD` = 4.0 of 5.
+
+**STAR/XYZ is not scored here.** A regex can't tell a result from an intention, so bullet shape is required by the prompt and measured by an LLM judge off the request path (see Eval).
 
 **Hard veto:** Rule 4 scores 0, so a candidate with a banned phrase loses to the other. `BANNED_PHRASES` includes weak verbs ("utilized", "utilizing", "participated in", "enhanced"); `stripBannedPhrases` replaces each with a plain substitute before scoring. "Functions as" and "responsible for" are deliberately not banned: they are weak only as a bullet's opening, which the STAR/XYZ rule already penalizes, and banning them anywhere rewrote ordinary prose ("Lambda functions as microservices"). Pinned roles are exempt from this rule, since their text is the owner's and is never stripped. If both candidates contain banned phrases, the higher-scoring one still ships with a warning logged. The nightly sync also rejects proposed project highlights that contain any banned phrase.
 
@@ -114,13 +115,20 @@ The `_rubric` key is metadata for callers to log or surface — it does not affe
 
 ## Eval
 
-`npm run eval:resume` (`scripts/eval/run-resume-eval.ts`) runs synthetic job descriptions across several role types through `generateResume` against the live profile and checks each output's format and budget invariants, categorized skills, STAR/XYZ share, absence of banned phrases, and that every number in the résumé appears in the profile. It runs on demand only; it is not part of `test:unit` or the weekly eval workflow.
+`npm run eval:resume` (`scripts/eval/run-resume-eval.ts`) runs synthetic job descriptions across several role types through `generateResume` against the live profile. Each case passes or fails on deterministic checks: format and budget invariants, categorized skills, absence of banned phrases, every number in a bullet grounded in the candidate's written text or the thoughts the model was given, and pinned roles verbatim. An LLM judge also reports, without gating, how many generator-written employment bullets follow STAR/XYZ, with a reason for each miss.
+
+Two related on-demand commands share that judge (`scripts/eval/star-judge.ts`):
+
+- `npm run check:bullets` reviews the profile's stored employment bullets and lists those that don't state a result. The generator can only adapt stored bullets, so this is where STAR quality is fixed.
+- `npm run eval:star-judge` checks the judge against a labeled calibration set (`scripts/eval/star-judge-calibration.ts`) and reports agreement. Run it after changing the judge prompt or model.
+
+None of these run in `test:unit`, the weekly eval workflow, or `/resume` itself.
 
 ## Tests
 
 | File | What's covered |
 |---|---|
 | `tests/score-resume.test.ts` | Each scored rule with pass/fail fixtures, title extraction, overall scoring |
-| `tests/resume-format.test.ts` | Post-processing invariants, pinned roles, the STAR/XYZ rule, the pass threshold ratio |
+| `tests/resume-format.test.ts` | Post-processing invariants, pinned roles, the pass threshold |
 | `tests/strip-banned.test.ts` | Every banned phrase is removed or replaced |
 | `tests/resume-framing.test.ts` | Schema validation, prompt injection, framing hint formatting |
