@@ -18,6 +18,7 @@ import './eval-env.js'
 import { fetchProfile } from '../../src/lib/profile-cache.js'
 import { generateResume } from '../../src/lib/generate-resume.js'
 import { RESUME_BUDGET } from '../../src/lib/resume-format.js'
+import { queryRelevantThoughts } from '../../src/lib/thoughts-query.js'
 import type { ResumeResponse } from '../../src/types.js'
 import { RESUME_EVAL_CASES } from './resume-eval-cases.js'
 
@@ -29,12 +30,23 @@ interface Check {
 
 const NUMBER_RE = /\d+(?:[.,]\d+)*/g
 
-/** Numbers appearing anywhere in the profile — the only numbers a bullet may cite. */
-function profileNumbers(profile: unknown): Set<string> {
-  return new Set(JSON.stringify(profile).match(NUMBER_RE) ?? [])
+/**
+ * Numbers a bullet may legitimately cite: those in the candidate's written
+ * text (employment bullets, project prose) and in the Open Brain context the
+ * model was given for this JD. Dates, counts and ids elsewhere in the profile
+ * are excluded, so they can't whitelist an invented figure.
+ */
+function groundedNumbers(profile: Record<string, any>, thoughts: string[]): Set<string> {
+  const prose = [
+    ...(profile.employment ?? []).flatMap((e: { bullets?: string[] }) => e?.bullets ?? []),
+    ...(profile.projects ?? []).flatMap((p: Record<string, unknown>) =>
+      [p?.description, p?.impact, p?.problem, ...((p?.highlights as string[] | undefined) ?? [])].filter((x): x is string => typeof x === 'string')),
+    ...thoughts,
+  ]
+  return new Set(prose.join(' ').match(NUMBER_RE) ?? [])
 }
 
-function checkResume(resume: ResumeResponse, profile: Record<string, any>, rules: { rule: number; pass: boolean; detail: string }[]): Check[] {
+function checkResume(resume: ResumeResponse, profile: Record<string, any>, thoughts: string[], rules: { rule: number; pass: boolean; detail: string }[]): Check[] {
   const employment = resume.employment ?? []
   const unpinned = employment.filter((e) => e.pinned !== true)
   const bullets = employment.flatMap((e) => e.bullets ?? [])
@@ -69,13 +81,13 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, rules
   checks.push({ name: 'no banned phrases', pass: !!banned?.pass, detail: banned?.detail })
 
   // Summary is excluded: years of experience are legitimately derived from dates.
-  const known = profileNumbers(profile)
+  const known = groundedNumbers(profile, thoughts)
   const invented = [...bullets, ...highlights].flatMap((b) => (b.match(NUMBER_RE) ?? []).filter((n) => !known.has(n)).map((n) => `${n} in "${b}"`))
   checks.push({ name: 'no numbers absent from the profile', pass: invented.length === 0, detail: invented[0] })
 
   for (const pin of (profile.employment ?? []).filter((e: { pinned?: unknown }) => e?.pinned === true)) {
-    const out = employment.find((e) => e.company === pin.company)
-    const verbatim = !!out && JSON.stringify(out.bullets) === JSON.stringify(pin.bullets)
+    const matches = employment.filter((e) => e.pinned === true && e.company === pin.company && e.start_date === pin.start_date)
+    const verbatim = matches.length === 1 && JSON.stringify(matches[0].bullets) === JSON.stringify(pin.bullets)
     checks.push({ name: `pinned role verbatim (${pin.company})`, pass: verbatim })
   }
 
@@ -85,6 +97,10 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, rules
 async function main(): Promise<void> {
   const caseArg = process.argv.indexOf('--case')
   const only = caseArg >= 0 ? process.argv[caseArg + 1] : undefined
+  if (caseArg >= 0 && (!only || only.startsWith('--'))) {
+    process.stderr.write('--case needs a case id\n')
+    process.exit(2)
+  }
   const cases = RESUME_EVAL_CASES.filter((c) => !only || c.id === only)
   if (!cases.length) {
     process.stderr.write(`No case matches --case ${only}\n`)
@@ -108,7 +124,8 @@ async function main(): Promise<void> {
       continue
     }
     const winner = candidates[0]
-    const checks = checkResume(winner.resume, profile, winner.rubric.rules)
+    const thoughts = await queryRelevantThoughts(c.jobDescription)
+    const checks = checkResume(winner.resume, profile, thoughts, winner.rubric.rules)
     for (const ch of checks) {
       process.stdout.write(`  ${ch.pass ? '✓' : '✗'} ${ch.name}${!ch.pass && ch.detail ? ` — ${ch.detail}` : ''}\n`)
     }

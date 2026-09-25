@@ -29,8 +29,6 @@ const REPLACEMENTS: Record<string, string> = {
   'utilized':                   'used',
   'utilizing':                  'using',
   'participated in':            'contributed to',
-  'functions as':               'served as',
-  'responsible for':            'owned',
   'enhanced':                   'improved',
 }
 

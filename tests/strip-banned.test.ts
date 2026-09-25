@@ -73,11 +73,25 @@ describe('stripBannedPhrases', () => {
     }
   })
 
-  it('substitutes the named replacement for weak opening verbs', () => {
+  it('leaves ordinary prose containing "functions as" or "responsible for" untouched', () => {
+    const bullets = ['Deployed Lambda functions as microservices', 'Led the team responsible for checkout']
     const cleaned = stripBannedPhrases(makeResume({
-      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: ['Utilized Google Charts for dashboards', 'Enhanced the design system'] }],
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets }],
     }))
-    assert.deepEqual(cleaned.employment[0].bullets, ['Used Google Charts for dashboards', 'Improved the design system'])
+    assert.deepEqual(cleaned.employment[0].bullets, bullets)
+  })
+
+  it('substitutes a grammatical replacement for each weak opening', () => {
+    const cases: Array<[string, string]> = [
+      ['Utilized Google Charts for dashboards', 'Used Google Charts for dashboards'],
+      ['Utilizing Vue.js, built dashboards', 'Using Vue.js, built dashboards'],
+      ['Participated in the design review', 'Contributed to the design review'],
+      ['Enhanced the design system', 'Improved the design system'],
+    ]
+    const cleaned = stripBannedPhrases(makeResume({
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: cases.map(([input]) => input) }],
+    }))
+    assert.deepEqual(cleaned.employment[0].bullets, cases.map(([, expected]) => expected))
   })
 
   it('strips banned phrases from summary', () => {

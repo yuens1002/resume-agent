@@ -39,6 +39,10 @@ describe('capSentences', () => {
   it('keeps the first N sentences and ignores periods inside tokens', () => {
     assert.equal(capSentences('Built on Node.js and React. Owns delivery. Explores AI.', 2), 'Built on Node.js and React. Owns delivery.')
   })
+  it('does not split after common abbreviations', () => {
+    assert.equal(capSentences('Engineer at Acme Inc. Building React apps. Third.', 2), 'Engineer at Acme Inc. Building React apps. Third.')
+    assert.equal(capSentences('Ships apps, e.g. Next.js at scale. Focused on reliability. Third.', 2), 'Ships apps, e.g. Next.js at scale. Focused on reliability.')
+  })
 })
 
 describe('normalizeResumeFormat', () => {
@@ -67,18 +71,18 @@ describe('normalizeResumeFormat', () => {
 
   it('drops self-employment bullets that restate a featured project, keeping at least one', () => {
     const selfEmployed = {
-      company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null,
-      bullets: ['Built the StayOps onboarding flow', 'Shipped 3 products end to end'],
+      company: 'Self-Employed', title: 'Staff Builder', start_date: '2024-02', end_date: null,
+      bullets: ['Built the Northwind onboarding flow', 'Shipped 3 products end to end'],
     }
     const out = normalizeResumeFormat(resume({
       employment: [selfEmployed],
-      projects: [{ name: 'StayOps', slug: 'stayops', highlights: [] }] as unknown as ResumeResponse['projects'],
+      projects: [{ name: 'Northwind', slug: 'northwind', highlights: [] }] as unknown as ResumeResponse['projects'],
     }))
     assert.deepEqual(out.employment[0].bullets, ['Shipped 3 products end to end'])
 
     const onlyDupes = normalizeResumeFormat(resume({
-      employment: [{ ...selfEmployed, bullets: ['Built the StayOps onboarding flow'] }],
-      projects: [{ name: 'StayOps', slug: 'stayops', highlights: [] }] as unknown as ResumeResponse['projects'],
+      employment: [{ ...selfEmployed, bullets: ['Built the Northwind onboarding flow'] }],
+      projects: [{ name: 'Northwind', slug: 'northwind', highlights: [] }] as unknown as ResumeResponse['projects'],
     }))
     assert.equal(onlyDupes.employment[0].bullets.length, 1)
   })
@@ -109,9 +113,17 @@ describe('normalizeResumeFormat', () => {
     assert.deepEqual(normalizeResumeFormat(resume({ skills })).skills, skills)
   })
 
+  it('applies the Projects dedupe only to self-employment roles', () => {
+    const out = normalizeResumeFormat(resume({
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: ['Built the Northwind onboarding flow'] }],
+      projects: [{ name: 'Northwind', slug: 'northwind', highlights: [] }] as unknown as ResumeResponse['projects'],
+    }))
+    assert.deepEqual(out.employment[0].bullets, ['Built the Northwind onboarding flow'])
+  })
+
   it('ignores project names shorter than the dedupe floor', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Self-Employed', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Built UX research tooling', 'Shipped a design system'] }],
+      employment: [{ company: 'Self-Employed', title: 'Engineer', start_date: '2024-02', end_date: null, bullets: ['Built UX research tooling', 'Shipped a design system'] }],
       projects: [{ name: 'UX', slug: 'ux', highlights: [] }] as unknown as ResumeResponse['projects'],
     }))
     assert.equal(out.employment[0].bullets.length, 2)
@@ -119,7 +131,7 @@ describe('normalizeResumeFormat', () => {
 })
 
 describe('pinned employment (D9)', () => {
-  const pinnedRole = { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, pinned: true,
+  const pinnedRole = { company: 'Self-Employed', title: 'Staff Builder', start_date: '2024-02', end_date: null, pinned: true,
     bullets: ['Owner bullet one.', 'Owner bullet two', 'Owner bullet three', 'Owner bullet four', 'Owner bullet five'] }
   const oldRole = { company: 'Old Co', title: 'Engineer', start_date: '2018-01', end_date: '2020-01', bullets: ['Built things'] }
   const profileEmployment = [pinnedRole, oldRole]
@@ -142,7 +154,7 @@ describe('pinned employment (D9)', () => {
 
   it('drops a renamed model copy that keeps the pinned title and dates', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Independent Consulting', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }],
+      employment: [{ company: 'Independent Consulting', title: 'Staff Builder', start_date: '2024-02', end_date: null, bullets: ['x'] }],
     }), profileEmployment)
     assert.deepEqual(out.employment.map((e) => e.company), ['Self-Employed'])
   })
@@ -160,14 +172,14 @@ describe('pinned employment (D9)', () => {
 
   it('keeps a different company that started the same month', () => {
     const out = normalizeResumeFormat(resume({
-      employment: [{ company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work.'] }],
-    }), [...profileEmployment, { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work'] }])
+      employment: [{ company: 'Side Co', title: 'Engineer', start_date: '2024-02', end_date: null, bullets: ['Side work.'] }],
+    }), [...profileEmployment, { company: 'Side Co', title: 'Engineer', start_date: '2024-02', end_date: null, bullets: ['Side work'] }])
     assert.deepEqual(out.employment.find((e) => e.company === 'Side Co')!.bullets, ['Side work'])
     assert.equal(pinnedRows(out).length, 1)
   })
 
   it('emits a pinned role once even when the model emits it twice', () => {
-    const copy = { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }
+    const copy = { company: 'Self-Employed', title: 'Staff Builder', start_date: '2024-02', end_date: null, bullets: ['x'] }
     const out = normalizeResumeFormat(resume({ employment: [copy, structuredClone(copy)] }), profileEmployment)
     assert.equal(out.employment.length, 1)
   })
@@ -178,7 +190,7 @@ describe('pinned employment (D9)', () => {
     }), profileEmployment)
     const old = out.employment.find((e) => e.company === 'Old Co')!
     assert.ok(!old.pinned)
-    assert.ok(old.bullets.length <= RESUME_BUDGET.mostRecentRoleBullets)
+    assert.ok(old.bullets.length <= RESUME_BUDGET.otherRoleBullets)
   })
 
   it('exempts the pinned role from caps and the Projects dedupe', () => {
@@ -205,6 +217,7 @@ describe('isXyzBullet', () => {
     assert.ok(!isXyzBullet('Built responsive UI using React'))
     assert.ok(!isXyzBullet('Functions as sole engineer, reducing costs by automating deploys'))
     assert.ok(!isXyzBullet('Sole engineer on a SaaS platform'))
+    assert.ok(!isXyzBullet('Need to ship features without regressions'))
   })
   it('does not treat incidental digits as a result', () => {
     assert.ok(!isXyzBullet('Automated Section 508 testing using Jest and Playwright'))
@@ -217,7 +230,7 @@ describe('STAR/XYZ rule (Rule 5)', () => {
   const jd = 'Senior Product Engineer to build TypeScript services.'
   const base = () => resume({
     employment: [
-      { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, pinned: true, bullets: ['Owned the product cycle'] },
+      { company: 'Self-Employed', title: 'Staff Builder', start_date: '2024-02', end_date: null, pinned: true, bullets: ['Owned the product cycle'] },
       { ...job('Co', '2020-01', 0), bullets: ['Cut latency from 11s to 1s by caching responses', 'Built a dashboard'] },
     ],
     projects: [{ name: 'P', slug: 'p', highlights: ['Wrote docs'] }] as unknown as ResumeResponse['projects'],

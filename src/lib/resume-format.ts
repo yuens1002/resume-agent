@@ -2,8 +2,9 @@
  * Deterministic format + content-budget pass over a generated resume (#298).
  *
  * Runs after stripBannedPhrases and before scoring, so the rubric scores what
- * actually ships. It only removes or rewords — it never adds content, and
- * never adds a number the model didn't write.
+ * actually ships. It removes or rewords the model's output and never invents
+ * content or a number; the only addition is pinned roles, copied verbatim
+ * from the profile.
  *
  * The budget targets a one-page resume's content (r/EngineeringResumes).
  * Physical page fit depends on each consumer's layout, so it isn't claimed.
@@ -38,9 +39,9 @@ export function cleanBullet(text: string): string {
     .trim()
 }
 
-/** The first `max` sentences. A period inside a token (Node.js, 3.5x) is not a sentence end. */
+/** The first `max` sentences. A period inside a token (Node.js, 3.5x) or after a common abbreviation (Inc., e.g.) is not a sentence end. */
 export function capSentences(text: string, max: number): string {
-  const sentences = text.trim().split(/(?<=[.!?])\s+(?=[A-Z])/)
+  const sentences = text.trim().split(/(?<=[.!?])(?<!\b(?:Inc|Ltd|Co|Corp|Jr|Sr|Dr|Mr|Ms|vs|etc|e\.g|i\.e)\.)\s+(?=[A-Z])/)
   return sentences.slice(0, max).join(' ')
 }
 

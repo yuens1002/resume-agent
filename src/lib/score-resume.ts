@@ -2,12 +2,14 @@
  * Deterministic rubric scorer for generated resumes.
  *
  * Scores a ResumeResponse against 6 ATS-informed rules using the JD as
- * reference. Rules 1-4 are fully deterministic (string/regex). Rules 5-6
- * use keyword overlap (no LLM needed).
+ * reference. Rules 1, 3, 4 and 5 are string/regex checks; Rules 2 and 7 use
+ * keyword overlap. No LLM call.
  *
  * Returns a per-rule breakdown + total score (0-6). The STAR/XYZ rule
- * (Rule 5) is listed second, right after the summary-title rule. The caller uses this
- * to pick the best of two independent generations and to log failures.
+ * (Rule 5) is listed second, right after the summary-title rule. The caller
+ * uses this to pick the best of two independent generations and to log
+ * failures. Pinned employment entries are owner-written and verbatim (#298),
+ * so Rules 4 and 5 skip them.
  */
 
 import type { ResumeResponse } from '../types.js'
@@ -51,8 +53,6 @@ export const BANNED_PHRASES = [
   'utilized',
   'utilizing',
   'participated in',
-  'functions as',
-  'responsible for',
   'enhanced',
 ]
 
@@ -208,6 +208,9 @@ function scoreRule3(resume: ResumeResponse): RuleResult {
   }
 }
 
+/** Words ending in -ed that aren't past-tense verbs. */
+const NOT_PAST_ED = new Set(['need', 'feed', 'speed', 'seed', 'bed', 'red', 'shed', 'bred'])
+
 /** Past-tense forms that don't end in -ed. */
 const IRREGULAR_PAST = new Set([
   'built', 'led', 'ran', 'wrote', 'drove', 'cut', 'made', 'won', 'grew', 'set', 'took',
@@ -241,7 +244,7 @@ const OUTCOME_CLAUSE_RE = /,\s*(improving|enabling|replacing|reducing|cutting|in
  */
 export function isXyzBullet(bullet: string): boolean {
   const first = bullet.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? ''
-  const pastTense = first.endsWith('ed') || IRREGULAR_PAST.has(first)
+  const pastTense = (first.endsWith('ed') && !NOT_PAST_ED.has(first)) || IRREGULAR_PAST.has(first)
   return pastTense && (METRIC_RE.test(bullet) || OUTCOME_CLAUSE_RE.test(bullet))
 }
 
@@ -255,7 +258,11 @@ function scoreRule5(resume: ResumeResponse): RuleResult {
   // this rule measures only the bullets the generator selected.
   const bullets = resume.employment?.filter(e => e.pinned !== true).flatMap(e => e.bullets ?? []) ?? []
   if (bullets.length === 0) {
-    return { rule: 5, name: 'STAR/XYZ bullet shape', pass: false, score: 0, detail: 'No generator-selected employment bullets found' }
+    // Every role pinned: nothing the generator chose to measure, so the rule is neutral.
+    if (resume.employment?.some(e => e.pinned === true)) {
+      return { rule: 5, name: 'STAR/XYZ bullet shape', pass: true, score: 1, detail: 'All employment roles are pinned; nothing generator-selected to score' }
+    }
+    return { rule: 5, name: 'STAR/XYZ bullet shape', pass: false, score: 0, detail: 'No employment bullets found' }
   }
   const shaped = bullets.filter(isXyzBullet)
   const ratio = shaped.length / bullets.length
@@ -272,7 +279,8 @@ function scoreRule5(resume: ResumeResponse): RuleResult {
 function scoreRule4(resume: ResumeResponse): RuleResult {
   const fullText = [
     resume.summary ?? '',
-    ...(resume.employment?.flatMap(e => e.bullets ?? []) ?? []),
+    // Pinned bullets are the owner's verbatim text: never stripped, so never vetoed.
+    ...(resume.employment?.filter(e => e.pinned !== true).flatMap(e => e.bullets ?? []) ?? []),
     ...(resume.projects?.flatMap(p => p.highlights ?? []) ?? []),
   ].join(' ').toLowerCase()
 

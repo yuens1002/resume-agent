@@ -29,7 +29,7 @@ POST /resume  { job_description, framing_hints? }
 
 ## Post-processing: format and content budget
 
-`normalizeResumeFormat` (`src/lib/resume-format.ts`) runs before scoring, so the rubric scores what ships. It only removes or rewords; it never adds content or a number.
+`normalizeResumeFormat` (`src/lib/resume-format.ts`) runs before scoring, so the rubric scores what ships. It removes or rewords the model's output and never invents content or a number; the only thing it adds is pinned roles, taken verbatim from the profile.
 
 - Strips trailing periods from bullets and spells out a standalone `&` as "and"
 - Caps the summary at 2 sentences
@@ -56,7 +56,7 @@ Rules are listed in the order `scoreResume` returns them; ids are stable identif
 
 **Overall pass threshold:** `PASS_THRESHOLD` = 4.8 of 6. It was 4.0 of 5 before the STAR/XYZ rule; 4.8 keeps the same ratio.
 
-**Hard veto:** Rule 4 scores 0, so a candidate with a banned phrase loses to the other. `BANNED_PHRASES` includes weak or passive openings ("utilized", "participated in", "enhanced", "functions as", "responsible for"); `stripBannedPhrases` replaces each with a plain substitute before scoring. If both candidates contain banned phrases, the higher-scoring one still ships with a warning logged. The nightly sync also rejects proposed project highlights that contain any banned phrase.
+**Hard veto:** Rule 4 scores 0, so a candidate with a banned phrase loses to the other. `BANNED_PHRASES` includes weak verbs ("utilized", "utilizing", "participated in", "enhanced"); `stripBannedPhrases` replaces each with a plain substitute before scoring. "Functions as" and "responsible for" are deliberately not banned: they are weak only as a bullet's opening, which the STAR/XYZ rule already penalizes, and banning them anywhere rewrote ordinary prose ("Lambda functions as microservices"). Pinned roles are exempt from this rule, since their text is the owner's and is never stripped. If both candidates contain banned phrases, the higher-scoring one still ships with a warning logged. The nightly sync also rejects proposed project highlights that contain any banned phrase.
 
 **Prompt-only rules** (not scored): summary of at most 2 sentences with no abstract descriptors; bullet grammar (past-tense opening verb, no trailing period, no `&`, no slashes between alternatives); never invent or estimate a metric; categorized skills of concrete tools; self-employment framed as the JD's role without restating featured projects; 1–2 JD-relevant projects.
 

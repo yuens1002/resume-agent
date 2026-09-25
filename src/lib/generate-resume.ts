@@ -166,9 +166,17 @@ export async function generateResume({ profile, jobDescription, framingHints }: 
 
   const [gen1, gen2] = await Promise.all([generateOne(RESUME_MODEL), generateOne(RESUME_MODEL_B)])
 
-  const postProcess = (r: ResumeResponse) => normalizeResumeFormat(stripBannedPhrases(r), profile.employment)
   const candidates: ResumeCandidate[] = []
-  if (gen1) { const r = postProcess(gen1); candidates.push({ resume: r, rubric: scoreResume(r, jobDescription), model: RESUME_MODEL }) }
-  if (gen2) { const r = postProcess(gen2); candidates.push({ resume: r, rubric: scoreResume(r, jobDescription), model: RESUME_MODEL_B }) }
+  for (const [gen, model] of [[gen1, RESUME_MODEL], [gen2, RESUME_MODEL_B]] as const) {
+    if (!gen) continue
+    // A malformed shape from one model (e.g. `projects: [null]`) drops that
+    // candidate only, instead of failing the whole request.
+    try {
+      const r = normalizeResumeFormat(stripBannedPhrases(gen), profile.employment)
+      candidates.push({ resume: r, rubric: scoreResume(r, jobDescription), model })
+    } catch (err) {
+      console.error(`[resume] Post-processing failed for model ${model}:`, err instanceof Error ? err.message : err)
+    }
+  }
   return candidates.sort((a, b) => b.rubric.total - a.rubric.total)
 }

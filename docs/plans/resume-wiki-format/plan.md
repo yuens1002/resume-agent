@@ -1,7 +1,7 @@
 # Plan — align generated résumés with r/EngineeringResumes conventions
 
 **Branch:** `feat/resume-wiki-format-impl`
-**Status:** plan updated with the owner's answers (2026-09-24); awaiting approval before implementation.
+**Status:** approved 2026-09-25; implemented and verified (see `ACs.md` and `review.md`), awaiting owner review.
 **Acceptance criteria:** `ACs.md` · **Review report:** `review.md`
 **Scope:** `/resume` generation: prompt, post-processing, rubric. Rendering and profile content are out of scope (see Non-goals).
 **Issue:** #298
@@ -24,7 +24,7 @@
 ## Goals
 
 1. Generated content is bounded toward a one-page budget: the summary, bullets per role, projects, highlights and skill rows are capped. This narrows the usual overflow; it does not bound every field (see Non-goals).
-2. **Guaranteed** by deterministic post-processing: no emitted bullet ends with a period or contains `" & "`.
+2. **Guaranteed** by deterministic post-processing: no emitted project highlight or non-pinned employment bullet ends with a period or contains `" & "`. Pinned bullets are the owner's text, emitted verbatim.
 3. **Required and rewarded, not guaranteed:** past-tense opening verbs and no slashes between alternatives. The prompt requires them and the rubric scores them, but the winning candidate still ships when it fails the rubric, so they aren't guarantees.
 4. Skills are emitted as categorized rows of concrete tools.
 5. The rubric rewards STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]).
@@ -81,6 +81,8 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 4. `feat(resume): pinned employment bullets` (D9)
 5. `feat(eval): add on-demand resume eval` (D8)
 6. `chore: verification` (ACs Agent/QC columns, review report)
+
+*As shipped:* D1–D9 landed in one feature commit rather than the separate refactor, feature, pinned and eval commits above (the files were interleaved in the working tree), followed by verification fix commits. The sync-side guard for pinned roles shipped separately and first, in #301, because the next nightly run would otherwise have overwritten a live pinned entry.
 
 ## Decisions locked from planning session
 
