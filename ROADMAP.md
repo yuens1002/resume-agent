@@ -31,6 +31,7 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | v0.4.37 | Employment consolidation — auto-apply OB1 delta proposals on configurable schedule with rubric gate; OB1 notification on apply | [#130](https://github.com/yuens1002/resume-agent/pull/130) |
 | v0.4.41 | CI: Node.js 24 runner; OEP + employment sync env vars wired into GitHub Actions | [#133](https://github.com/yuens1002/resume-agent/pull/133), [#134](https://github.com/yuens1002/resume-agent/pull/134) |
 | v0.4.42 | Docs: `resume-agent-web` companion linked; architecture diagram updated; roadmap refreshed | [#136](https://github.com/yuens1002/resume-agent/pull/136) |
+| v0.4.134 | Résumé output aligned with r/EngineeringResumes conventions: one-page content budget, categorized skills, bullet grammar, pinned owner-written roles, on-demand `eval:resume` with an LLM STAR/XYZ judge | [#298](https://github.com/yuens1002/resume-agent/issues/298) |
 
 ---
 
@@ -42,9 +43,6 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 ---
 
 ## Next
-
-### Résumé output aligned with r/EngineeringResumes conventions
-One-page content budget, categorized skills, bullet grammar, a scored STAR/XYZ rule, and no duplication between self-employment and Projects — without ever generating a metric the profile doesn't ground. Plan: [docs/plans/resume-wiki-format/plan.md](docs/plans/resume-wiki-format/plan.md); issue [#298](https://github.com/yuens1002/resume-agent/issues/298).
 
 ### OEP Phase 2b — peer attestation discovery
 LinkedIn public post search for third-party attestations ("I worked with X at Y at Z"). Organic consensus (N ≥ 2 independent witnesses) is the proof model — no timestamp required, retrospective posts are valid. Requires LinkedIn OAuth. See issue [#119](https://github.com/yuens1002/resume-agent/issues/119).

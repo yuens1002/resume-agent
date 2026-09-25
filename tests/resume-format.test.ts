@@ -1,5 +1,5 @@
 /**
- * Unit tests — resume-format.ts (#298) and the STAR/XYZ rubric rule.
+ * Unit tests — resume-format.ts (#298), pinned roles and the pass threshold.
  * Run: npm run test:unit
  */
 

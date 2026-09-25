@@ -129,3 +129,11 @@ Changes outside the deliverables list: the README's rubric sentence (it already 
 - **Route:** `/backend-architect`.
   **Draft principle:** *"When a pipeline must honor owner-fixed content alongside model output, make the owner's source the only source (context-only for the model, inserted after) instead of reconciling the model's copy. Reconciliation needs identity rules that fail in ways probes keep finding."*
   **Triggered by:** three probe rounds on pinned-role matching before the redesign.
+
+## Addendum — STAR/XYZ moved to an off-path LLM judge
+
+After review, the owner judged the regex STAR/XYZ rule unacceptable: on concrete cases it credited intentions and rejected real results. The rule was removed from the scored rubric (pass mark back to 4.0 of 5, as on `main`) and replaced by an LLM judge used only off the request path: report-only in `eval:resume`, `check:bullets` over the profile's stored bullets, and `eval:star-judge` against a labeled calibration set. The judge prompt was calibrated to credit non-numeric results (scale, a met commitment, adoption, a delivered capability, a replacement) and reached full agreement with the owner's labels on two consecutive runs, including after rewording negatives that had reused the prompt's own examples.
+
+Re-verification of the affected ACs passed with no code defects; five stale doc and comment references to the removed rule were fixed, including a pre-existing README line describing a 6-rule rubric.
+
+A separate observation for follow-up, outside #298: generation models intermittently return unparseable JSON, so a run can be decided by the one remaining candidate.
