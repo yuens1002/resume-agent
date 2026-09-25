@@ -235,7 +235,7 @@ describe('Overall rubric scoring', () => {
     assert.ok(result.passed, `Expected pass (${result.total.toFixed(1)} >= ${PASS_THRESHOLD}), rules: ${result.rules.map(r => `R${r.rule}:${r.score.toFixed(2)}`).join(', ')}`)
   })
 
-  it('returns 5 rule results', () => {
+  it('returns 6 rule results', () => {
     const result = scoreResume(makeResume(), UX_ENGINEER_JD)
     assert.equal(result.rules.length, 6)
   })
@@ -266,5 +266,24 @@ describe('jd_term_count — thin JD signal', () => {
   it('returns zero for an empty JD', () => {
     const result = scoreResume(makeResume(), '')
     assert.equal(result.jd_term_count, 0)
+  })
+})
+
+describe('Rule 4 — weak openings added for #298', () => {
+  it('vetoes each newly banned weak-opening phrase', () => {
+    const jd = 'Senior Engineer building TypeScript services.'
+    for (const phrase of ['utilized', 'utilizing', 'participated in', 'functions as', 'responsible for', 'enhanced']) {
+      const result = scoreResume({
+        contact: { name: 'Test User', email: 'test@example.com' },
+        summary: 'Senior Engineer.',
+        skills: [],
+        employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: [`Built a service, ${phrase} the team`] }],
+        education: [],
+        projects: [],
+      } as never, jd)
+      const rule4 = result.rules.find((r) => r.rule === 4)!
+      assert.equal(rule4.pass, false, `"${phrase}" did not trigger the veto`)
+      assert.equal(rule4.score, 0)
+    }
   })
 })

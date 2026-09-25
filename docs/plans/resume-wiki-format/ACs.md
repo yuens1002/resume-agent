@@ -6,7 +6,7 @@ Pass conditions are **invariants**, not equality against a literal. Tests read b
 
 | ID | Plan ref | Role | Acceptance criterion | Pass (invariant) | Agent | QC | Reviewer |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| AC-FN-1 | D1 | backend-architect | Bullet grammar is enforced | No emitted employment bullet or project highlight ends with a period; a standalone `&` between words becomes "and"; an `&` inside a token (e.g. "R&D") is unchanged | | | |
+| AC-FN-1 | D1 | backend-architect | Bullet grammar is enforced | No emitted project highlight or non-pinned employment bullet ends with a period (pinned bullets are verbatim by AC-FN-14); a standalone `&` between words becomes "and"; an `&` inside a token (e.g. "R&D") is unchanged | | | |
 | AC-FN-2 | D1 | backend-architect | Summary is bounded | The emitted summary has at most `RESUME_BUDGET.summarySentences` sentences; a period inside a token (e.g. "Node.js") is not treated as a sentence end | | | |
 | AC-FN-3 | D1 | backend-architect | Roles are ordered and budgeted | Emitted roles are in descending `start_date` order; the first has at most `mostRecentRoleBullets` bullets and every other role at most `otherRoleBullets` | | | |
 | AC-FN-4 | D1 | backend-architect | Projects and skills are budgeted | At most `projects` projects, each with at most `projectHighlights` highlights; categorized skills capped at `skillRows` rows; a flat string skills list passes through unchanged | | | |

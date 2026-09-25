@@ -41,7 +41,8 @@ function checkResume(resume: ResumeResponse, profile: Record<string, any>, rules
   const highlights = (resume.projects ?? []).flatMap((p) => p.highlights ?? [])
   const checks: Check[] = []
 
-  const periods = [...bullets, ...highlights].filter((b) => b.trim().endsWith('.'))
+  // Pinned bullets are owner-written and verbatim, so they're exempt here.
+  const periods = [...unpinned.flatMap((e) => e.bullets ?? []), ...highlights].filter((b) => b.trim().endsWith('.'))
   checks.push({ name: 'no trailing periods', pass: periods.length === 0, detail: periods[0] })
 
   const sentences = (resume.summary ?? '').trim().split(/(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean).length

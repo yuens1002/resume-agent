@@ -73,6 +73,13 @@ describe('stripBannedPhrases', () => {
     }
   })
 
+  it('substitutes the named replacement for weak opening verbs', () => {
+    const cleaned = stripBannedPhrases(makeResume({
+      employment: [{ company: 'Acme', title: 'Engineer', start_date: '2020-01', end_date: null, bullets: ['Utilized Google Charts for dashboards', 'Enhanced the design system'] }],
+    }))
+    assert.deepEqual(cleaned.employment[0].bullets, ['Used Google Charts for dashboards', 'Improved the design system'])
+  })
+
   it('strips banned phrases from summary', () => {
     const resume = makeResume({
       summary: 'A results-driven engineer with a proven track record of leveraging modern tools.',

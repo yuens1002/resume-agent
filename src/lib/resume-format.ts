@@ -89,16 +89,20 @@ export function normalizeResumeFormat(resume: ResumeResponse, profileEmployment?
   const featuredNames = out.projects.map((p) => p.name).filter((n): n is string => typeof n === 'string' && n.trim().length >= MIN_DEDUPE_NAME_LENGTH)
 
   const pinned = pinnedByCompany(profileEmployment)
+  // Match a pinned role by company, falling back to start date so a model that
+  // renamed the company doesn't leave a duplicate beside the restored entry.
+  const pinFor = (e: Employment) => pinned.get(companyKey(e.company)) ??
+    [...pinned.values()].find((p) => p.start_date && p.start_date === e.start_date)
   const emitted = [...(out.employment ?? [])]
-  for (const [key, entry] of pinned) {
-    if (!emitted.some((e) => companyKey(e.company) === key)) emitted.push(structuredClone(entry))
+  for (const entry of pinned.values()) {
+    if (!emitted.some((e) => pinFor(e) === entry)) emitted.push(structuredClone(entry))
   }
 
   // Most recent first, so the first entry gets the larger bullet budget.
   const employment = emitted.sort((x, y) => String(y.start_date ?? '').localeCompare(String(x.start_date ?? '')))
   out.employment = employment.map((e, i) => {
-    const pin = pinned.get(companyKey(e.company))
-    if (pin) return { ...e, pinned: true, bullets: [...pin.bullets] }
+    const pin = pinFor(e)
+    if (pin) return { ...e, company: pin.company, title: pin.title, pinned: true, bullets: [...pin.bullets] }
     let bullets = cleanList(e.bullets, Number.MAX_SAFE_INTEGER)
     if (SELF_EMPLOYED_RE.test(e.company ?? '')) {
       // Projects already carry these products; don't spend the budget twice.

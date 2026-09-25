@@ -13,7 +13,7 @@ import { getModel } from './ai.js'
 import { parseJSON } from './parse-json.js'
 import { scoreResume, type RubricResult } from './score-resume.js'
 import { stripBannedPhrases } from './strip-banned.js'
-import { normalizeResumeFormat } from './resume-format.js'
+import { normalizeResumeFormat, RESUME_BUDGET as B } from './resume-format.js'
 import { queryRelevantThoughts } from './thoughts-query.js'
 import { parseHiddenProjectSlugs, filterVisibleProjects } from './hidden-projects.js'
 import type { ResumeResponse } from '../types.js'
@@ -28,7 +28,7 @@ Rules:
 
 1. SUMMARY — JD TITLE FIRST: Your opening words in the summary MUST use the exact job title from the job description, not the candidate's default self-description. Follow with years of experience and 3-5 high-priority skills from the JD woven naturally.
    Example: If JD says "Sr UX Engineer", open with "Senior UX Engineer with 6+ years..." — never "Full-stack engineer".
-   Keep the summary to at most 2 sentences. No abstract descriptors ("deterministic, auditable, and maintainable") — name concrete stack and focus instead.
+   Keep the summary to at most ${B.summarySentences} sentences. No abstract descriptors ("deterministic, auditable, and maintainable") — name concrete stack and focus instead.
 
 2. KEYWORD COVERAGE: Achieve at least 25% coverage of the JD's key technical terms, targeting 40%+ for strong matches. Place the highest-priority keywords in: summary first sentence, skills section, and first bullet of each employment entry. Include both long-form and abbreviations where applicable (e.g., "Continuous Integration / CI/CD").
 
@@ -41,7 +41,7 @@ Rules:
 
 5. PER-ROLE BULLET PRIORITIZATION: For each employment entry, lead with bullets that demonstrate skills matching the JD's core requirements. The first bullet of the most recent role MUST directly address the JD's primary responsibility. Deprioritize or omit bullets about skills the JD doesn't mention.
 
-6. EXPERIENCE SECTION — the "bullets" array on each employment entry is your pool. Select from it and lightly adapt — do not invent new bullets. Lightly adapting includes replacing a weak opening verb ("utilized", "participated in", "enhanced") with a precise past-tense one and applying the bullet grammar in Rule 3; it never includes adding a metric. The most recent role keeps at most 4 bullets, every earlier role at most 2 — pick the ones most relevant to the JD. Follow this pattern:
+6. EXPERIENCE SECTION — the "bullets" array on each employment entry is your pool. Select from it and lightly adapt — do not invent new bullets. Lightly adapting includes replacing a weak opening verb ("utilized", "participated in", "enhanced") with a precise past-tense one and applying the bullet grammar in Rule 3; it never includes adding a metric. The most recent role keeps at most ${B.mostRecentRoleBullets} bullets, every earlier role at most ${B.otherRoleBullets} — pick the ones most relevant to the JD. Follow this pattern:
 
   Profile entry:
   {
@@ -80,11 +80,11 @@ Rules:
     ]
   }
 
-7. SKILLS: Group skills into at most 4 labelled rows (e.g. "Languages", "Frameworks and Runtimes", "Databases and Tools", "Testing and CI"), each { "category": "...", "items": [...] }. List concrete, named tools only — no concepts such as "AI Agents", "Automation and Workflows" or "API Integrations"; demonstrate those in bullets instead. Order rows and items by relevance to the JD; skills the JD names come first, using the JD's exact terminology.
+7. SKILLS: Group skills into at most ${B.skillRows} labelled rows (e.g. "Languages", "Frameworks and Runtimes", "Databases and Tools", "Testing and CI"), each { "category": "...", "items": [...] }. List concrete, named tools only — no concepts such as "AI Agents", "Automation and Workflows" or "API Integrations"; demonstrate those in bullets instead. Order rows and items by relevance to the JD; skills the JD names come first, using the JD's exact terminology.
 
 8. SELF-EMPLOYMENT FRAMING: For self-employed or solo entrepreneur roles, frame the work as if it were a job matching the JD title. Describe the JD-relevant work performed — not just the technical architecture. If the JD emphasizes design, describe design work; if it emphasizes backend, describe backend work. Technical architecture details belong in the Projects section, not Employment bullets. Never restate a product you list under Projects in the self-employment bullets — describe role, delivery scope and outcomes there instead.
 
-9. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Include only the 1–2 projects most relevant to the JD, each with a brief description and at most 3 highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
+9. PROJECTS SECTION: Projects should highlight what makes the work impressive at a glance — key features, scale, and standout achievements. Include only the 1–${B.projects} projects most relevant to the JD, each with a brief description and at most ${B.projectHighlights} highlights. Technical architecture depth is welcome here. This is the "nice-to-have" that demonstrates breadth and initiative.
 
 Additional rules:
 - An employment entry marked "pinned": true has owner-written bullets. Copy them verbatim and in their original order; never select from, reword, reorder or trim them. Rules 3, 5 and 6 apply only to entries that are not pinned

@@ -94,6 +94,12 @@ describe('normalizeResumeFormat', () => {
     for (const d of digits(out)) assert.ok(digits(input).has(d), `digit ${d} was introduced`)
   })
 
+  it('caps the summary at the budgeted sentence count', () => {
+    const out = normalizeResumeFormat(resume({ summary: 'One. Two. Three. Four. Five.' }))
+    const sentences = out.summary.split(/(?<=[.!?])\s+/).length
+    assert.equal(sentences, RESUME_BUDGET.summarySentences)
+  })
+
   it('passes a flat string skills list through unchanged', () => {
     const skills = ['TypeScript', 'React', 'Node.js', 'Postgres', 'Vitest'] as unknown as ResumeResponse['skills']
     assert.deepEqual(normalizeResumeFormat(resume({ skills })).skills, skills)
@@ -121,6 +127,15 @@ describe('pinned employment (D9)', () => {
     }), profileEmployment)
     assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
     assert.equal(out.employment[0].pinned, true)
+  })
+
+  it('treats a renamed company with the same start date as the pinned role, without a duplicate', () => {
+    const out = normalizeResumeFormat(resume({
+      employment: [{ company: 'Independent Consulting', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Model text'] }],
+    }), profileEmployment)
+    assert.equal(out.employment.length, 1)
+    assert.equal(out.employment[0].company, 'Self-Employed')
+    assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
   })
 
   it('restores a pinned entry the model dropped', () => {
