@@ -89,10 +89,16 @@ export function normalizeResumeFormat(resume: ResumeResponse, profileEmployment?
   const featuredNames = out.projects.map((p) => p.name).filter((n): n is string => typeof n === 'string' && n.trim().length >= MIN_DEDUPE_NAME_LENGTH)
 
   const pinned = pinnedByCompany(profileEmployment)
-  // Match a pinned role by company, falling back to start date so a model that
-  // renamed the company doesn't leave a duplicate beside the restored entry.
+  const profileCompanies = new Set(
+    (Array.isArray(profileEmployment) ? (profileEmployment as Employment[]) : []).map((p) => companyKey(p?.company)),
+  )
+  // Match a pinned role by company. Only an entry whose company is unknown to
+  // the profile (the model renamed it) falls back to matching by start date,
+  // so a different real role that started the same month is never swallowed.
   const pinFor = (e: Employment) => pinned.get(companyKey(e.company)) ??
-    [...pinned.values()].find((p) => p.start_date && p.start_date === e.start_date)
+    (profileCompanies.has(companyKey(e.company))
+      ? undefined
+      : [...pinned.values()].find((p) => p.start_date && p.start_date === e.start_date))
   const emitted = [...(out.employment ?? [])]
   for (const entry of pinned.values()) {
     if (!emitted.some((e) => pinFor(e) === entry)) emitted.push(structuredClone(entry))

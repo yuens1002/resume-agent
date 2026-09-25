@@ -45,12 +45,12 @@ The caps are the exported `RESUME_BUDGET` constant. They target a one-page résu
 
 | Id | Rule | Measurement | Pass |
 |---|------|-------------|------|
-| 1 | Summary opens with JD title | Distinctive title keywords in the first sentence | 60% of title words |
+| 1 | JD title in summary | Distinctive title keywords in the first sentence | 60% of title words |
 | 5 | STAR/XYZ bullet shape | Share of generator-selected employment bullets that open with a past-tense verb and state a result: a real metric or an outcome clause (", replacing …", "so … could", "used by", "without …"); incidental digits like version numbers don't count. Pinned entries and project highlights are excluded | 50%+ |
-| 2 | Keyword coverage from JD | % of JD terms found across the résumé | 25%+ |
-| 3 | Quantified results | % of employment bullets and project highlights containing metrics | 40%+ |
-| 4 | No generic or weak phrases | Count of `BANNED_PHRASES` found | 0 (**hard veto**, score 0) |
-| 7 | Top skills match JD | Top 5 skills appearing in the JD | 40%+ |
+| 2 | Keyword coverage | % of JD terms found across the résumé | 25%+ |
+| 3 | Quantified bullets | % of employment bullets and project highlights containing metrics | 40%+ |
+| 4 | Authenticity (no generic phrases) | Count of `BANNED_PHRASES` found | 0 (**hard veto**, score 0) |
+| 7 | Skills ordered by JD relevance | Top 5 skills appearing in the JD | 40%+ |
 
 Rules are listed in the order `scoreResume` returns them; ids are stable identifiers, which is why the STAR/XYZ rule (id 5, the slot freed when the old "first bullet matches JD" rule was removed) sits second.
 

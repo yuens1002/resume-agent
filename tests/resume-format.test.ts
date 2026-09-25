@@ -57,6 +57,10 @@ describe('normalizeResumeFormat', () => {
       skills: Array.from({ length: 6 }, (_, i) => ({ category: `Row ${i}`, items: ['x'] })),
     }))
     assert.equal(out.projects.length, RESUME_BUDGET.projects)
+    const cleaned = normalizeResumeFormat(resume({
+      projects: [{ name: 'A', slug: 'a', highlights: ['Built APIs & docs.'] }] as unknown as ResumeResponse['projects'],
+    }))
+    assert.deepEqual(cleaned.projects[0].highlights, ['Built APIs and docs'])
     assert.ok(out.projects.every((p) => p.highlights.length === RESUME_BUDGET.projectHighlights))
     assert.equal(out.skills.length, RESUME_BUDGET.skillRows)
   })
@@ -135,6 +139,26 @@ describe('pinned employment (D9)', () => {
     }), profileEmployment)
     assert.equal(out.employment.length, 1)
     assert.equal(out.employment[0].company, 'Self-Employed')
+    assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
+  })
+
+  it('never swallows a different profile role that started the same month', () => {
+    const withSideCo = [...profileEmployment, { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work'] }]
+    const out = normalizeResumeFormat(resume({
+      employment: [
+        { company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] },
+        { company: 'Side Co', title: 'Engineer', start_date: '2023-08', end_date: null, bullets: ['Side work.'] },
+      ],
+    }), withSideCo)
+    assert.deepEqual(out.employment.map((e) => e.company).sort(), ['Self-Employed', 'Side Co'])
+    assert.deepEqual(out.employment.find((e) => e.company === 'Side Co')!.bullets, ['Side work'])
+  })
+
+  it('exempts a pinned self-employment entry from the Projects dedupe', () => {
+    const out = normalizeResumeFormat(resume({
+      employment: [{ company: 'Self-Employed', title: 'Product Engineer', start_date: '2023-08', end_date: null, bullets: ['x'] }],
+      projects: [{ name: 'Owner bullet', slug: 'ob', highlights: [] }] as unknown as ResumeResponse['projects'],
+    }), profileEmployment)
     assert.deepEqual(out.employment[0].bullets, profileEmployment[0].bullets)
   })
 
