@@ -1,8 +1,9 @@
 # Plan — align generated résumés with r/EngineeringResumes conventions
 
-**Branch:** `feat/resume-wiki-format` (plan); implementation on its own branch once the open questions are answered
-**Status:** planned, not started. No implementation has landed.
-**Scope:** `/resume` generation (prompt, post-processing, rubric) and profile-authoring guidance. Rendering is out of scope (see Non-goals).
+**Branch:** `feat/resume-wiki-format-impl`
+**Status:** plan updated with the owner's answers (2026-09-24); awaiting approval before implementation.
+**Acceptance criteria:** `ACs.md` · **Review report:** `review.md`
+**Scope:** `/resume` generation: prompt, post-processing, rubric. Rendering and profile content are out of scope (see Non-goals).
 **Issue:** #298
 **Reference:** [r/EngineeringResumes wiki](https://old.reddit.com/r/EngineeringResumes/wiki/index)
 
@@ -28,7 +29,6 @@
 4. Skills are emitted as categorized rows of concrete tools.
 5. The rubric rewards STAR/XYZ-shaped bullets (accomplished [X], as measured by [Y], by doing [Z]).
 6. Self-employment bullets and Projects don't restate the same work.
-7. Profile authors have guidance for writing bullets the generator can use well.
 
 ## Non-goals
 
@@ -36,7 +36,7 @@
 - **Bounding every field.** The number of employment entries and the length of individual bullets, descriptions and education lines are not capped. Truncating text mid-sentence would damage meaning, and the role count is left to the prompt's relevance selection.
 - **Rendering.** Consumer presentation (including header contents) is out of scope; see "Notes for consumers".
 - **Generating metrics.** No metric may be generated, estimated or placeholdered that the profile doesn't ground. A bullet without a real metric stays without one.
-- **Editing any fork's profile content.** Each fork curates its own profile; this plan ships guidance only.
+- **Profile content and authoring guidance.** Deferred by the owner (2026-09-24). The generator only selects and lightly adapts profile bullets, so output quality still depends on each fork's source bullets; that work is tracked separately.
 
 ## Architecture
 
@@ -55,23 +55,32 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 
 ## Implementation shape
 
-1. `src/lib/resume-format.ts` (new): `normalizeResumeFormat(resume)` plus exported budget constants:
-   - strip trailing periods; change `" & "` to `"and"`
-   - cap the summary at 2 sentences
-   - cap bullets at 4 for the most recent role and 2 for older roles
-   - cap Projects at 2 entries × 3 highlights, and Skills at 4 rows
-   - drop self-employment bullets that restate a featured project, keeping at least one
-2. `src/routes/resume.ts`: prompt updates:
-   - summary at most 2 sentences, JD title first, no abstract descriptors
-   - categorized skills of concrete tools, and a response example with `{ category, items }`
-   - past-tense opening verb, no slashes between alternatives (`CI/CD` and similar names exempt)
-   - 1–2 JD-relevant projects
-   - may rewrite a weak opening verb from the pool; may never add a metric
-   - wire `normalizeResumeFormat` in after `stripBannedPhrases`
-3. `src/lib/score-resume.ts`: add the weak verbs to `BANNED_PHRASES`; add the XYZ rule.
-4. `src/lib/strip-banned.ts`: a replacement for each new banned phrase.
-5. `docs/resume-pipeline-v2.md`: update the rules table. It currently describes 6 scored rules, but only 5 have been scored since Rule 5 was removed in #80.
-6. Profile-authoring guidance for XYZ bullets, placed where profile authors already look (location decided at implementation).
+| ID | Deliverable | Kind | Owning role |
+|----|-------------|------|-------------|
+| D1 | `src/lib/resume-format.ts`: `normalizeResumeFormat` + exported `RESUME_BUDGET`. Strips trailing periods, spells out a standalone `&`, caps the summary at 2 sentences, orders roles most recent first, caps bullets (4 for the most recent role, 2 for others), projects (2 × 3 highlights) and categorized skill rows (4), and drops self-employment bullets that restate a featured project while keeping at least one | lib (pure function) | `/backend-architect` |
+| D2 | `src/lib/score-resume.ts`: weak verbs added to `BANNED_PHRASES`; new STAR/XYZ rule over employment bullets, listed second; `PASS_THRESHOLD` raised to 4.8 | lib (scorer) | `/backend-architect` |
+| D3 | `src/lib/strip-banned.ts`: a grammatical replacement for each new banned phrase | lib | `/backend-architect` |
+| D4 | `src/routes/resume.ts`: prompt updates (summary bound, STAR/XYZ and bullet grammar, categorized skills and response example, verb-rewrite permission with no added metrics, role bullet budget, 1–2 projects, self-employment dedupe), and `normalizeResumeFormat` wired after `stripBannedPhrases`, before scoring | endpoint | `/backend-architect` |
+| D5 | `tests/resume-format.test.ts` plus updates to `tests/score-resume.test.ts`, registered in `test:unit` | test | `/test-engineer` |
+| D6 | `docs/resume-pipeline-v2.md`: rules table and pass threshold match the shipped rubric | docs | `/backend-architect` |
+| D7 | `src/lib/generate-resume.ts`: the dual-generation, post-processing, scoring and winner selection extracted from the `/resume` handler into a callable core, so the route and the eval run the same code. Route behavior and response shape unchanged | lib (refactor) | `/backend-architect` |
+| D8 | `scripts/eval/resume-eval-cases.ts` + `scripts/eval/run-resume-eval.ts` + `npm run eval:resume`: synthetic JDs across different role types, run through `generateResume`, with deterministic checks per output (format and budget invariants, categorized skills, STAR/XYZ share of employment bullets, no banned phrases, and every number in the résumé present somewhere in the profile). On demand only, not in `test:unit` or the weekly workflow | eval | `/test-engineer` |
+
+| D9 | Pinned employment bullets: an employment entry with `pinned: true` in the profile is emitted with its bullets verbatim and in order. The prompt tells the model not to select from or adapt them, `normalizeResumeFormat` restores them from the profile after generation (so a model edit can't stick), exempts them from caps and the self-employment dedupe, and the STAR/XYZ rule skips pinned entries | lib + endpoint | `/backend-architect` |
+
+**In-repo consumer.** `scripts/sync.ts` rejects LLM-proposed project highlights containing any `BANNED_PHRASES` entry. Adding the weak verbs (D2) widens that gate, so sync will also reject proposals using them. This is intended: it keeps weak verbs out of the profile.
+
+**Consumers of `/resume`.**
+- `resume-agent-web` (`src/lib/resumeDoc.ts`) already accepts both skill shapes, flattening categorized rows into chips, so it needs no change. Separately and pre-existing, it labels the rubric total as out of 10; this work makes the maximum 6. That label is out of scope here.
+- A private downstream document renderer must accept categorized `{ category, items }` rows before D4 ships (see Rollback). That change lives in its own repo.
+
+### Commit schedule
+1. `docs(plans): update resume-wiki-format plan and add ACs`
+2. `refactor(resume): extract generateResume core` (D7)
+3. `feat(resume): format and content budget, STAR/XYZ rule, prompt updates` (D1–D6)
+4. `feat(resume): pinned employment bullets` (D9)
+5. `feat(eval): add on-demand resume eval` (D8)
+6. `chore: verification` (ACs Agent/QC columns, review report)
 
 ## Decisions locked from planning session
 
@@ -80,36 +89,15 @@ The new post-processing step runs before scoring, beside the existing banned-phr
 3. **Employment describes outcomes, Projects carry technical depth.** A product featured under Projects is not restated in self-employment bullets, so the budget isn't spent twice on the same work.
 4. **Truthfulness over polish.** No metric is generated that the profile doesn't ground. A résumé making claims its owner can't back is worse than a plainer one.
 5. **This repo owns the output contract, not presentation.** Rendering guidance is a note for consumers, not a requirement here.
+6. **Pass threshold raised to 4.8** (owner, 2026-09-24). A sixth scored rule at the old 4.0 would lower the bar; 4.8 of 6 keeps the 4.0-of-5 ratio.
+7. **STAR/XYZ is a scored rule, listed second** (owner, 2026-09-24), right after the summary-title rule. It counts toward the pass mark but doesn't veto on its own. It takes the vacant Rule 5 id, so existing rule ids stay stable.
+8. **STAR/XYZ covers employment bullets only** (owner, 2026-09-24). Project highlights stay under Rule 3's metric check.
+9. **A résumé eval runs on demand only** (owner, 2026-09-24): `npm run eval:resume`, not part of the weekly gate. Its JDs are synthetic, so no real employer text enters the public repo.
+10. **Pinned bullets for owner-curated roles** (owner, 2026-09-25). A role can carry a fixed list of bullets, written by the owner to state common threads across work, instead of a pool the generator picks from. The pipeline passes them through unchanged; the STAR/XYZ rule scores only generator-selected bullets.
 
 ## Acceptance criteria
 
-Criteria marked *(pending OQ-n)* depend on an open question and are finalized when it's answered.
-
-**Behavior: post-processing**
-- AC-1: No emitted bullet or highlight ends with a period.
-- AC-2: `" & "` in a bullet is emitted as `" and "`; `&` inside a name (e.g. "R&D") is untouched.
-- AC-3: The summary has at most 2 sentences; periods inside tokens such as `Node.js` don't count as sentence ends.
-- AC-4: The most recent role has at most 4 bullets and every other role at most 2; roles are ordered most recent first.
-- AC-5: At most 2 projects with at most 3 highlights each, and at most 4 skill rows.
-- AC-6: A self-employment bullet naming a featured project is dropped, but the entry always keeps at least one bullet.
-- AC-7: Budget values are exported constants; the tests read them rather than repeating the numbers.
-
-**Behavior: rubric**
-- AC-8: Each new weak-verb phrase in `BANNED_PHRASES` triggers the Rule 4 veto, and `stripBannedPhrases` replaces it with a grammatical substitute.
-- AC-9: The XYZ rule scores a bullet as XYZ-shaped only when it opens with a past-tense verb, contains a measurable outcome, and names the method. *(pending OQ-2, OQ-3)*
-- AC-10: `PASS_THRESHOLD` is set per the answer to OQ-1, and `docs/resume-pipeline-v2.md` states the new total. *(pending OQ-1)*
-
-**Schema**
-- AC-11: The prompt's response example emits `skills` as `{ category, items }` rows, and the rubric's skill rules accept both that shape and flat strings (pinned by test).
-
-**Truthfulness (regression)**
-- AC-12: Post-processing never adds characters that form a number; a fixture bullet without a metric has none after processing.
-
-**Docs**
-- AC-13: `docs/resume-pipeline-v2.md` matches the shipped rules, and the authoring guidance exists. *(manual review)*
-
-**Verification**
-- AC-14: Before/after résumés generated for 2–3 JDs of different role types; rubric scores compared and recorded. *(smoke-only, needs live generation)*
+See `ACs.md` (with Plan ref and Role columns, and Agent, QC and Reviewer columns filled during verification).
 
 ## Rollback
 
@@ -129,6 +117,4 @@ The wire format does change: `Skill` is already typed as `{ category, items }`, 
 
 ## Open questions
 
-- **OQ-1, pass threshold.** The pass mark is 4.0 of 5 scored points today. Adding the XYZ rule makes it 4.0 of 6, a lower bar. Keep 4.0, or raise it to about 4.8 to hold the current bar?
-- **OQ-2, XYZ strictness.** Scored rule (recommended) or hard veto like Rule 4?
-- **OQ-3, scope.** Should the XYZ rule and the authoring guidance cover employment bullets only, or project highlights too?
+None. All three were answered on 2026-09-24 and are recorded as decisions 6–8.
