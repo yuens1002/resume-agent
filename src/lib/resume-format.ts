@@ -17,7 +17,7 @@ export const RESUME_BUDGET = Object.freeze({
   mostRecentRoleBullets: 4,
   otherRoleBullets: 2,
   projects: 2,
-  projectHighlights: 3,
+  projectHighlights: 2,
   skillRows: 4,
 })
 
