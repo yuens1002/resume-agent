@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- 2026-09-27 — fix(resume): cap project highlights at two per project
+  - Content budget lowered from three highlights to two, so a full-budget résumé fits one printed page at a readable size
+  - Pipeline doc updated to match
+
 - 2026-09-25 — feat(resume): align generated résumés with r/EngineeringResumes conventions (#298)
   - Post-processing before scoring: bullet grammar, 2-sentence summary, roles most recent first, one-page content budget
   - Generator-written bullets citing a number not grounded in the profile's text or the given thoughts are dropped

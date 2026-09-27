@@ -34,7 +34,7 @@ POST /resume  { job_description, framing_hints? }
 - Strips trailing periods from bullets and spells out a standalone `&` as "and"
 - Caps the summary at 2 sentences
 - Orders roles most recent first and caps bullets: 4 for the most recent role, 2 for each earlier role
-- Caps Projects at 2 entries with 3 highlights each, and categorized skills at 4 rows
+- Caps Projects at 2 entries with 2 highlights each, and categorized skills at 4 rows
 - Drops self-employment bullets that restate a featured project, always keeping at least one
 - Drops any generator-written employment bullet or project highlight that cites a number not found in the candidate's written text (employment bullets, project prose) or the Open Brain thoughts the model was given, so an invented metric never ships. Pinned roles are the owner's own text and untouched; the summary is exempt, since years of experience are derived from dates
 
