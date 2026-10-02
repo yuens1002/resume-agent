@@ -145,6 +145,16 @@ export async function runApplyDecision(
   if (!applied.success) {
     return { status: 'refused', reason: 'Unexpected response shape from purge_resume_evidence (apply).' }
   }
+  // The shape alone isn't enough: a well-formed dry-run response (mode
+  // 'dry_run', applied false) parses cleanly against PurgeReportSchema too.
+  // Without this check the caller would treat that as a successful apply and
+  // go on to delete the storage bucket even though the DB purge never ran.
+  if (applied.data.mode !== 'apply' || applied.data.applied !== true) {
+    return {
+      status: 'refused',
+      reason: `Refused: purge_resume_evidence did not report an applied purge (mode: ${applied.data.mode}, applied: ${applied.data.applied}) — refusing to remove storage objects.`,
+    }
+  }
   return { status: 'applied', report: applied.data }
 }
 
@@ -260,6 +270,72 @@ export type StoragePurgeResult = {
   listed: number
   removed: number
   failed: string[]
+}
+
+// ── Post-purge residue check ─────────────────────────────────
+//
+// No new locking infrastructure: instead, once the DB purge has committed
+// and the storage walk has run, re-count both application_resumes rows and
+// resume-artifacts objects. A concurrent `admin:recover-evidence` run (the
+// one retained writer to application_resumes/resume-artifacts, see the
+// README) could insert a fresh row and upload a fresh object while this
+// script's own storage walk is still in flight — the walk would then delete
+// the object out from under that just-recovered row, or the row could be
+// inserted after the walk already passed its folder. Either way the script
+// must not report success: it must re-check and fail loudly instead.
+
+export type ResidueCountResult = { count: number; error: string | null }
+
+export type PostPurgeCheckResult =
+  | { status: 'clean' }
+  | {
+      status: 'warn'
+      reasons: string[]
+      applicationResumesRemaining: number
+      storageObjectsRemaining: number
+    }
+
+export async function checkPostPurgeResidue(
+  countApplicationResumes: () => PromiseLike<ResidueCountResult>,
+  storage: StorageLike,
+): Promise<PostPurgeCheckResult> {
+  const [resumesResult, storageResult] = await Promise.all([
+    countApplicationResumes(),
+    countStorageBucketObjects(storage),
+  ])
+
+  const reasons: string[] = []
+  if (resumesResult.error) {
+    reasons.push(`application_resumes count failed: ${resumesResult.error}`)
+  } else if (resumesResult.count > 0) {
+    reasons.push(`application_resumes has ${resumesResult.count} row(s) remaining`)
+  }
+
+  if (storageResult.listErrors.length > 0) {
+    reasons.push(`resume-artifacts listing reported ${storageResult.listErrors.length} error(s): ${storageResult.listErrors.join('; ')}`)
+  } else if (storageResult.count > 0) {
+    reasons.push(`resume-artifacts bucket has ${storageResult.count} object(s) remaining`)
+  }
+
+  if (reasons.length === 0) return { status: 'clean' }
+  return {
+    status: 'warn',
+    reasons,
+    applicationResumesRemaining: resumesResult.count,
+    storageObjectsRemaining: storageResult.count,
+  }
+}
+
+export function formatPostPurgeWarning(result: Extract<PostPurgeCheckResult, { status: 'warn' }>): string {
+  return [
+    'WARNING: residue detected after the purge.',
+    'The DB purge and the storage walk both completed, but a re-check afterward found data that should be gone — most likely admin:recover-evidence ran concurrently with this script and inserted a fresh application_resumes row and/or resume-artifacts object.',
+    `  application_resumes rows remaining: ${result.applicationResumesRemaining}`,
+    `  resume-artifacts storage objects remaining: ${result.storageObjectsRemaining}`,
+    ...result.reasons.map(reason => `  - ${reason}`),
+    '',
+    'Never run `npm run admin:recover-evidence` while scripts/purge-resume-evidence.ts --apply is running.',
+  ].join('\n')
 }
 
 export async function purgeStorageBucket(storage: StorageLike): Promise<StoragePurgeResult> {

@@ -21,6 +21,8 @@ import {
   purgeStorageBucket,
   countStorageBucketObjects,
   runApplyDecision,
+  checkPostPurgeResidue,
+  formatPostPurgeWarning,
   type PurgeReport,
   type StorageEntry,
 } from '../src/lib/purge-resume-evidence.js'
@@ -198,6 +200,128 @@ describe('runApplyDecision', () => {
 
     assert.equal(decision.status, 'refused')
     if (decision.status === 'refused') assert.match(decision.reason, /Unexpected response shape/)
+  })
+
+  // Red-proof: before the fix, a well-shaped but still-dry-run response
+  // (mode 'dry_run', applied false) passed PurgeReportSchema.safeParse just
+  // fine and was returned as `status: 'applied'` — the caller would then
+  // delete every resume-artifacts storage object even though the DB purge
+  // never ran. The apply RPC response must report mode 'apply' AND
+  // applied === true, or this must refuse before any storage call happens.
+  it('refuses when the apply RPC reports a dry-run-shaped response (mode dry_run, applied false), and never lets the caller reach the storage delete step', async () => {
+    let applyRpcCalls = 0
+    const applyRpc = async () => {
+      applyRpcCalls += 1
+      return { data: sampleReport({ mode: 'dry_run', applied: false, delete_count: 5 }), error: null }
+    }
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /did not report an applied purge/)
+    assert.equal(applyRpcCalls, 1, 'the apply RPC is still called once — the refusal happens on its response, not before')
+
+    // Mirror the script's own gating (scripts/purge-resume-evidence.ts only
+    // calls purgeStorageBucket when decision.status !== 'refused'): prove
+    // that gate, with a storage stub that would show the leak if it fired.
+    const { storage, removedBatches } = stubStorage({ '': [{ name: 'leaked.pdf', id: 'obj-1' }] })
+    if (decision.status !== 'refused') await purgeStorageBucket(storage)
+    assert.deepEqual(removedBatches, [], 'storage.remove must never be called when the apply RPC did not actually apply')
+  })
+
+  it('refuses when mode is "apply" but applied is false', async () => {
+    const applyRpc = async () => ({ data: sampleReport({ mode: 'apply', applied: false, delete_count: 5 }), error: null })
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /did not report an applied purge/)
+  })
+
+  it('refuses when applied is true but mode is "dry_run" (mismatched shape)', async () => {
+    const applyRpc = async () => ({ data: sampleReport({ mode: 'dry_run', applied: true, delete_count: 5 }), error: null })
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /did not report an applied purge/)
+  })
+})
+
+// ── checkPostPurgeResidue / formatPostPurgeWarning ───────────
+
+describe('checkPostPurgeResidue', () => {
+  it('reports clean when application_resumes is empty and the bucket is empty', async () => {
+    const { storage } = stubStorage({ '': [] })
+    const result = await checkPostPurgeResidue(async () => ({ count: 0, error: null }), storage)
+    assert.deepEqual(result, { status: 'clean' })
+  })
+
+  // Red-proof for the concurrent admin:recover-evidence race: a non-zero
+  // application_resumes count after the purge and storage walk must warn
+  // and fail, never report success.
+  it('warns and reports non-zero when application_resumes has rows remaining', async () => {
+    const { storage } = stubStorage({ '': [] })
+    const result = await checkPostPurgeResidue(async () => ({ count: 2, error: null }), storage)
+
+    assert.equal(result.status, 'warn')
+    if (result.status === 'warn') {
+      assert.equal(result.applicationResumesRemaining, 2)
+      assert.equal(result.storageObjectsRemaining, 0)
+      assert.ok(result.reasons.some(reason => /application_resumes has 2 row\(s\) remaining/.test(reason)))
+    }
+  })
+
+  it('warns and reports non-zero when resume-artifacts objects remain', async () => {
+    const { storage } = stubStorage({ '': [{ name: 'leftover.pdf', id: 'obj-1' }] })
+    const result = await checkPostPurgeResidue(async () => ({ count: 0, error: null }), storage)
+
+    assert.equal(result.status, 'warn')
+    if (result.status === 'warn') {
+      assert.equal(result.applicationResumesRemaining, 0)
+      assert.equal(result.storageObjectsRemaining, 1)
+      assert.ok(result.reasons.some(reason => /resume-artifacts bucket has 1 object\(s\) remaining/.test(reason)))
+    }
+  })
+
+  it('warns when both application_resumes rows and storage objects remain', async () => {
+    const { storage } = stubStorage({ '': [{ name: 'leftover.pdf', id: 'obj-1' }] })
+    const result = await checkPostPurgeResidue(async () => ({ count: 3, error: null }), storage)
+
+    assert.equal(result.status, 'warn')
+    if (result.status === 'warn') {
+      assert.equal(result.applicationResumesRemaining, 3)
+      assert.equal(result.storageObjectsRemaining, 1)
+      assert.equal(result.reasons.length, 2)
+    }
+  })
+
+  it('warns when the application_resumes count query itself fails, rather than assuming clean', async () => {
+    const { storage } = stubStorage({ '': [] })
+    const result = await checkPostPurgeResidue(async () => ({ count: 0, error: 'connection reset' }), storage)
+
+    assert.equal(result.status, 'warn')
+    if (result.status === 'warn') assert.ok(result.reasons.some(reason => /application_resumes count failed: connection reset/.test(reason)))
+  })
+
+  it('warns when the storage listing itself reports errors, rather than assuming the bucket is empty', async () => {
+    const { storage } = stubStorage({ '': [] }, { failListPath: '' })
+    const result = await checkPostPurgeResidue(async () => ({ count: 0, error: null }), storage)
+
+    assert.equal(result.status, 'warn')
+    if (result.status === 'warn') assert.ok(result.reasons.some(reason => /resume-artifacts listing reported 1 error\(s\)/.test(reason)))
+  })
+
+  it('formatPostPurgeWarning names both counts and warns against running admin:recover-evidence concurrently', () => {
+    const text = formatPostPurgeWarning({
+      status: 'warn',
+      reasons: ['application_resumes has 2 row(s) remaining'],
+      applicationResumesRemaining: 2,
+      storageObjectsRemaining: 0,
+    })
+    assert.match(text, /application_resumes rows remaining: 2/)
+    assert.match(text, /resume-artifacts storage objects remaining: 0/)
+    assert.match(text, /admin:recover-evidence/)
   })
 })
 
