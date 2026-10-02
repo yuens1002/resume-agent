@@ -172,20 +172,20 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", scoreOnlyAppId);
   });
 
-  it("confirm_application_submission — atomically confirms a pre-existing draft's exact resume evidence via the live MCP tool", async () => {
-    // log_application now records submitted applications only — it refuses
-    // is_submitted: false, so it can no longer create the draft fixture this
-    // test used to set up. This inserts the draft directly (modeling a draft
-    // that already exists in the system from before that change) so this
-    // test still exercises confirm_application_submission's real RPC through
-    // the live MCP surface, not just the SQL function in isolation (that
-    // SQL-level coverage already lives in tests/application-submission-confirmation.test.ts).
+  it("update_stage — a legacy draft (no confirm_application_submission tool left to confirm it) cannot enter the submitted pipeline", async () => {
+    // confirm_application_submission was retired once the resume-evidence
+    // purge removed everything it could have confirmed — a draft that
+    // somehow still exists has no remaining path into the submitted
+    // pipeline through this server at all. log_application now records
+    // submitted applications only (it refuses is_submitted: false), so it
+    // can no longer create the draft fixture this test needs; this inserts
+    // one directly to model a pre-existing legacy draft.
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
     const draftCompany = `${TEST_COMPANY}_draft`;
     const { data: draftApp, error: draftAppErr } = await supabase
       .from("job_applications")
-      .insert({ company: draftCompany, role: TEST_ROLE, job_description: SAMPLE_JD, stage: "draft" })
+      .insert({ company: draftCompany, role: TEST_ROLE, stage: "draft" })
       .select("id")
       .single();
     assert.ok(!draftAppErr && draftApp, `draft fixture insert failed: ${draftAppErr?.message}`);
@@ -195,63 +195,21 @@ describe("Job Hunt Pipeline", () => {
       stage: "draft",
       note: "Application tailored, not yet confirmed submitted",
     });
-    const { data: draftResume, error: draftResumeErr } = await supabase
-      .from("application_resumes")
-      .insert({ application_id: draftAppId, resume_content: { summary: "Draft summary" }, is_submitted: false })
-      .select("id")
-      .single();
-    assert.ok(!draftResumeErr && draftResume, `draft resume fixture insert failed: ${draftResumeErr?.message}`);
+
+    const bypass = await callTool("update_stage", {
+      application_id: draftAppId,
+      stage: "phone_screen",
+    });
+    assert.equal(bypass.isError, true);
+    assert.match(getText(bypass), /cannot enter the submitted pipeline/);
+    assert.doesNotMatch(getText(bypass), /confirm_application_submission/, "the retired tool must not be recommended as a way forward");
 
     const { data: appRow } = await supabase
       .from("job_applications")
       .select("stage")
       .eq("id", draftAppId)
       .single();
-    assert.equal(appRow?.stage, "draft", "A logged-but-not-submitted application must not count as 'applied'");
-
-    const { data: stageRows } = await supabase
-      .from("application_stages")
-      .select("stage")
-      .eq("application_id", draftAppId);
-    assert.equal(stageRows?.[0]?.stage, "draft");
-
-    const resumeRows = [draftResume!];
-
-    const bypass = await callTool("update_stage", {
-      application_id: draftAppId,
-      stage: "phone_screen",
-    });
-    assert.match(getText(bypass), /confirm_application_submission/);
-
-    const confirmation = await callTool("confirm_application_submission", {
-      application_id: draftAppId,
-      resume_id: resumeRows![0].id,
-      note: "Integration-test confirmation",
-    });
-    assert.match(getText(confirmation), /draft.*applied/);
-
-    const { data: confirmedApp } = await supabase
-      .from("job_applications")
-      .select("stage")
-      .eq("id", draftAppId)
-      .single();
-    assert.equal(confirmedApp?.stage, "applied");
-
-    const { data: confirmedResumeRows } = await supabase
-      .from("application_resumes")
-      .select("id, is_submitted")
-      .eq("application_id", draftAppId);
-    assert.equal(confirmedResumeRows?.length, 1);
-    assert.equal(confirmedResumeRows?.[0]?.id, resumeRows![0].id);
-    assert.equal(confirmedResumeRows?.[0]?.is_submitted, true);
-
-    const { data: confirmedStageRows } = await supabase
-      .from("application_stages")
-      .select("stage, note")
-      .eq("application_id", draftAppId);
-    assert.equal(confirmedStageRows?.filter(row => row.stage === "draft").length, 1);
-    assert.equal(confirmedStageRows?.filter(row => row.stage === "applied").length, 1);
-    assert.ok(confirmedStageRows?.some(row => row.stage === "applied" && row.note === "Integration-test confirmation"));
+    assert.equal(appRow?.stage, "draft", "a refused update_stage call must not change the draft's stage");
 
     await supabase.from("job_applications").delete().eq("id", draftAppId);
   });

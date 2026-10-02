@@ -32,14 +32,16 @@ it('AC-06 authenticated private listing includes private readers; public listing
   const privateResponse = await privateRoute.request('/', listingRequest(process.env.OPEN_BRAIN_KEY))
   assert.equal(privateResponse.status, 200)
   const privateNames = await toolNames(privateResponse)
-  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page', 'get_application_resume_artifact']) {
+  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page']) {
     assert.ok(privateNames.includes(name), `private listing should include ${name}`)
   }
+  assert.ok(!privateNames.includes('confirm_application_submission'), 'confirm_application_submission is retired')
+  assert.ok(!privateNames.includes('get_application_resume_artifact'), 'get_application_resume_artifact is retired')
   const publicResponse = await publicRoute.request('/', listingRequest())
   assert.equal(publicResponse.status, 200)
   const publicNames = await toolNames(publicResponse)
   assert.ok(publicNames.includes('ask_candidate'))
-  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page', 'get_application_resume_artifact']) {
+  for (const name of ['get_job_pipeline_feed', 'create_application_evidence_snapshot', 'get_application_evidence_snapshot_page']) {
     assert.ok(!publicNames.includes(name), `public listing must exclude ${name}`)
   }
 })
