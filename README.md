@@ -146,7 +146,7 @@ and checkpoint acknowledgement to its consumer.
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`). Within the first stream, `metadata.source` separates hand-written notes (`mcp`) from machine entries (`sync`, `telemetry`) — surfaced as `authored` on `/observations` |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
-| `application_resumes` + `application_scores` | MCP only (private) | Durable resume evidence and append-only scoring history — a generated draft remains unsubmitted until its exact resume version is confirmed with the application |
+| `application_resumes` + `application_scores` | MCP only (private) | Durable resume evidence and append-only scoring history — a generated draft remains unsubmitted until its exact resume version is confirmed with the application. `log_application` no longer creates new rows here (it records submitted applications only); only pre-existing drafts can still be confirmed via `confirm_application_submission` |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
@@ -497,8 +497,8 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 
 **Job pipeline tools:**
 - `score_match` — Score a job description against your profile
-- `log_application` — Log a new job application (auto-scores if JD provided; a draft with `is_submitted: false` must include tailored resume evidence)
-- `confirm_application_submission` — Atomically confirm that a draft was sent with one exact stored resume evidence record; this moves it to `applied`
+- `log_application` — Log a new *submitted* job application (auto-scores if JD provided); it refuses `is_submitted: false` (no drafts) and refuses `resume_content`/`docx_base64`/`pdf_base64` — no resume content or files are stored
+- `confirm_application_submission` — Atomically confirm that a pre-existing draft was sent with one exact stored resume evidence record; this moves it to `applied`
 - `update_stage` — Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it can enter submitted pipeline stages)
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
@@ -720,6 +720,35 @@ The included `.github/workflows/sync.yml` runs `npm run sync` on a nightly sched
 9. Set env vars in Railway dashboard (see `.env.example` for the full list)
 10. Set `QR_TARGET_URL` in Railway to the URL you want the QR to point to (e.g. your resume website or a Custom GPT URL). `GET /qr` on your deployed domain generates the QR automatically — embed it anywhere as an `<img>` tag.
 11. _(Optional)_ Set `OBSERVATIONS_TOPICS` (comma-separated OB1 topic tags) to scope the default `GET /observations` listing to a curated trail (e.g. `OEP,Open Employment Protocol,employment`). Unset, the endpoint lists your most recent public-eligible observations. Private thoughts are never included.
+
+---
+
+## Running against a local Supabase
+
+The setup above points the server at a hosted Supabase project. For iterating on migrations or MCP tools without touching that project (or any production data), run the whole stack locally with the Supabase CLI.
+
+**Prerequisites:** Docker (the CLI runs Postgres + the other services in containers) and the Supabase CLI — already a dev dependency here, so `npx supabase ...` resolves it without a separate install.
+
+1. `npx supabase start` — boots the local stack (Postgres, PostgREST, Storage, Studio, …) on the ports in `supabase/config.toml` (API `54321`, DB `54322`; unchanged from the CLI defaults) and applies every migration in `supabase/migrations/` to a fresh local database.
+2. `npx supabase status` — prints the local API URL and the local `service_role` key (and the other local keys/URLs). These are fixed, publicly-documented Supabase CLI defaults for every local project, not secrets.
+3. Point the server at the local stack **for one shell session**, without editing `.env.local`:
+
+   ```powershell
+   $env:SUPA_PROJECT_URL = "http://127.0.0.1:54321"
+   $env:SUPA_SERVICE_ROLE = "<service_role from `supabase status`>"
+   npm run dev
+   ```
+
+   `src/lib/env.ts` loads `.env.local` via `dotenv.config({ path: '.env.local' })` with no `override` option, and dotenv does not replace a variable that's already set in `process.env` (verified: setting `SUPA_PROJECT_URL` in the shell before calling `config()` leaves it untouched). So the two `$env:` overrides above win over anything in `.env.local` for the rest of that shell session — no code change was needed for this to work, and no edit to `.env.local` is required or touched.
+
+4. The server also needs these set at boot regardless of which Supabase you point at — `.env.example` has the full list, generation commands included. Use fresh, local-only values here, not your production secrets:
+   - `OPEN_BRAIN_KEY` — required; the private MCP's owner credential.
+   - `JWT_SECRET`, `OAUTH_CLIENT_SECRET` — required; `/mcp` and `/token` won't boot without them (`OAUTH_CLIENT_ID` has a default).
+   - `API_KEY` / `AUTH_MODE` — optional; `AUTH_MODE` defaults to `open`, so `API_KEY` is only enforced once you set `AUTH_MODE=key`.
+   - `OPENROUTER_API_KEY` — required; there's no local stand-in for the model provider. Use a key with its own, small spend cap rather than the production serving key.
+5. `npx supabase stop --no-backup` — tears the local stack down and discards its data (omit `--no-backup` to keep a snapshot).
+
+`npm run db:link` / `npm run db:push` are for a *linked, hosted* project (`SUPABASE_PROJECT_REF`) and aren't part of this local flow — `supabase start` (and `supabase db reset` to replay migrations from scratch) applies migrations to the local database directly.
 
 ---
 

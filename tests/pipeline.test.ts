@@ -14,7 +14,6 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { config } from "dotenv";
 import { createMcpClient } from "./helpers/mcp.js";
 
@@ -103,100 +102,49 @@ describe("Job Hunt Pipeline", () => {
     }
   });
 
-  it("log_application — attaches resume content and file, creating the durable evidence bundle", async () => {
+  it("log_application — refuses resume content and files; stores no evidence and no application row", async () => {
+    const refusedCompany = `${TEST_COMPANY}_resumerefusal`;
     const docxBytes = Buffer.from("fake docx bytes for pipeline test");
     const result = await callTool("log_application", {
-      company: `${TEST_COMPANY}_evidence`,
+      company: refusedCompany,
       role: TEST_ROLE,
       job_description: SAMPLE_JD,
       source: "test",
       resume_content: { summary: "Test summary", skills: ["TypeScript"] },
       docx_base64: docxBytes.toString("base64"),
     });
+    assert.equal(result.isError, true);
     const text = getText(result);
-    assert.doesNotMatch(text, /evidence bundle not fully saved/, "Evidence bundle should save without error");
-
-    const match = text.match(/ID: ([0-9a-f-]{36})/);
-    assert.ok(match, "Response should contain a UUID");
-    const evidenceAppId = match[1];
+    assert.match(text, /resume/i);
+    assert.match(text, /resume_content/);
+    assert.match(text, /docx_base64/);
+    assert.doesNotMatch(text, /ID: [0-9a-f-]{36}/);
 
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
-
-    const { data: resumeRows } = await supabase
-      .from("application_resumes")
-      .select("resume_content, docx_url, docx_hash, is_submitted")
-      .eq("application_id", evidenceAppId);
-    assert.equal(resumeRows?.length, 1, "Should create exactly one application_resumes row");
-    assert.equal(resumeRows![0].is_submitted, true);
-    assert.deepEqual(resumeRows![0].resume_content, { summary: "Test summary", skills: ["TypeScript"] });
-    assert.equal(resumeRows![0].docx_hash, createHash("sha256").update(docxBytes).digest("hex"));
-
-    const { data: scoreRows } = await supabase
-      .from("application_scores")
-      .select("score_type, model")
-      .eq("application_id", evidenceAppId);
-    assert.equal(scoreRows?.length, 1);
-    assert.equal(scoreRows![0].score_type, "jd_fit");
-    assert.ok(scoreRows![0].model, "Should record a resolved model identifier, not null");
-
-    const { data: fileData, error: downloadErr } = await supabase.storage
-      .from("resume-artifacts")
-      .download(resumeRows![0].docx_url);
-    assert.ok(!downloadErr, `Uploaded blob should be downloadable: ${downloadErr?.message}`);
-    const downloadedBuf = Buffer.from(await fileData!.arrayBuffer());
-    assert.equal(downloadedBuf.toString(), docxBytes.toString(), "Downloaded blob should match what was uploaded");
-
-    // get_application is the actual read path other callers use — verify it
-    // surfaces the evidence bundle too, not just the raw table rows.
-    const getResult = await callTool("get_application", { application_id: evidenceAppId });
-    const getText_ = getText(getResult);
-    assert.match(getText_, /\[submitted\]/, "Should show the submitted resume version");
-    assert.match(getText_, new RegExp(resumeRows![0].docx_hash), "Should surface the docx hash");
-    assert.match(getText_, /Test summary/, "Should surface the submitted resume content");
-    assert.match(getText_, /Score history:/);
-    assert.match(getText_, /\[jd_fit\]/);
-
-    await supabase.storage.from("resume-artifacts").remove([resumeRows![0].docx_url]);
-    await supabase.from("job_applications").delete().eq("id", evidenceAppId);
+    const { data: appRows } = await supabase.from("job_applications").select("id").eq("company", refusedCompany);
+    assert.equal(appRows?.length ?? 0, 0, "a refused call must not create an application row");
   });
 
-  it("log_application — attaches a PDF-only evidence bundle (separate upload/hash path from docx)", async () => {
+  it("log_application — refuses pdf_base64 on its own; stores no evidence and no application row", async () => {
+    const refusedCompany = `${TEST_COMPANY}_pdfonly`;
     const pdfBytes = Buffer.from("fake pdf bytes for pipeline test");
     const result = await callTool("log_application", {
-      company: `${TEST_COMPANY}_pdfonly`,
+      company: refusedCompany,
       role: TEST_ROLE,
       source: "test",
-      resume_content: { summary: "PDF-only summary" },
       pdf_base64: pdfBytes.toString("base64"),
     });
+    assert.equal(result.isError, true);
     const text = getText(result);
-    assert.doesNotMatch(text, /evidence bundle not fully saved/);
-
-    const match = text.match(/ID: ([0-9a-f-]{36})/);
-    assert.ok(match, "Response should contain a UUID");
-    const pdfAppId = match[1];
+    assert.match(text, /resume/i);
+    assert.match(text, /pdf_base64/);
+    assert.doesNotMatch(text, /ID: [0-9a-f-]{36}/);
 
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
-    const { data: resumeRows } = await supabase
-      .from("application_resumes")
-      .select("pdf_url, pdf_hash, docx_url, docx_hash")
-      .eq("application_id", pdfAppId);
-    assert.equal(resumeRows?.length, 1);
-    assert.equal(resumeRows![0].pdf_hash, createHash("sha256").update(pdfBytes).digest("hex"));
-    assert.equal(resumeRows![0].docx_url, null, "No docx was sent, so docx_url must stay null");
-    assert.equal(resumeRows![0].docx_hash, null);
-
-    const { data: fileData, error: downloadErr } = await supabase.storage
-      .from("resume-artifacts")
-      .download(resumeRows![0].pdf_url);
-    assert.ok(!downloadErr, `PDF blob should be downloadable: ${downloadErr?.message}`);
-    const downloadedBuf = Buffer.from(await fileData!.arrayBuffer());
-    assert.equal(downloadedBuf.toString(), pdfBytes.toString());
-
-    await supabase.storage.from("resume-artifacts").remove([resumeRows![0].pdf_url]);
-    await supabase.from("job_applications").delete().eq("id", pdfAppId);
+    const { data: appRows } = await supabase.from("job_applications").select("id").eq("company", refusedCompany);
+    assert.equal(appRows?.length ?? 0, 0, "a refused call must not create an application row");
   });
 
   it("log_application — records the jd_fit score even when no resume evidence is attached", async () => {
@@ -224,22 +172,35 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", scoreOnlyAppId);
   });
 
-  it("log_application + confirm_application_submission keep the real writer path and exact evidence consistent", async () => {
-    const result = await callTool("log_application", {
-      company: `${TEST_COMPANY}_draft`,
-      role: TEST_ROLE,
-      job_description: SAMPLE_JD,
-      source: "test",
-      resume_content: { summary: "Draft summary" },
-      is_submitted: false,
-    });
-    const text = getText(result);
-    const match = text.match(/ID: ([0-9a-f-]{36})/);
-    assert.ok(match, "Response should contain a UUID");
-    const draftAppId = match[1];
-
+  it("confirm_application_submission — atomically confirms a pre-existing draft's exact resume evidence via the live MCP tool", async () => {
+    // log_application now records submitted applications only — it refuses
+    // is_submitted: false, so it can no longer create the draft fixture this
+    // test used to set up. This inserts the draft directly (modeling a draft
+    // that already exists in the system from before that change) so this
+    // test still exercises confirm_application_submission's real RPC through
+    // the live MCP surface, not just the SQL function in isolation (that
+    // SQL-level coverage already lives in tests/application-submission-confirmation.test.ts).
     const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const draftCompany = `${TEST_COMPANY}_draft`;
+    const { data: draftApp, error: draftAppErr } = await supabase
+      .from("job_applications")
+      .insert({ company: draftCompany, role: TEST_ROLE, job_description: SAMPLE_JD, stage: "draft" })
+      .select("id")
+      .single();
+    assert.ok(!draftAppErr && draftApp, `draft fixture insert failed: ${draftAppErr?.message}`);
+    const draftAppId = draftApp!.id;
+    await supabase.from("application_stages").insert({
+      application_id: draftAppId,
+      stage: "draft",
+      note: "Application tailored, not yet confirmed submitted",
+    });
+    const { data: draftResume, error: draftResumeErr } = await supabase
+      .from("application_resumes")
+      .insert({ application_id: draftAppId, resume_content: { summary: "Draft summary" }, is_submitted: false })
+      .select("id")
+      .single();
+    assert.ok(!draftResumeErr && draftResume, `draft resume fixture insert failed: ${draftResumeErr?.message}`);
 
     const { data: appRow } = await supabase
       .from("job_applications")
@@ -254,11 +215,7 @@ describe("Job Hunt Pipeline", () => {
       .eq("application_id", draftAppId);
     assert.equal(stageRows?.[0]?.stage, "draft");
 
-    const { data: resumeRows } = await supabase
-      .from("application_resumes")
-      .select("id, is_submitted")
-      .eq("application_id", draftAppId);
-    assert.equal(resumeRows?.[0]?.is_submitted, false);
+    const resumeRows = [draftResume!];
 
     const bypass = await callTool("update_stage", {
       application_id: draftAppId,
@@ -299,29 +256,40 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", draftAppId);
   });
 
-  it("log_application — rejects a draft without durable resume evidence", async () => {
+  it("log_application — refuses is_submitted: false; drafts can no longer be created through this tool", async () => {
     const result = await callTool("log_application", {
       company: `${TEST_COMPANY}_missingdraftproof`,
       role: TEST_ROLE,
       source: "test",
       is_submitted: false,
     });
+    assert.equal(result.isError, true);
     const text = getText(result);
-    assert.match(text, /requires tailored resume_content, docx_base64, or pdf_base64/);
+    assert.match(text, /draft/i);
     assert.doesNotMatch(text, /ID: [0-9a-f-]{36}/);
   });
 
-  it("update_stage — cannot revive a terminal draft into the submitted pipeline without confirmation evidence", async () => {
-    const result = await callTool("log_application", {
-      company: `${TEST_COMPANY}_terminaldraft`,
-      role: TEST_ROLE,
-      source: "test",
+  it("update_stage — cannot revive a pre-existing terminal draft into the submitted pipeline without confirmation evidence", async () => {
+    // log_application can no longer create a draft (see the refusal test
+    // above) — insert this fixture directly to model a draft that already
+    // exists in the system, so update_stage's terminal-draft protection is
+    // still exercised through the live MCP tool.
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
+    const terminalDraftCompany = `${TEST_COMPANY}_terminaldraft`;
+    const { data: terminalDraftApp, error: terminalDraftAppErr } = await supabase
+      .from("job_applications")
+      .insert({ company: terminalDraftCompany, role: TEST_ROLE, stage: "draft" })
+      .select("id")
+      .single();
+    assert.ok(!terminalDraftAppErr && terminalDraftApp, `draft fixture insert failed: ${terminalDraftAppErr?.message}`);
+    const terminalDraftAppId = terminalDraftApp!.id;
+    await supabase.from("application_stages").insert({ application_id: terminalDraftAppId, stage: "draft", note: null });
+    await supabase.from("application_resumes").insert({
+      application_id: terminalDraftAppId,
       resume_content: { summary: "Terminal draft summary" },
       is_submitted: false,
     });
-    const match = getText(result).match(/ID: ([0-9a-f-]{36})/);
-    assert.ok(match, "Response should contain a UUID");
-    const terminalDraftAppId = match[1];
 
     const rejected = await callTool("update_stage", {
       application_id: terminalDraftAppId,
@@ -334,8 +302,6 @@ describe("Job Hunt Pipeline", () => {
       assert.match(getText(bypass), /cannot re-enter the submitted pipeline/);
     }
 
-    const { createClient } = await import("@supabase/supabase-js");
-    const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
     const { data: appRow } = await supabase
       .from("job_applications")
       .select("stage")
@@ -402,23 +368,17 @@ describe("Job Hunt Pipeline", () => {
     await supabase.from("job_applications").delete().eq("id", defaultAppId);
   });
 
-  it("log_application — malformed base64 fails the evidence bundle but not the application log", async () => {
+  it("log_application — refuses docx_base64 even when malformed; no application is logged", async () => {
     const result = await callTool("log_application", {
       company: `${TEST_COMPANY}_badb64`,
       role: TEST_ROLE,
       docx_base64: "not-valid-base64!!!",
     });
+    assert.equal(result.isError, true);
     const text = getText(result);
-    assert.match(text, /Application logged/, "Application itself must still be logged");
-    assert.match(text, /evidence bundle not fully saved/);
-    assert.match(text, /not valid base64/);
-
-    const match = text.match(/ID: ([0-9a-f-]{36})/);
-    if (match) {
-      const { createClient } = await import("@supabase/supabase-js");
-      const supabase = createClient(SUPA_URL!, SUPA_ROLE_KEY!);
-      await supabase.from("job_applications").delete().eq("id", match[1]);
-    }
+    assert.match(text, /resume/i);
+    assert.match(text, /docx_base64/);
+    assert.doesNotMatch(text, /ID: [0-9a-f-]{36}/, "a refused call must not log an application");
   });
 
   it("update_stage — moves application to phone_screen", async () => {
