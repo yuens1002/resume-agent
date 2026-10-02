@@ -12,7 +12,8 @@
  */
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { PGlite } from '@electric-sql/pglite'
 import {
   parsePurgeArgs,
@@ -27,6 +28,132 @@ import {
   type StorageEntry,
 } from '../src/lib/purge-resume-evidence.js'
 import { SECURITY_DEFINER_GRANTS_QUERY } from '../scripts/check-security-definer-grants.js'
+
+// ── pg_safeupdate compatibility: every DELETE/UPDATE in the latest
+//    purge_resume_evidence migration must carry a WHERE clause ───────────
+//
+// Supabase loads the pg_safeupdate extension for PostgREST (API) requests,
+// which rejects any DELETE or UPDATE with no WHERE clause, even one running
+// inside a SECURITY DEFINER function called via RPC. This is a static,
+// file-based check (no PGlite/network involved) so it catches a future
+// unqualified DELETE/UPDATE the moment it lands in a migration, independent
+// of whether the SQL-function suite below happens to exercise that branch.
+//
+// It always reads the LATEST migration that (re)defines the function —
+// never the original 20261002120000 file by name — so a future
+// `create or replace` migration is covered automatically without this test
+// needing an update.
+
+const MIGRATIONS_DIR = 'supabase/migrations'
+const DEFINES_PURGE_FUNCTION = /create\s+(or\s+replace\s+)?function\s+public\.purge_resume_evidence\s*\(/i
+
+function latestPurgeMigrationPath(): string {
+  const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort()
+  let latest: string | null = null
+  for (const file of files) {
+    const content = readFileSync(join(MIGRATIONS_DIR, file), 'utf8')
+    if (DEFINES_PURGE_FUNCTION.test(content)) latest = file
+  }
+  if (!latest) throw new Error(`no migration under ${MIGRATIONS_DIR} defines public.purge_resume_evidence`)
+  return join(MIGRATIONS_DIR, latest)
+}
+
+/** Strips `--` line comments so a comment mentioning "delete from" or
+ *  "where" never skews the statement scan below. None of this function's
+ *  SQL text uses `--` inside a string literal, so a line-oriented strip is
+ *  safe here. */
+function stripLineComments(sql: string): string {
+  return sql
+    .split('\n')
+    .map(line => {
+      const idx = line.indexOf('--')
+      return idx === -1 ? line : line.slice(0, idx)
+    })
+    .join('\n')
+}
+
+/** Extracts the `as $$ ... $$` plpgsql body of the function's (re)definition
+ *  in `sql`. Assumes the body's own text contains no literal `$$` — true of
+ *  every migration in this repo (none dollar-quote a nested string). */
+function extractPurgeFunctionBody(sql: string): string {
+  const defIdx = sql.search(DEFINES_PURGE_FUNCTION)
+  if (defIdx === -1) throw new Error('no purge_resume_evidence function definition found in the given SQL')
+  const asIdx = sql.indexOf('as $$', defIdx)
+  if (asIdx === -1) throw new Error('no `as $$` body delimiter found after the function definition')
+  const bodyStart = asIdx + 'as $$'.length
+  const bodyEnd = sql.indexOf('$$', bodyStart)
+  if (bodyEnd === -1) throw new Error('no closing `$$` found for the function body')
+  return sql.slice(bodyStart, bodyEnd)
+}
+
+/** Returns one string per DELETE/UPDATE statement in `body` that has no
+ *  WHERE clause before its terminating semicolon (pg_safeupdate's own
+ *  rejection condition). Splitting on `;` is safe here: every statement in
+ *  this function body is a single top-level SQL statement with no semicolon
+ *  nested inside a subquery or string literal. */
+function findUnguardedDeleteOrUpdate(body: string): string[] {
+  const statements = stripLineComments(body).split(';')
+  const offenders: string[] = []
+  for (const raw of statements) {
+    const statement = raw.trim()
+    if (statement === '') continue
+    const isDelete = /^delete\s+from\s+\S/i.test(statement)
+    const isUpdate = /^update\s+\S/i.test(statement)
+    if ((isDelete || isUpdate) && !/\bwhere\b/i.test(statement)) {
+      offenders.push(statement.replace(/\s+/g, ' ').slice(0, 80))
+    }
+  }
+  return offenders
+}
+
+describe('purge_resume_evidence migration: pg_safeupdate compatibility (static check)', () => {
+  it('the latest migration defining the function has a WHERE clause on every DELETE and UPDATE', () => {
+    const path = latestPurgeMigrationPath()
+    const sql = readFileSync(path, 'utf8')
+    const body = extractPurgeFunctionBody(sql)
+    const offenders = findUnguardedDeleteOrUpdate(body)
+    assert.deepEqual(
+      offenders, [],
+      `${path} has DELETE/UPDATE statement(s) with no WHERE clause (Supabase's pg_safeupdate ` +
+      `rejects these over PostgREST even inside a SECURITY DEFINER function): ${offenders.join(' | ')}`,
+    )
+  })
+
+  it('resolves to 20261002140000, not the original 20261002120000 migration', () => {
+    // Pins the "latest" selection itself: if this ever points back at the
+    // pre-fix file, the check above would be validating the wrong body.
+    assert.match(latestPurgeMigrationPath(), /20261002140000_purge_resume_evidence_where\.sql$/)
+  })
+
+  // Red-proof: confirms findUnguardedDeleteOrUpdate actually fails when a
+  // `where true` is removed, rather than passing vacuously (e.g. a regex
+  // typo that matches nothing). Mutates an in-memory copy only — the file on
+  // disk is never touched.
+  it('red-proof: removing one `where true` is detected as an unguarded statement', () => {
+    const path = latestPurgeMigrationPath()
+    const sql = readFileSync(path, 'utf8')
+    assert.match(sql, /delete from public\.application_resumes where true;/, 'fixture assumption: this exact statement must exist before mutating it')
+
+    const mutated = sql.replace(
+      'delete from public.application_resumes where true;',
+      'delete from public.application_resumes;',
+    )
+    const offenders = findUnguardedDeleteOrUpdate(extractPurgeFunctionBody(mutated))
+    assert.ok(
+      offenders.some(o => /application_resumes/i.test(o)),
+      'removing `where true` from the application_resumes delete must be caught, proving the check is not vacuous',
+    )
+  })
+
+  it('does not flag the two statements that carry a real WHERE clause, or the UPDATE', () => {
+    const path = latestPurgeMigrationPath()
+    const sql = readFileSync(path, 'utf8')
+    const body = extractPurgeFunctionBody(sql)
+    assert.match(body, /update public\.job_applications\s+set stage = 'applied'\s+where id = any/)
+    assert.match(body, /delete from public\.application_outcome_check_observations\s+where application_id in/)
+    assert.match(body, /delete from public\.job_applications\s+where stage = 'draft'/)
+  })
+})
 
 // ── parsePurgeArgs ────────────────────────────────────────────
 
@@ -514,6 +641,11 @@ const recoveryMigration = readFileSync('supabase/migrations/20260915000000_appli
   .replaceAll("encode(pg_catalog.sha256(pg_catalog.convert_to(v_payload::text, 'UTF8')), 'hex')", "repeat(md5(v_payload::text), 2)")
 const retentionMigration = readFileSync('supabase/migrations/20260919000000_application_evidence_snapshot_retention.sql', 'utf8')
 const purgeMigration = readFileSync('supabase/migrations/20261002120000_purge_resume_evidence.sql', 'utf8')
+// The pg_safeupdate fix itself: a `create or replace` applied on top of the
+// migration above. Loaded last so every test below (which calls
+// purge_resume_evidence() the normal way, oblivious to which migration last
+// defined it) exercises the fixed, WHERE-qualified body.
+const purgeWhereMigration = readFileSync('supabase/migrations/20261002140000_purge_resume_evidence_where.sql', 'utf8')
 
 const db = new PGlite()
 
@@ -646,6 +778,25 @@ before(async () => {
   await db.exec(recoveryMigration)
   await db.exec(retentionMigration)
   await db.exec(purgeMigration)
+  await db.exec(purgeWhereMigration)
+
+  // Best-effort: if PGlite's Postgres build happens to carry the
+  // pg_safeupdate extension, enable it so the suite below also proves the
+  // fixed function is accepted under the same guard Supabase enforces over
+  // PostgREST — not just that its body matches the static WHERE check
+  // above. PGlite is a WASM Postgres build with no dynamic C-extension
+  // loading, so this extension is not expected to be present; skip quietly
+  // rather than fail the suite over an environment gap unrelated to this
+  // fix.
+  try {
+    await db.exec('create extension if not exists safeupdate;')
+    await db.exec('set session safeupdate.enabled = true;')
+  } catch {
+    // Extension unavailable under PGlite — the static check in the
+    // "pg_safeupdate compatibility (static check)" describe block above is
+    // this suite's actual proof for the fix; this is only a bonus when the
+    // extension happens to be loadable.
+  }
 })
 after(() => db.close())
 

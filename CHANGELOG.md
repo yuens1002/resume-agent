@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- 2026-10-02 — fix(admin): qualify the purge function's whole-table deletes so pg_safeupdate accepts them
+  - Five unqualified DELETEs gain where true in a forward migration; the function body is otherwise identical; a static test fails on any DELETE or UPDATE in it without a WHERE
+
 - 2026-10-02 — feat(admin): retire resume evidence: a one-time purge and two retired MCP tools
   - admin:purge-resume-evidence (dry run by default; --apply --expect-drafts N) promotes drafts with a recorded reply to applied, deletes other drafts, all resume rows, confirmations, recovery imports and evidence snapshots in one SECURITY DEFINER call, then empties the resume-artifacts bucket
   - confirm_application_submission and get_application_resume_artifact are retired from the MCP server
