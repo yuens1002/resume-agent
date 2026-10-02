@@ -83,23 +83,35 @@ Snapshot pages exclude contacts, free-form application notes, and artifact
 file bytes. The endpoint is private-only because resume content and job
 descriptions can be sensitive.
 
-`docx_url` and `pdf_url` are durable private-storage paths with hashes, not
-download URLs. `get_application_resume_artifact` is the only source MCP byte
-reader: it accepts application ID, resume ID, and `docx` or `pdf`; resolves the
-stored path from that exact database row; enforces a 5 MiB limit; downloads
-through the existing private bucket; and returns base64 bytes only after a
-SHA-256 match. It never accepts an arbitrary URL or path. Missing, oversized,
-unavailable, and hash-mismatched artifacts refuse without returning bytes.
+`docx_url`, `docx_hash`, `pdf_url`, and `pdf_hash` remain in the
+`resume_versions` schema for structural continuity, but the server no longer
+retains any resume evidence to point them at. `get_application_resume_artifact`
+— the only MCP tool that ever read artifact bytes back out — was retired in
+the same change that purged every `application_resumes` row and its storage
+objects (see the README's resume-evidence purge section). That purge also
+removed every pre-existing `application_evidence_snapshots` /
+`application_evidence_snapshot_entries` row — a materialized entry copies
+resume content and these url/hash fields out of `application_resumes` at
+capture time, so it carries the same evidence independent of the source row.
+There is no remaining MCP path to fetch a resume artifact's bytes, and any
+snapshot taken after that purge — the pre-existing ones are gone, and the
+reply-matching client simply creates a fresh one on its next call — will show
+an empty `resume_versions` array for every application.
 
-An internal `confirm_application_submission` event is exposed separately from
-resume `is_submitted` as `submission_confirmation`. A `recorded` confirmation
+An internal confirmation event, historically recorded by the now-retired
+`confirm_application_submission` tool, is exposed separately from resume
+`is_submitted` as `submission_confirmation`. A `recorded` confirmation
 contains the exact selected resume ID, its server-recorded confirmation time,
 the client-attested actual-submission time when provided, a client attribution
 (`client_attested` or `unknown`), and optional client source reference. The
 recorded time is not claimed to be the external send time, and no stage or
 `applied_at` value is repurposed as one. Client attestation is not independent
 ATS evidence. An application without a captured confirmation event, including
-legacy submitted records, is `unverified` rather than guessed.
+legacy submitted records, is `unverified` rather than guessed. No new
+confirmation can be recorded going forward — the MCP tool that wrote them is
+gone and `log_application` no longer creates the draft stage a confirmation
+required — so this field only ever reflects a confirmation recorded before
+that retirement.
 
 New JD writes create a version containing its text, source URL, capture time,
 and SHA-256 content hash. A new `log_application` score-history row is written

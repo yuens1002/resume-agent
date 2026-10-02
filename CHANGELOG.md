@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- 2026-10-02 — feat(admin): retire resume evidence: a one-time purge and two retired MCP tools
+  - admin:purge-resume-evidence (dry run by default; --apply --expect-drafts N) promotes drafts with a recorded reply to applied, deletes other drafts, all resume rows, confirmations, recovery imports and evidence snapshots in one SECURITY DEFINER call, then empties the resume-artifacts bucket
+  - confirm_application_submission and get_application_resume_artifact are retired from the MCP server
+
 - 2026-10-01 — feat(mcp): log_application records submitted applications only
   - Refuses is_submitted: false (no drafts) and refuses resume_content, docx_base64 and pdf_base64, by name, before any database write or scoring call
   - The evidence-bundle write path (application_resumes insert and resume-artifacts upload) is removed from this tool; application, stage and fit-score writes are unchanged

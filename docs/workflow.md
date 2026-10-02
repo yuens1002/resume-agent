@@ -173,7 +173,7 @@ What it does per repo (artisan-roast, artisan-roast-platform, resume-agent):
 
 To run this automatically on Windows, configure a Task Scheduler job to run `scripts/sync-nightly.bat` on a nightly schedule. Run it manually after shipping a significant feature to keep `/info` current without waiting for the next scheduled run.
 
-Once connected, 19 tools are available across two groups:
+Once connected, 17 tools are available across two groups:
 
 **Open Brain — personal knowledge capture**
 
@@ -191,8 +191,7 @@ Once connected, 19 tools are available across two groups:
 | Tool | What it does |
 |---|---|
 | `log_application` | Record a new *submitted* job application with company, role, JD, and auto fit-score; refuses `is_submitted: false` (no drafts) and refuses `resume_content`/`docx_base64`/`pdf_base64` — no resume content or files are stored |
-| `confirm_application_submission` | Atomically mark one exact draft resume evidence record (from a pre-existing draft) as sent and transition that draft to `applied` |
-| `update_stage` | Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it enters submitted pipeline stages) |
+| `update_stage` | Move a confirmed application through later stages; a legacy draft (none can be created through this server) cannot enter the submitted pipeline |
 | `add_contact` | Log a contact at a company with name, role, and notes |
 | `list_applications` | List all applications with optional stage/company filters |
 | `get_application` | Full detail on one application including stage history and contacts |
@@ -200,7 +199,6 @@ Once connected, 19 tools are available across two groups:
 | `search_applications` | Semantic search across application notes and JD text |
 | `create_application_evidence_snapshot` | Create a protected, immutable source snapshot for bounded evidence review (requires the evidence-snapshot migration) |
 | `get_application_evidence_snapshot_page` | Read one bounded page from an evidence snapshot; the terminal marker applies only to that response |
-| `get_application_resume_artifact` | Read one source-owned DOCX/PDF artifact by application and resume IDs after bounded hash verification |
 | `record_application_observed_outcome` | Append one attributed inbox outcome event or correction with immutable source provenance |
 | `record_application_outcome_check` | Record one bounded inbox-coverage observation; it never asserts absence across other channels |
 

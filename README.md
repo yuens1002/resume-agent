@@ -146,7 +146,7 @@ and checkpoint acknowledgement to its consumer.
 | `public_profile` | Public API (read-only) | Skills, experience, projects, availability |
 | `thoughts` | Public-eligible read via `/query` + `/observations`; private (`metadata.private:true`) stays MCP-only | Two streams: `observation`/`idea`/`task` (the "why" — what `/observations` shows by default) and synced `reference` rows (the git/changelog ledger that grounds `/query` + `/resume`). Within the first stream, `metadata.source` separates hand-written notes (`mcp`) from machine entries (`sync`, `telemetry`) — surfaced as `authored` on `/observations` |
 | `job_applications` + `application_stages` + `job_contacts` | MCP only (private) | Job hunt pipeline — applications, stage history, contacts |
-| `application_resumes` + `application_scores` | MCP only (private) | Durable resume evidence and append-only scoring history — a generated draft remains unsubmitted until its exact resume version is confirmed with the application. `log_application` no longer creates new rows here (it records submitted applications only); only pre-existing drafts can still be confirmed via `confirm_application_submission` |
+| `application_resumes` + `application_scores` | MCP only (private) | `application_scores` stays live as append-only scoring history. `application_resumes` no longer holds resume evidence at all: `log_application` wrote resume content here before #308 restricted it to submitted applications only (no resume data), and the one remaining writer (the draft-confirmation tool, `confirm_application_submission`) is now retired too — nothing writes here anymore. The one-time resume-evidence purge (see below) removed every pre-existing row, confirmation, recovery import, and materialized evidence snapshot, along with the `resume-artifacts` storage objects they pointed to |
 
 Row Level Security in Supabase enforces the boundary. The public API has no knowledge of the private tables and no credentials to reach them.
 
@@ -498,15 +498,13 @@ The private `/mcp` endpoint exposes these tools for your personal use:
 **Job pipeline tools:**
 - `score_match` — Score a job description against your profile
 - `log_application` — Log a new *submitted* job application (auto-scores if JD provided); it refuses `is_submitted: false` (no drafts) and refuses `resume_content`/`docx_base64`/`pdf_base64` — no resume content or files are stored
-- `confirm_application_submission` — Atomically confirm that a pre-existing draft was sent with one exact stored resume evidence record; this moves it to `applied`
-- `update_stage` — Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it can enter submitted pipeline stages)
+- `update_stage` — Move a confirmed application through later stages; a legacy draft (none can be created through this server) cannot enter the submitted pipeline
 - `add_contact` — Add a recruiter or contact to an application
 - `list_applications` — List your applications with filters
 - `check_applications` — Minimal-field, machine-consumption lookup (no notes/JD/scores): an existence check against a known company list, or a roster fetch by stage/day-window for a caller doing its own matching locally. Not for browsing — use `list_applications` for that instead
 - `get_job_pipeline_feed` — Recorded totals, changes since a cursor, and due work ([contract](docs/job-pipeline-feed.md); requires feed migration)
 - `create_application_evidence_snapshot` — Materialize a protected, immutable source snapshot for bounded evidence review ([contract](docs/application-evidence-snapshot.md); requires evidence-snapshot migration)
 - `get_application_evidence_snapshot_page` — Read one bounded evidence page from a snapshot; its terminal marker applies only to that response ([contract](docs/application-evidence-snapshot.md))
-- `get_application_resume_artifact` — Read one bounded, hash-verified DOCX/PDF artifact by application and resume IDs ([contract](docs/application-evidence-snapshot.md))
 - `record_application_observed_outcome` — Append one attributed inbox outcome event or correction with immutable source provenance ([contract](docs/application-evidence-snapshot.md))
 - `record_application_outcome_check` — Record one bounded inbox-coverage observation; it never asserts absence across other channels ([contract](docs/application-evidence-snapshot.md))
 - `get_application` — Get full details of an application (contacts, stage history, job description, submitted resume content, and score history)
@@ -550,6 +548,30 @@ Example queries:
 - Postgres Row Level Security enforces public/private table boundary
 - Every callable `security definer` Postgres function (`public` schema, ordinary function not procedure, return type other than `trigger`/`event_trigger` — a trigger function can't be invoked via PostgREST or a plain SQL call regardless of its grants, so it's out of scope for this rule) must revoke `EXECUTE` from `public`/`anon`/`authenticated` and grant it only to `service_role`, in the same migration that creates or replaces it — `npm run check:rpc-grants` audits every function matching that scope directly against `pg_proc` and runs automatically after every `npm run db:push` (see #279's fix, which found and closed one that had been missing this for months)
 - No personal data in this repo — data lives in your Supabase instance
+
+---
+
+## Resume-evidence purge
+
+A one-time administrative cleanup for data that predates `log_application` recording submitted applications only (#308): existing draft applications and every `application_resumes` row — including already-submitted ones — still held resume content and file references the server no longer writes. `application_submission_confirmations` and `application_resume_recovery_imports` are resume evidence too — and so is every materialized evidence snapshot (`application_evidence_snapshots` / `application_evidence_snapshot_entries`): each entry copies resume content, file urls/hashes, and confirmation data out of the tables above at the time it was taken, independent of whether the source rows still exist. `scripts/purge-resume-evidence.ts` removes all of it. The reply-matching MCP client that reads snapshots simply creates a fresh one (with nothing left to copy) on its next call — there's nothing to reconcile.
+
+**This is irreversible.** Before running it with `--apply`, copy any sent resume you want to keep somewhere else — once removed, the stored content and the `resume-artifacts` storage objects it pointed to are gone for good.
+
+Not every draft is abandoned scaffolding, though: a draft with at least one recorded `application_observed_outcomes` row (a reply was actually observed against it) is **promoted** to `applied` instead of deleted — deleting it would destroy the one piece of independent evidence it was ever sent. Its observed outcomes and outcome-check history stay exactly as they are; one `application_stages` row is appended noting the promotion. Every other draft is deleted, along with the `application_outcome_check_observations` rows attached to it (they only record whether a reply had arrived by some check time, not that one did, so they carry no promotion-worthy evidence on their own).
+
+1. Dry run first — this is the default and changes nothing:
+   ```bash
+   npm run admin:purge-resume-evidence
+   ```
+   Prints: how many drafts will be promoted vs. deleted; how many `application_outcome_check_observations` rows (attached only to drafts being deleted) will be removed; how many `application_submission_confirmations` and `application_resume_recovery_imports` rows will be removed; how many `application_resumes` rows will be removed; how many evidence-snapshot rows (`application_evidence_snapshots` and `application_evidence_snapshot_entries`) will be removed; how many `application_scores.resume_id` values will be nulled (the score rows themselves always stay); and the live `resume-artifacts` storage object count (paginated past the storage client's own 100-per-page default, at every folder level, so a bucket with more objects than one page is counted in full). Nothing else blocks the run except a defensive check that should never trip in practice — see the migration's own comments for why.
+
+2. Execute with the exact "drafts to delete" count the dry run just printed — **not** the total draft count, which also includes anything about to be promoted:
+   ```bash
+   npm run admin:purge-resume-evidence -- --apply --expect-drafts <n>
+   ```
+   `--expect-drafts` must equal that drafts-to-delete count at apply time or the database refuses the whole run — the safety net against deleting more than the operator just saw. The `service_role`-only `purge_resume_evidence` database function performs every promotion and row delete atomically in one call (or refuses all of it); the script then removes every object in the `resume-artifacts` storage bucket and reports any it failed to remove.
+
+Applications themselves (applied, promoted, and later stages), their stage history, scores, outcomes, and follow-ups are never touched by a delete — this only ever deletes non-promoted draft `job_applications` rows and resume evidence (`application_resumes`, `application_submission_confirmations`, `application_resume_recovery_imports`, every materialized evidence snapshot, and the outcome-check rows attached to a deleted draft). After a successful run, no resume content, resume file reference, or materialized copy of either remains anywhere in this database — until the next time something legitimately creates one.
 
 ---
 

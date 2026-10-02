@@ -10,9 +10,6 @@ import {
   getApplicationEvidenceSnapshotPage,
 } from '../src/lib/application-evidence-snapshot.js'
 import { registerApplicationEvidenceSnapshotTools } from '../src/lib/application-evidence-snapshot-tool.js'
-import { MAX_ARTIFACT_BYTES, getApplicationResumeArtifact } from '../src/lib/application-resume-artifact.js'
-import { registerApplicationResumeArtifactTool } from '../src/lib/application-resume-artifact-tool.js'
-import { createHash } from 'node:crypto'
 
 const baseline = readFileSync('supabase/migrations/20260329000000_job_hunt_pipeline.sql', 'utf8')
   .replace(/^create extension if not exists pg_trgm;$/m, '')
@@ -423,10 +420,6 @@ describe('application evidence snapshot adapter and MCP tools', () => {
   it('registers a protected creator and a read-only page tool', async () => {
     const server = new McpServer({ name: 'test', version: '1' })
     registerApplicationEvidenceSnapshotTools(server, async () => ({ data: null, error: { code: 'P0001' } }))
-    registerApplicationResumeArtifactTool(server, {
-      readResume: async () => ({ data: null, error: null }),
-      download: async () => ({ data: null, error: null }),
-    })
     const client = new Client({ name: 'test-client', version: '1' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await server.connect(serverTransport)
@@ -435,57 +428,11 @@ describe('application evidence snapshot adapter and MCP tools', () => {
       const tools = await client.listTools()
       const create = tools.tools.find(tool => tool.name === 'create_application_evidence_snapshot')!
       const page = tools.tools.find(tool => tool.name === 'get_application_evidence_snapshot_page')!
-      const artifact = tools.tools.find(tool => tool.name === 'get_application_resume_artifact')!
       assert.equal(create.annotations?.readOnlyHint, false)
       assert.equal(page.annotations?.readOnlyHint, true)
-      assert.equal(artifact.annotations?.readOnlyHint, true)
     } finally {
       await client.close()
       await server.close()
     }
-  })
-})
-
-describe('application resume artifact reader', () => {
-  const applicationId = '11111111-1111-4111-8111-111111111111'
-  const resumeId = '22222222-2222-4222-8222-222222222222'
-  const bytes = Buffer.from('synthetic artifact bytes')
-  const sha256 = createHash('sha256').update(bytes).digest('hex')
-  const source = (overrides: Partial<{
-    row: { docx_url: string | null; docx_hash: string | null; pdf_url: string | null; pdf_hash: string | null } | null
-    stream: ReadableStream<Uint8Array> | null
-    readError: unknown | null
-    downloadError: unknown | null
-  }> = {}) => ({
-    readResume: async () => ({
-      data: overrides.row === undefined ? { docx_url: 'owned/doc.docx', docx_hash: sha256, pdf_url: null, pdf_hash: null } : overrides.row,
-      error: overrides.readError ?? null,
-    }),
-    download: async () => ({ data: overrides.stream === undefined ? new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }) : overrides.stream, error: overrides.downloadError ?? null }),
-  })
-
-  it('resolves only the stored application/resume artifact and verifies returned bytes', async () => {
-    const result = await getApplicationResumeArtifact({ application_id: applicationId, resume_id: resumeId, format: 'docx' }, source())
-    assert.equal(result.status, 'ok')
-    if (result.status !== 'ok') return
-    assert.equal(result.artifact.bytes_base64, bytes.toString('base64'))
-    assert.equal(result.artifact.sha256, sha256)
-    assert.equal(result.artifact.mime_type, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-  })
-
-  it('refuses a missing/wrong application-resume pair, oversized or unavailable bytes, and a hash mismatch', async () => {
-    const request = { application_id: applicationId, resume_id: resumeId, format: 'docx' as const }
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ row: null })), { status: 'refused', code: 'artifact_not_found' })
-    let cancelled = false
-    const oversized = new ReadableStream<Uint8Array>({
-      start(controller) { controller.enqueue(new Uint8Array(MAX_ARTIFACT_BYTES + 1)) },
-      cancel() { cancelled = true },
-    })
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: oversized })), { status: 'refused', code: 'artifact_too_large' })
-    assert.equal(cancelled, true)
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ downloadError: new Error('synthetic') })), { status: 'refused', code: 'artifact_unavailable' })
-    const broken = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new Error('synthetic stream failure')) } })
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: broken })), { status: 'refused', code: 'artifact_unavailable' })
-    assert.deepEqual(await getApplicationResumeArtifact(request, source({ stream: new ReadableStream({ start(controller) { controller.enqueue(Buffer.from('different bytes')); controller.close() } }) })), { status: 'refused', code: 'artifact_hash_mismatch' })
   })
 })

@@ -18,7 +18,6 @@ import { mergePublication } from '../lib/publications.js'
 import { registerJobPipelineFeed } from '../lib/job-pipeline-feed-tool.js'
 import { registerApplicationEvidenceSnapshotTools } from '../lib/application-evidence-snapshot-tool.js'
 import { APPLICATION_STAGES } from '../lib/application-evidence-snapshot.js'
-import { registerApplicationResumeArtifactTool } from '../lib/application-resume-artifact-tool.js'
 import type { Project, Publication } from '../types.js'
 
 // upsert_publication input schema — hoisted to module scope (unlike
@@ -73,29 +72,6 @@ function buildServer(): McpServer {
   const server = new McpServer({ name: 'open-brain', version: '1.0.0' })
   registerJobPipelineFeed(server, (name, args) => supabase.rpc(name, args))
   registerApplicationEvidenceSnapshotTools(server, (name, args) => supabase.rpc(name, args))
-  registerApplicationResumeArtifactTool(server, {
-    readResume: async (applicationId, resumeId) => {
-      const { data, error } = await supabase
-        .from('application_resumes')
-        .select('docx_url, docx_hash, pdf_url, pdf_hash')
-        .eq('application_id', applicationId)
-        .eq('id', resumeId)
-        .maybeSingle()
-      return { data, error }
-    },
-    download: async path => {
-      const { data, error } = await supabase.storage.from('resume-artifacts').createSignedUrl(path, 60)
-      if (error || !data?.signedUrl) return { data: null, error: error ?? new Error('missing signed artifact URL') }
-      try {
-        const response = await fetch(data.signedUrl)
-        return response.ok && response.body
-          ? { data: response.body, error: null }
-          : { data: null, error: new Error(`artifact download failed with ${response.status}`) }
-      } catch (downloadError) {
-        return { data: null, error: downloadError }
-      }
-    },
-  })
 
   // ── Thoughts Tools ────────────────────────────────────────
 
@@ -879,65 +855,10 @@ function buildServer(): McpServer {
   )
 
   server.registerTool(
-    'confirm_application_submission',
-    {
-      title: 'Confirm Application Submission',
-      description: 'Atomically confirm that a draft application was sent using one exact, previously unsubmitted resume evidence record. This is the only way to move a draft to applied.',
-      inputSchema: {
-        application_id: z.string().uuid().describe('The draft application ID'),
-        resume_id: z.string().uuid().describe('The exact unsubmitted application_resumes evidence ID that was sent'),
-        note: z.string().optional().describe('Optional note about the confirmed submission'),
-        actual_submission_occurred_at: z.string().datetime({ offset: true }).optional().describe('Optional time the client says the submission occurred. This is distinct from server recording time and is not independently verified.'),
-        confirmation_source: z.enum(['client_attested', 'unknown']).optional().describe('Attribution for this internal confirmation. Defaults to unknown; client_attested is not independent ATS evidence.'),
-        source_ref: z.string().max(512).optional().describe('Optional client-provided reference for the attestation; never interpreted as an arbitrary storage path.'),
-        submitted_job_description_version_id: z.string().uuid().optional().describe('Optional JD version actually used for the sent application; must belong to this application.'),
-        submitted_artifact_format: z.enum(['docx', 'pdf']).optional().describe('Optional exact artifact format the client attests was sent.'),
-        submitted_artifact_hash: z.string().regex(/^[a-f0-9]{64}$/).optional().describe('Optional SHA-256 of the exact artifact the client attests was sent; validated against the selected resume.'),
-      },
-    },
-    async ({ application_id, resume_id, note, actual_submission_occurred_at, confirmation_source, source_ref, submitted_job_description_version_id, submitted_artifact_format, submitted_artifact_hash }) => {
-      try {
-        const { data, error } = await supabase.rpc('confirm_application_submission', {
-          p_application_id: application_id,
-          p_resume_id: resume_id,
-          p_note: note ?? null,
-          p_actual_submission_occurred_at: actual_submission_occurred_at ?? null,
-          p_confirmation_source: confirmation_source ?? 'unknown',
-          p_source_ref: source_ref ?? null,
-          p_submitted_job_description_version_id: submitted_job_description_version_id ?? null,
-          p_submitted_artifact_format: submitted_artifact_format ?? null,
-          p_submitted_artifact_hash: submitted_artifact_hash ?? null,
-        })
-
-        if (error || !data) {
-          return { content: [{ type: 'text' as const, text: `Failed to confirm application submission: ${error?.message ?? 'No confirmation returned'}` }], isError: true }
-        }
-
-        const confirmed = data as {
-          application_id: string
-          resume_id: string
-          company: string
-          role: string
-          previous_stage: string
-          stage: string
-        }
-        return {
-          content: [{
-            type: 'text' as const,
-            text: `${confirmed.company} — ${confirmed.role}: ${confirmed.previous_stage} → ${confirmed.stage}\nConfirmed resume evidence: ${confirmed.resume_id}`,
-          }],
-        }
-      } catch (err: unknown) {
-        return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true }
-      }
-    }
-  )
-
-  server.registerTool(
     'update_stage',
     {
       title: 'Update Application Stage',
-      description: 'Move a job application to a new stage and record it in the history. To move a draft to applied, use confirm_application_submission with the exact submitted resume evidence.',
+      description: 'Move a job application to a new stage and record it in the history. Drafts are not created through this server and cannot enter the submitted pipeline.',
       inputSchema: {
         application_id: z.string().uuid().describe('The application ID'),
         stage: z.enum(STAGES).describe('New stage'),
@@ -969,7 +890,7 @@ function buildServer(): McpServer {
           return {
             content: [{
               type: 'text' as const,
-              text: 'Only confirm_application_submission can enter the submitted pipeline from a draft because it requires the exact resume evidence that was sent.',
+              text: 'This application is a legacy draft with no exact submitted resume evidence recorded against it, so it cannot enter the submitted pipeline. Remove it with the admin resume-evidence purge script, or create a new application if the role was actually pursued.',
             }],
             isError: true,
           }
