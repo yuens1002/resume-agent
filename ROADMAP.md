@@ -33,6 +33,7 @@ A running log of what's shipped and what's in flight. See the [README](README.md
 | v0.4.42 | Docs: `resume-agent-web` companion linked; architecture diagram updated; roadmap refreshed | [#136](https://github.com/yuens1002/resume-agent/pull/136) |
 | v0.4.134 | Résumé output aligned with r/EngineeringResumes conventions: one-page content budget, categorized skills, bullet grammar, pinned owner-written roles, on-demand `eval:resume` with an LLM STAR/XYZ judge | [#298](https://github.com/yuens1002/resume-agent/issues/298) |
 | v0.4.137 | One-time admin purge (`admin:purge-resume-evidence`) retires pre-#308 resume evidence — drafts with a recorded reply promoted, other drafts/resumes/confirmations/recovery imports/evidence snapshots deleted, `resume-artifacts` emptied; `confirm_application_submission` and `get_application_resume_artifact` MCP tools retired | [#309](https://github.com/yuens1002/resume-agent/pull/309) |
+| v0.4.138 | Purge function deletes qualified with `where true` so Supabase's pg_safeupdate accepts them through the RPC | [#310](https://github.com/yuens1002/resume-agent/pull/310) |
 
 ---
 
