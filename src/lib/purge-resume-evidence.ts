@@ -92,6 +92,62 @@ export function isPurgeBlocked(report: PurgeReport): boolean {
   return report.blocking.draft_observed_outcomes_remaining > 0
 }
 
+// ── --apply gate ──────────────────────────────────────────────
+//
+// The dry run above reports a storage listing's errors but never blocks on
+// them (the caller's preview is read-only anyway). --apply is different: it
+// drives an irreversible DB purge of application_resumes/resume_versions
+// rows, so an incomplete storage listing — one that couldn't fully enumerate
+// resume-artifacts — must refuse before that DB call, not after. Applying
+// against an incomplete inventory would leave orphaned storage objects with
+// no database row left to find them by, with no way to tell afterward that
+// anything was missed.
+//
+// runApplyDecision takes the already-fetched preview report and storage
+// list errors, runs every refusal check the apply path requires (storage
+// preflight, --expect-drafts match, the defensive blocking check), and only
+// then calls the injected applyRpc — exported with that injection so a test
+// can stub a storage list error and assert applyRpc is never invoked.
+
+export type ApplyRpcResult = { data: unknown; error: { message?: string } | null }
+
+export type ApplyDecision =
+  | { status: 'refused'; reason: string }
+  | { status: 'applied'; report: PurgeReport }
+
+export async function runApplyDecision(
+  preview: PurgeReport,
+  expectedDrafts: number,
+  storageListErrors: string[],
+  applyRpc: (expectedDrafts: number) => PromiseLike<ApplyRpcResult>,
+): Promise<ApplyDecision> {
+  if (storageListErrors.length > 0) {
+    return {
+      status: 'refused',
+      reason: `Refused: storage listing reported ${storageListErrors.length} error(s) above — the artifact inventory is incomplete. Resolve them and re-run before applying.`,
+    }
+  }
+  if (expectedDrafts !== preview.delete_count) {
+    return {
+      status: 'refused',
+      reason: `Refused: --expect-drafts ${expectedDrafts} does not match the current "drafts to delete" count ${preview.delete_count} (${preview.promote_count} draft(s) will be promoted, not deleted). Re-run the dry run and pass the current count.`,
+    }
+  }
+  if (isPurgeBlocked(preview)) {
+    return { status: 'refused', reason: 'Refused: resolve the blocking row(s) reported above before applying.' }
+  }
+
+  const { data, error } = await applyRpc(expectedDrafts)
+  if (error || !data) {
+    return { status: 'refused', reason: `Purge refused by the database: ${error?.message ?? 'no data returned'}` }
+  }
+  const applied = PurgeReportSchema.safeParse(data)
+  if (!applied.success) {
+    return { status: 'refused', reason: 'Unexpected response shape from purge_resume_evidence (apply).' }
+  }
+  return { status: 'applied', report: applied.data }
+}
+
 export function formatPurgeReport(report: PurgeReport): string {
   const verbed = report.applied ? 'Removed / promoted' : 'Would remove / promote'
   const lines = [

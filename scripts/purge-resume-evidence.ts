@@ -19,9 +19,9 @@ import {
   parsePurgeArgs,
   PurgeReportSchema,
   formatPurgeReport,
-  isPurgeBlocked,
   countStorageBucketObjects,
   purgeStorageBucket,
+  runApplyDecision,
 } from '../src/lib/purge-resume-evidence.js'
 
 const RESUME_ARTIFACTS_BUCKET = 'resume-artifacts'
@@ -54,29 +54,17 @@ if (parsedArgs.args.mode === 'dry_run') {
   process.exit(0)
 }
 
-if (parsedArgs.args.expectedDrafts !== preview.data.delete_count) {
-  console.error(`\nRefused: --expect-drafts ${parsedArgs.args.expectedDrafts} does not match the current "drafts to delete" count ${preview.data.delete_count} (${preview.data.promote_count} draft(s) will be promoted, not deleted). Re-run the dry run and pass the current count.`)
+const decision = await runApplyDecision(
+  preview.data,
+  parsedArgs.args.expectedDrafts,
+  storageCount.listErrors,
+  expectedDrafts => supabase.rpc('purge_resume_evidence', { p_apply: true, p_expected_drafts: expectedDrafts }),
+)
+if (decision.status === 'refused') {
+  console.error(`\n${decision.reason}`)
   process.exit(1)
 }
-if (isPurgeBlocked(preview.data)) {
-  console.error('\nRefused: resolve the blocking row(s) reported above before applying.')
-  process.exit(1)
-}
-
-const { data: applyData, error: applyError } = await supabase.rpc('purge_resume_evidence', {
-  p_apply: true,
-  p_expected_drafts: parsedArgs.args.expectedDrafts,
-})
-if (applyError || !applyData) {
-  console.error(`\nPurge refused by the database: ${applyError?.message ?? 'no data returned'}`)
-  process.exit(1)
-}
-const applied = PurgeReportSchema.safeParse(applyData)
-if (!applied.success) {
-  console.error('\nUnexpected response shape from purge_resume_evidence (apply).')
-  process.exit(1)
-}
-console.log('\n' + formatPurgeReport(applied.data))
+console.log('\n' + formatPurgeReport(decision.report))
 
 console.log('\nRemoving storage objects in resume-artifacts…')
 const storageResult = await purgeStorageBucket(supabase.storage.from('resume-artifacts'))

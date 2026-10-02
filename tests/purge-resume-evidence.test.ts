@@ -20,6 +20,7 @@ import {
   isPurgeBlocked,
   purgeStorageBucket,
   countStorageBucketObjects,
+  runApplyDecision,
   type PurgeReport,
   type StorageEntry,
 } from '../src/lib/purge-resume-evidence.js'
@@ -114,6 +115,89 @@ describe('formatPurgeReport / isPurgeBlocked', () => {
     const blocked = sampleReport({ blocking: { draft_observed_outcomes_remaining: 1 } })
     assert.equal(isPurgeBlocked(blocked), true)
     assert.match(formatPurgeReport(blocked), /BLOCKED[\s\S]*remaining on a deleted-bound draft: 1/)
+  })
+})
+
+// ── runApplyDecision ─────────────────────────────────────────
+
+describe('runApplyDecision', () => {
+  it('refuses --apply when the storage listing reported an error, WITHOUT calling the DB apply function', async () => {
+    let applyRpcCalls = 0
+    const applyRpc = async () => {
+      applyRpcCalls += 1
+      return { data: sampleReport({ mode: 'apply', applied: true }), error: null }
+    }
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, ['resume-artifacts: synthetic list failure'], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /storage listing reported 1 error\(s\)/)
+    assert.equal(applyRpcCalls, 0, 'the DB apply function must never be called when the storage listing reported an error')
+  })
+
+  it('refuses on every storage list error, not just the first', async () => {
+    let applyRpcCalls = 0
+    const applyRpc = async () => { applyRpcCalls += 1; return { data: null, error: null } }
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, ['a: failed', 'a/b: failed'], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /storage listing reported 2 error\(s\)/)
+    assert.equal(applyRpcCalls, 0)
+  })
+
+  it('refuses on an --expect-drafts mismatch before calling the DB apply function', async () => {
+    let applyRpcCalls = 0
+    const applyRpc = async () => { applyRpcCalls += 1; return { data: null, error: null } }
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 4, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    assert.equal(applyRpcCalls, 0)
+  })
+
+  it('refuses when the defensive blocking check is positive, before calling the DB apply function', async () => {
+    let applyRpcCalls = 0
+    const applyRpc = async () => { applyRpcCalls += 1; return { data: null, error: null } }
+    const preview = sampleReport({ delete_count: 5, blocking: { draft_observed_outcomes_remaining: 1 } })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    assert.equal(applyRpcCalls, 0)
+  })
+
+  it('calls the DB apply function and applies once the storage listing is clean and every other check passes', async () => {
+    let applyRpcCalls = 0
+    const appliedReport = sampleReport({ mode: 'apply', applied: true, delete_count: 5 })
+    const applyRpc = async (expectedDrafts: number) => {
+      applyRpcCalls += 1
+      assert.equal(expectedDrafts, 5)
+      return { data: appliedReport, error: null }
+    }
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'applied')
+    if (decision.status === 'applied') assert.deepEqual(decision.report, appliedReport)
+    assert.equal(applyRpcCalls, 1)
+  })
+
+  it('surfaces a database refusal from the apply RPC', async () => {
+    const applyRpc = async () => ({ data: null, error: { message: 'boom' } })
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /Purge refused by the database: boom/)
+  })
+
+  it('refuses on an unexpected apply RPC response shape', async () => {
+    const applyRpc = async () => ({ data: { not: 'a report' }, error: null })
+    const preview = sampleReport({ delete_count: 5 })
+    const decision = await runApplyDecision(preview, 5, [], applyRpc)
+
+    assert.equal(decision.status, 'refused')
+    if (decision.status === 'refused') assert.match(decision.reason, /Unexpected response shape/)
   })
 })
 
