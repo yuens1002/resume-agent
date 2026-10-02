@@ -29,7 +29,7 @@ const { default: privateRoute } = await import('../src/routes/mcp.js')
 
 const FAKE_APPLICATION_ID = '11111111-1111-1111-1111-111111111111'
 
-type FetchCall = { url: string; method: string }
+type FetchCall = { url: string; method: string; body?: unknown }
 
 /** Records every call; fails loudly (not silently) if one is ever made. */
 function noCallsExpectedFetch(calls: FetchCall[]): typeof fetch {
@@ -45,7 +45,9 @@ function submittedOnlyFetch(calls: FetchCall[]): typeof fetch {
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url
     const method = init?.method ?? 'GET'
-    calls.push({ url, method })
+    const rawBody = init?.body
+    const body = typeof rawBody === 'string' ? JSON.parse(rawBody) : undefined
+    calls.push({ url, method, body })
     if (url.includes('/rest/v1/job_applications') && method === 'POST') {
       return new Response(JSON.stringify({ id: FAKE_APPLICATION_ID }), { status: 201, headers: { 'Content-Type': 'application/json' } })
     }
@@ -82,7 +84,7 @@ describe('log_application — submitted-only refusals', () => {
     globalThis.fetch = noCallsExpectedFetch(calls)
     try {
       const { isError, text } = await callLogApplication({
-        company: 'Acme', role: 'Engineer', is_submitted: false,
+        company: 'Acme', role: 'Engineer', is_submitted: false, job_description: 'Synthetic JD text for testing.',
       })
       assert.equal(isError, true)
       assert.match(text, /draft/i)
@@ -100,7 +102,7 @@ describe('log_application — submitted-only refusals', () => {
       try {
         const value = field === 'resume_content' ? { summary: 'tailored' } : 'ZmFrZSBieXRlcw=='
         const { isError, text } = await callLogApplication({
-          company: 'Acme', role: 'Engineer', [field]: value,
+          company: 'Acme', role: 'Engineer', job_description: 'Synthetic JD text for testing.', [field]: value,
         })
         assert.equal(isError, true)
         assert.match(text, /resume/i)
@@ -145,6 +147,11 @@ describe('log_application — submitted-only refusals', () => {
       assert.ok(tables.some(url => url.includes('/rest/v1/application_stages')), 'expected an application_stages insert')
       assert.ok(!tables.some(url => url.includes('/rest/v1/application_resumes')), 'must not insert into application_resumes')
       assert.ok(!tables.some(url => url.includes('/storage/v1/object')), 'must not upload to storage')
+
+      const jobApplicationsCall = calls.find(c => c.url.includes('/rest/v1/job_applications'))
+      const applicationStagesCall = calls.find(c => c.url.includes('/rest/v1/application_stages'))
+      assert.equal((jobApplicationsCall?.body as { stage?: string } | undefined)?.stage, 'applied', 'job_applications insert must carry stage applied')
+      assert.equal((applicationStagesCall?.body as { stage?: string } | undefined)?.stage, 'applied', 'application_stages insert must carry stage applied')
     } finally {
       globalThis.fetch = previousFetch
     }

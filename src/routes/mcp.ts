@@ -957,7 +957,7 @@ function buildServer(): McpServer {
           return {
             content: [{
               type: 'text' as const,
-              text: 'Draft is a creation-only stage. Create a new draft with log_application instead of moving an existing application back to draft.',
+              text: 'Draft is not a stage an application can be moved to. Drafts cannot be created through this server.',
             }],
             isError: true,
           }
