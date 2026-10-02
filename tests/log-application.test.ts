@@ -114,20 +114,41 @@ describe('log_application — submitted-only refusals', () => {
     })
   }
 
-  it('an empty resume_content object is not refused (present-but-empty is treated as omitted)', async () => {
+  it('an empty resume_content object is refused like any other present value, with zero Supabase calls', async () => {
     const calls: FetchCall[] = []
     const previousFetch = globalThis.fetch
-    globalThis.fetch = submittedOnlyFetch(calls)
+    globalThis.fetch = noCallsExpectedFetch(calls)
     try {
       const { isError, text } = await callLogApplication({
-        company: 'Acme', role: 'Engineer', resume_content: {},
+        company: 'Acme', role: 'Engineer', job_description: 'Synthetic JD text for testing.', resume_content: {},
       })
-      assert.equal(isError, false, text)
-      assert.doesNotMatch(text, /refused/i)
+      assert.equal(isError, true)
+      assert.match(text, /resume/i)
+      assert.match(text, /resume_content/)
+      assert.equal(calls.length, 0, `expected zero Supabase calls, got: ${JSON.stringify(calls)}`)
     } finally {
       globalThis.fetch = previousFetch
     }
   })
+
+  for (const field of ['docx_base64', 'pdf_base64'] as const) {
+    it(`an empty-string ${field} is refused like any other present value, with zero Supabase calls`, async () => {
+      const calls: FetchCall[] = []
+      const previousFetch = globalThis.fetch
+      globalThis.fetch = noCallsExpectedFetch(calls)
+      try {
+        const { isError, text } = await callLogApplication({
+          company: 'Acme', role: 'Engineer', job_description: 'Synthetic JD text for testing.', [field]: '',
+        })
+        assert.equal(isError, true)
+        assert.match(text, /resume/i)
+        assert.match(text, new RegExp(field))
+        assert.equal(calls.length, 0, `expected zero Supabase calls, got: ${JSON.stringify(calls)}`)
+      } finally {
+        globalThis.fetch = previousFetch
+      }
+    })
+  }
 
   it('a plain submitted call still inserts the application (stage applied) and the stage row, with no resume evidence write', async () => {
     const calls: FetchCall[] = []

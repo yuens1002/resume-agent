@@ -741,9 +741,9 @@ function buildServer(): McpServer {
         url: z.string().optional().describe('Job posting URL'),
         applied_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Date applied if not today, e.g. 2026-03-25'),
         notes: z.string().optional().describe('Any initial notes about the role or company'),
-        resume_content: z.record(z.unknown()).optional().describe('Refused. This tool does not store resume content — omit this field. A non-empty value is rejected with an error.'),
-        docx_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field. A non-empty value is rejected with an error.'),
-        pdf_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field. A non-empty value is rejected with an error.'),
+        resume_content: z.record(z.unknown()).optional().describe('Refused. This tool does not store resume content — omit this field entirely. Any value, including an empty object, is rejected with an error.'),
+        docx_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field entirely. Any value, including an empty string, is rejected with an error.'),
+        pdf_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field entirely. Any value, including an empty string, is rejected with an error.'),
         is_submitted: z.boolean().optional().describe('Must be true or omitted. This tool records submitted applications only — passing false (a draft) is refused with an error.'),
       },
     },
@@ -763,9 +763,9 @@ function buildServer(): McpServer {
         }
 
         const refusedResumeFields: string[] = []
-        if (resume_content !== undefined && Object.keys(resume_content).length > 0) refusedResumeFields.push('resume_content')
-        if (docx_base64) refusedResumeFields.push('docx_base64')
-        if (pdf_base64) refusedResumeFields.push('pdf_base64')
+        if (resume_content !== undefined) refusedResumeFields.push('resume_content')
+        if (docx_base64 !== undefined) refusedResumeFields.push('docx_base64')
+        if (pdf_base64 !== undefined) refusedResumeFields.push('pdf_base64')
         if (refusedResumeFields.length > 0) {
           return {
             content: [{
