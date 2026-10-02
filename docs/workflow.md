@@ -190,8 +190,8 @@ Once connected, 19 tools are available across two groups:
 
 | Tool | What it does |
 |---|---|
-| `log_application` | Record a new job application with company, role, JD, and auto fit-score; `is_submitted: false` requires tailored resume evidence for a confirmable draft |
-| `confirm_application_submission` | Atomically mark one exact draft resume evidence record as sent and transition that draft to `applied` |
+| `log_application` | Record a new *submitted* job application with company, role, JD, and auto fit-score; refuses `is_submitted: false` (no drafts) and refuses `resume_content`/`docx_base64`/`pdf_base64` — no resume content or files are stored |
+| `confirm_application_submission` | Atomically mark one exact draft resume evidence record (from a pre-existing draft) as sent and transition that draft to `applied` |
 | `update_stage` | Move a confirmed application through later stages (a draft must use `confirm_application_submission` before it enters submitted pipeline stages) |
 | `add_contact` | Log a contact at a company with name, role, and notes |
 | `list_applications` | List all applications with optional stage/company filters |

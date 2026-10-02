@@ -1,5 +1,5 @@
 import '../lib/env.js'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPTransport } from '@hono/mcp'
 import { Hono, type Context } from 'hono'
@@ -732,7 +732,7 @@ function buildServer(): McpServer {
     {
       title: 'Log Job Application',
       description:
-        'Log a new job application. If a job description is provided, automatically scores fit against the candidate profile. Pass is_submitted: false to save a tailored draft; use confirm_application_submission with the exact resume evidence after it is actually sent.',
+        'Log a new submitted job application. If a job description is provided, automatically scores fit against the candidate profile. This tool records submitted applications only: it refuses is_submitted: false (no drafts) and refuses resume_content, docx_base64, or pdf_base64 when present — no resume content or files are stored.',
       inputSchema: {
         company: z.string().describe('Company name'),
         role: z.string().describe('Job title / role name'),
@@ -741,18 +741,37 @@ function buildServer(): McpServer {
         url: z.string().optional().describe('Job posting URL'),
         applied_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Date applied if not today, e.g. 2026-03-25'),
         notes: z.string().optional().describe('Any initial notes about the role or company'),
-        resume_content: z.record(z.unknown()).optional().describe('The exact structured tailored-resume object that was generated for this submission — stored verbatim as the durable evidence record'),
-        docx_base64: z.string().optional().describe('The submitted .docx file, base64-encoded — stored durably with a content hash'),
-        pdf_base64: z.string().optional().describe('The submitted .pdf file, base64-encoded — stored durably with a content hash'),
-        is_submitted: z.boolean().optional().describe('Whether this resume version was actually sent to the employer, as opposed to tailored/staged but not yet confirmed submitted. Defaults to true — pass false for a call that logs ahead of confirmed submission (e.g. an automated tailoring pass a human hasn\'t applied with yet).'),
+        resume_content: z.record(z.unknown()).optional().describe('Refused. This tool does not store resume content — omit this field entirely. Any value, including an empty object, is rejected with an error.'),
+        docx_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field entirely. Any value, including an empty string, is rejected with an error.'),
+        pdf_base64: z.string().optional().describe('Refused. This tool does not store submitted files — omit this field entirely. Any value, including an empty string, is rejected with an error.'),
+        is_submitted: z.boolean().optional().describe('Must be true or omitted. This tool records submitted applications only — passing false (a draft) is refused with an error.'),
       },
     },
     async ({ company, role, job_description, source, url, applied_at, notes, resume_content, docx_base64, pdf_base64, is_submitted }) => {
       try {
-        const hasDraftEvidence = (resume_content !== undefined && Object.keys(resume_content).length > 0) || Boolean(docx_base64 || pdf_base64)
-        if (is_submitted === false && !hasDraftEvidence) {
+        // Refuse before any database write or scoring call: this tool
+        // records submitted applications only, never drafts and never
+        // resume content/files.
+        if (is_submitted === false) {
           return {
-            content: [{ type: 'text' as const, text: 'A draft application requires tailored resume_content, docx_base64, or pdf_base64 so the exact submission can be confirmed later.' }],
+            content: [{
+              type: 'text' as const,
+              text: 'Drafts are not accepted: this tool records submitted applications only. Pass is_submitted: true or omit it.',
+            }],
+            isError: true,
+          }
+        }
+
+        const refusedResumeFields: string[] = []
+        if (resume_content !== undefined) refusedResumeFields.push('resume_content')
+        if (docx_base64 !== undefined) refusedResumeFields.push('docx_base64')
+        if (pdf_base64 !== undefined) refusedResumeFields.push('pdf_base64')
+        if (refusedResumeFields.length > 0) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Resume content and files are not stored by this tool: ${refusedResumeFields.join(', ')} refused.`,
+            }],
             isError: true,
           }
         }
@@ -765,13 +784,6 @@ function buildServer(): McpServer {
           scoreProvenance = scored?.provenance
         }
 
-        // A caller logging ahead of confirmed submission (is_submitted:
-        // false) must not land in 'applied' — every stage-driven consumer
-        // (the pipeline feed's by_stage totals, job-hunt-agent's
-        // already-applied dedupe checks) trusts stage as ground truth for
-        // "this was actually sent", and would silently treat a merely-
-        // tailored entry as a real submission otherwise.
-        const initialStage = (is_submitted ?? true) ? 'applied' : 'draft'
         // This token binds the score to the JD capture caused by this exact
         // writer operation. Content hashes alone are not sufficient: an
         // application can legitimately capture the same text more than once.
@@ -782,7 +794,7 @@ function buildServer(): McpServer {
           .insert({
             company, role, job_description, source, url, notes,
             job_description_capture_operation_id: jobDescriptionCaptureOperationId,
-            stage: initialStage,
+            stage: 'applied',
             applied_at: applied_at ? new Date(applied_at).toISOString() : undefined,
             ...(scoreResult && {
               fit_score: scoreResult.fit_score,
@@ -800,8 +812,8 @@ function buildServer(): McpServer {
 
         const { error: stageError } = await supabase.from('application_stages').insert({
           application_id: data.id,
-          stage: initialStage,
-          note: initialStage === 'draft' ? 'Application tailored, not yet confirmed submitted' : 'Application logged',
+          stage: 'applied',
+          note: 'Application logged',
         })
 
         if (stageError) {
@@ -809,101 +821,9 @@ function buildServer(): McpServer {
           return { content: [{ type: 'text' as const, text: `Failed to log stage history: ${stageError.message}` }], isError: true }
         }
 
-        // Durable evidence bundle: the exact resume content/file that was
-        // submitted. Best-effort — a failure here must not roll back the
-        // application record itself, since the application was genuinely
-        // logged either way. The jd_fit score below is recorded regardless
-        // of whether evidence was attached — it's the append-only history
-        // for every scored submission, not conditional on this bundle.
-        let evidenceNote = ''
-        let resumeId: string | undefined
-        if (resume_content || docx_base64 || pdf_base64) {
-          const uploadedPaths: string[] = []
-          // Only cleared once the application_resumes row exists — cleanup
-          // in the catch block below must not delete blobs a saved row is
-          // already pointing at (it would orphan the row's references
-          // instead of the blob), only ones left behind by a failure before
-          // that row was created.
-          let resumeRowCreated = false
-          // Generated upfront rather than left to the row's own default, so
-          // the storage path can be scoped to this specific resume version.
-          // Without it, every version for the same application uploads to
-          // the same `<app-id>/resume.<ext>` key and `upsert: true` quietly
-          // overwrites an earlier submitted blob with a later re-tailor's
-          // bytes while that earlier row's own hash still claims the old
-          // content.
-          const candidateResumeId = randomUUID()
-          try {
-            const uploads: { docx_url?: string; docx_hash?: string; pdf_url?: string; pdf_hash?: string } = {}
-            for (const [ext, base64, contentType] of [
-              ['docx', docx_base64, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-              ['pdf', pdf_base64, 'application/pdf'],
-            ] as const) {
-              if (!base64) continue
-              // Buffer.from(..., 'base64') silently drops invalid characters
-              // instead of throwing, so a corrupted payload would otherwise
-              // be hashed/stored/reported as success with no error surfaced.
-              // Whitespace is stripped first — line-wrapped base64 (the
-              // `base64`/`openssl base64` CLIs wrap at 76 columns by
-              // default) is otherwise valid and would fail this check.
-              const cleaned = base64.replace(/\s+/g, '')
-              if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
-                throw new Error(`${ext}_base64 is not valid base64`)
-              }
-              const buf = Buffer.from(cleaned, 'base64')
-              const hash = createHash('sha256').update(buf).digest('hex')
-              const path = `${data.id}/${candidateResumeId}/resume.${ext}`
-              const { error: uploadErr } = await supabase.storage
-                .from('resume-artifacts')
-                .upload(path, buf, { contentType, upsert: true })
-              if (uploadErr) throw new Error(`${ext} upload failed: ${uploadErr.message}`)
-              uploadedPaths.push(path)
-              if (ext === 'docx') { uploads.docx_url = path; uploads.docx_hash = hash }
-              else { uploads.pdf_url = path; uploads.pdf_hash = hash }
-            }
-
-            const { error: resumeErr } = await supabase
-              .from('application_resumes')
-              .insert({
-                id: candidateResumeId,
-                application_id: data.id,
-                resume_content: resume_content ?? {},
-                ...uploads,
-                is_submitted: is_submitted ?? true,
-              })
-            if (resumeErr) throw new Error(`resume record failed: ${resumeErr.message}`)
-            resumeRowCreated = true
-            resumeId = candidateResumeId
-            // Explicit positive marker, not just the absence of a failure
-            // note below — a caller running against an older, undeployed
-            // server that doesn't recognize resume_content/docx_base64/
-            // pdf_base64 at all would also produce a response with no
-            // failure marker (the fields are just silently ignored), which
-            // is indistinguishable from genuine success without this.
-            evidenceNote = '\n(evidence bundle saved)'
-          } catch (evidenceErr: unknown) {
-            // Best-effort cleanup so a partial failure before the
-            // application_resumes row exists (e.g. the pdf upload succeeds,
-            // then the resume-row insert itself fails) doesn't leave an
-            // orphaned blob in the bucket with no row pointing at it. Once
-            // that row exists (e.g. only the later score insert failed),
-            // the blobs stay — deleting them would orphan the row instead.
-            if (uploadedPaths.length && !resumeRowCreated) {
-              const { error: removeErr } = await supabase.storage.from('resume-artifacts').remove(uploadedPaths)
-              if (removeErr) console.error(`resume-artifacts cleanup failed for ${uploadedPaths.join(', ')}: ${removeErr.message}`)
-            }
-            if (initialStage === 'draft') {
-              const { error: deleteErr } = await supabase.from('job_applications').delete().eq('id', data.id)
-              if (deleteErr) console.error(`draft cleanup failed for ${data.id}: ${deleteErr.message}`)
-              return {
-                content: [{ type: 'text' as const, text: `Failed to save required draft evidence: ${(evidenceErr as Error).message}` }],
-                isError: true,
-              }
-            }
-            evidenceNote = `\n(evidence bundle not fully saved: ${(evidenceErr as Error).message})`
-          }
-        }
-
+        // The jd_fit score is recorded regardless of anything else on this
+        // call — it's the append-only history for every scored submission.
+        let scoreNote = ''
         if (scoreResult) {
           let jobDescriptionVersionId: string | null = null
           if (jobDescriptionCaptureOperationId) {
@@ -914,7 +834,7 @@ function buildServer(): McpServer {
               .eq('capture_operation_id', jobDescriptionCaptureOperationId)
               .limit(2)
             if (descriptionVersionErr || !descriptionVersions || descriptionVersions.length !== 1) {
-              evidenceNote += '\n(score provenance incomplete: job description version unavailable)'
+              scoreNote += '\n(score provenance incomplete: job description version unavailable)'
             } else {
               jobDescriptionVersionId = descriptionVersions[0].id
             }
@@ -923,11 +843,11 @@ function buildServer(): McpServer {
           // not reviewable provenance. Keep the application result, but do
           // not create a score-history row that would be mistaken for one.
           if (!jobDescriptionVersionId) {
-            evidenceNote += '\n(score history not saved: operation-bound job description version unavailable)'
+            scoreNote += '\n(score history not saved: operation-bound job description version unavailable)'
           } else {
             const { error: scoreErr } = await supabase.from('application_scores').insert({
               application_id: data.id,
-              resume_id: resumeId ?? null,
+              resume_id: null,
               job_description_version_id: jobDescriptionVersionId,
               score_type: 'jd_fit',
               score: scoreResult.fit_score,
@@ -938,7 +858,7 @@ function buildServer(): McpServer {
               rubric_hash: scoreProvenance?.rubric_hash ?? null,
               profile_hash: scoreProvenance?.profile_hash ?? null,
             })
-            if (scoreErr) evidenceNote += `\n(score history not saved: ${scoreErr.message})`
+            if (scoreErr) scoreNote += `\n(score history not saved: ${scoreErr.message})`
           }
         }
 
@@ -949,7 +869,7 @@ function buildServer(): McpServer {
         return {
           content: [{
             type: 'text' as const,
-            text: [`Application logged: ${company} — ${role}`, `Stage: ${initialStage} | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}${evidenceNote}`].filter(Boolean).join('\n'),
+            text: [`Application logged: ${company} — ${role}`, `Stage: applied | ${fitLine}`, scoreResult ? `Verdict: ${scoreResult.verdict}` : '', `ID: ${data.id}${scoreNote}`].filter(Boolean).join('\n'),
           }],
         }
       } catch (err: unknown) {
@@ -1037,7 +957,7 @@ function buildServer(): McpServer {
           return {
             content: [{
               type: 'text' as const,
-              text: 'Draft is a creation-only stage. Create a new draft with log_application instead of moving an existing application back to draft.',
+              text: 'Draft is not a stage an application can be moved to. Drafts cannot be created through this server.',
             }],
             isError: true,
           }

@@ -103,9 +103,10 @@ legacy submitted records, is `unverified` rather than guessed.
 
 New JD writes create a version containing its text, source URL, capture time,
 and SHA-256 content hash. A new `log_application` score-history row is written
-only when its exact operation-bound JD version is available; it retains the
-evaluated resume ID when supplied, JD-version ID, model, rubric version and
-hash, and the hash of the exact serialized profile input. The feature never
+only when its exact operation-bound JD version is available; it retains a
+null resume ID (`log_application` never records resume evidence), the
+JD-version ID, model, rubric version and hash, and the hash of the exact
+serialized profile input. The feature never
 backfills historical JD, profile, rubric, resume, or score provenance: null or
 `legacy_unversioned` means the source did not retain that fact.
 

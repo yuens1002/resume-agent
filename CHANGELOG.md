@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- 2026-10-01 — feat(mcp): log_application records submitted applications only
+  - Refuses is_submitted: false (no drafts) and refuses resume_content, docx_base64 and pdf_base64, by name, before any database write or scoring call
+  - The evidence-bundle write path (application_resumes insert and resume-artifacts upload) is removed from this tool; application, stage and fit-score writes are unchanged
+  - README documents running the server against a local Supabase (supabase/config.toml added)
+
 - 2026-09-27 — fix(resume): cap project highlights at two per project
   - Content budget lowered from three highlights to two, so a full-budget résumé fits one printed page at a readable size
   - Pipeline doc updated to match
